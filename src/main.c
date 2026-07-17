@@ -23,6 +23,9 @@ static void list_drivers(void)
 int main(int argc, char **argv)
 {
 	struct alloy_device dev;
+	unsigned vid;
+	unsigned pid;
+	int opened;
 	int ret;
 
 	if (argc > 1 && !strcmp(argv[1], "--list")) {
@@ -34,7 +37,19 @@ int main(int argc, char **argv)
 		return 0;
 	}
 
-	if (alloy_device_open(&dev)) {
+	if (argc > 2 && !strcmp(argv[1], "--device")) {
+		if (sscanf(argv[2], "%4x:%4x", &vid, &pid) != 2) {
+			fprintf(stderr, "alloyctl: --device expects VID:PID "
+					"(e.g. 1038:184c)\n");
+			return 1;
+		}
+		opened = alloy_device_open_id(&dev, (uint16_t)vid,
+					      (uint16_t)pid);
+	} else {
+		opened = alloy_device_open(&dev);
+	}
+
+	if (opened) {
 		fprintf(stderr, "alloyctl: no supported mouse found "
 				"(or no permission to open /dev/hidraw*)\n");
 		list_drivers();
