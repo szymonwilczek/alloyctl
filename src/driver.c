@@ -77,10 +77,19 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 
 	cfg->polling_hz = drv->num_polling_rates ? drv->polling_rates[0] : 1000;
 
-	for (i = 0; i < drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++)
+	for (i = 0; i < drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
 		cfg->zone_color[i] = drv->zones[i].def_color;
+		cfg->zone_mode[i] = ALLOY_LED_STATIC;
+	}
 
 	cfg->brightness = 100;
+
+	cfg->reactive_enabled = 0;
+	cfg->reactive_color = (struct alloy_rgb){ 0xFF, 0xFF, 0xFF };
+
+	cfg->startup_fx = (drv->caps & ALLOY_CAP_FX_RAINBOW) ?
+				  ALLOY_STARTUP_RAINBOW :
+				  ALLOY_STARTUP_OFF;
 
 	for (i = 0; i < drv->num_buttons && i < ALLOY_MAX_BUTTONS; i++)
 		cfg->buttons[i] = drv->buttons[i].def;

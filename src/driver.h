@@ -49,6 +49,25 @@ struct alloy_led_zone {
 #define ALLOY_CAP_BRIGHTNESS (1u << 3)
 #define ALLOY_CAP_FIRMWARE_VERSION (1u << 4)
 
+/* Lighting effects the hardware can run on its own */
+#define ALLOY_CAP_FX_RAINBOW (1u << 5) /* per-zone rainbow cycle */
+#define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
+#define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
+
+/* Per-zone lighting mode */
+enum alloy_led_mode {
+	ALLOY_LED_STATIC,
+	ALLOY_LED_RAINBOW,
+};
+
+/* Power-up lighting (ALLOY_CAP_FX_STARTUP) */
+enum alloy_startup_fx {
+	ALLOY_STARTUP_OFF,
+	ALLOY_STARTUP_REACTIVE,
+	ALLOY_STARTUP_RAINBOW,
+	ALLOY_STARTUP_REACTIVE_RAINBOW,
+};
+
 /*
  * Device-independent configuration.
  * TUI edits this structure and hands it to the driver ops for translation to the wire format.
@@ -62,7 +81,15 @@ struct alloy_config {
 	uint16_t polling_hz;
 
 	struct alloy_rgb zone_color[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_mode[ALLOY_MAX_LED_ZONES]; /* enum alloy_led_mode */
 	uint8_t brightness; /* 0-100 */
+
+	/* only meaningful with ALLOY_CAP_FX_REACTIVE */
+	uint8_t reactive_enabled;
+	struct alloy_rgb reactive_color;
+
+	/* only meaningful with ALLOY_CAP_FX_STARTUP */
+	uint8_t startup_fx; /* enum alloy_startup_fx */
 
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
