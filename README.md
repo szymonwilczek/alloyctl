@@ -6,9 +6,13 @@ preview, and every setting the hardware really has.
 
 ## Supported hardware
 
-| Device                    | USB ID      | Status |
-|---------------------------|-------------|--------|
-| SteelSeries Rival 3 Gen 2 | `1038:1870` | full   |
+| Device                    | USB ID                    | Status |
+|---------------------------|---------------------------|--------|
+| SteelSeries Rival 3 Gen 2 | `1038:1870`               | full   |
+| SteelSeries Rival 3       | `1038:1824`, `1038:184c`  | full   |
+
+With several supported mice connected, pick one with
+`alloyctl --device VID:PID`.
 
 Mice only for now. Want yours supported? See
 [docs/adding-a-driver.md](docs/adding-a-driver.md) - one file, one
