@@ -31,7 +31,8 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 	sh tools/txt2c.sh alloy_default_mouse_art < $< > $@
 
 # Unit tests build without ncurses and with mocked HID transport
-TEST_SRCS := $(wildcard tests/*.c) src/driver.c $(wildcard drivers/*.c)
+TEST_SRCS := $(wildcard tests/*.c) src/driver.c src/state.c \
+	     $(wildcard drivers/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 build/test/%.o: %.c build/default_art.h
