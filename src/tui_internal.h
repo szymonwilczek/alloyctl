@@ -79,6 +79,7 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
  * Returns -1 for items the device lacks the capability for.
  */
 int tui_center_idx_brightness(const struct tui *t);
+int tui_center_idx_fx(const struct tui *t);
 int tui_center_idx_reactive(const struct tui *t);
 int tui_center_idx_startup(const struct tui *t);
 

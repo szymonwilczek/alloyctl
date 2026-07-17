@@ -113,6 +113,11 @@ static void pane_adjust(struct tui *t, int dir, int big)
 	case PANE_CENTER:
 		if (sel == tui_center_idx_brightness(t)) {
 			adjust_brightness(t, dir * (big ? 20 : 5));
+		} else if (sel == tui_center_idx_fx(t)) {
+			t->cfg.fx_index = (uint8_t)((t->cfg.fx_index +
+						     t->drv->num_fx + dir) %
+						    t->drv->num_fx);
+			apply_lighting(t);
 		} else if (sel == tui_center_idx_reactive(t)) {
 			t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
 			apply_lighting(t);

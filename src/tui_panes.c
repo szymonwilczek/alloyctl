@@ -254,6 +254,22 @@ static void draw_center_pane(struct tui *t)
 
 	y = r->y + r->h - 2;
 	x = r->x + 3;
+	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
+		int fsel = focused && sel == tui_center_idx_fx(t);
+		const char *fx_name =
+			t->drv->fx_names[t->cfg.fx_index %
+					 ALLOY_MAX(t->drv->num_fx, 1)];
+
+		if (fsel)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x, "EFFECT");
+		if (fsel)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(y, x + 7, "< %s >", fx_name);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		x += 12 + (int)strlen(fx_name);
+	}
 	if (t->drv->caps & ALLOY_CAP_FX_REACTIVE) {
 		int rsel = focused && sel == tui_center_idx_reactive(t);
 
