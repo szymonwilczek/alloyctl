@@ -3,7 +3,7 @@
  * SteelSeries Rival 3 (Gen 1, wired), USB IDs 1038:1824 and 1038:184C
  * (firmware v0.37+ revision; same protocol).
  *
- * Protocol notes live in docs/protocol/steelseries-rival3.md.
+ * Protocol notes live in Documentation/protocol/steelseries-rival3.rst.
  *
  * Configuration uses 32-byte HID output reports on USB interface 3.
  * Unlike the Gen 2, this firmware does NOT acknowledge commands on
