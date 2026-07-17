@@ -61,9 +61,24 @@ check-format:
 format:
 	clang-format -i $$(git ls-files '*.c' '*.h')
 
+# Build the RST manual with Sphinx (strict; see Documentation/Makefile).
+# Output lands in Documentation/_build/html/index.html.
+htmldocs:
+	$(MAKE) -C Documentation html
+
+# Lint RST sources with sphinx-lint.
+checkdocs:
+	$(MAKE) -C Documentation lint
+
+# Build the manual and serve it locally for preview.
+# Override the port with SERVE_PORT=NNNN
+docs-serve:
+	$(MAKE) -C Documentation serve
+
 clean:
 	rm -rf build $(BIN)
+	$(MAKE) -C Documentation clean
 
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test check-format format clean
+.PHONY: all test check-format format htmldocs checkdocs docs-serve clean

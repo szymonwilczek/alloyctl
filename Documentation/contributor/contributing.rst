@@ -1,0 +1,92 @@
+.. SPDX-License-Identifier: GPL-2.0-only
+.. Copyright (C) 2026 Szymon Wilczek
+
+============
+Contributing
+============
+
+alloyctl lives or dies by its drivers, and every driver is a contribution.
+This page is the full set of rules; the root :ghsrc:`CONTRIBUTING.rst` is just
+a pointer to it.
+
+Short version
+=================
+
+#. One mouse is one file under ``drivers/``. Read
+   :doc:`adding-a-driver` before writing code.
+#. Match the existing code style; ``make format`` enforces it.
+#. ``make test`` must pass, and new packet builders need new tests.
+#. Every commit is ``feat:``/``fix:``, has a body explaining *why*, and carries
+   your ``Signed-off-by:`` (DCO).
+#. Run ``make check-patch`` before you push; it runs the same gate CI does.
+
+Code style
+==========
+
+Code is written in the Linux kernel style: tabs for indentation, 80-column
+soft limit, ``lower_snake_case`` for functions and variables, braces on their
+own line for functions. The rules are encoded in :ghsrc:`.clang-format`.
+
+Format your changes and check them before committing::
+
+   make format         # rewrite every tracked C/H file in place
+   make check-format   # what CI runs; fails on any deviation
+
+Few conventions the formatter cannot see:
+
+* Keep packet **builders** pure -- config in, bytes out -- and separate from
+  the **ops** that transmit them. Builders are what the unit tests exercise
+  without hardware.
+* Only advertise ``ALLOY_CAP_*`` bits the hardware truly has. The UI shows
+  ``N/A (device)`` for the rest; never fake a capability.
+* Document what you learn on the wire under
+  :doc:`Documentation/protocol/ <../protocol/index>`, negative results
+  included.
+
+Testing
+=======
+
+Tests build without ncurses against a mocked HID transport, so they need no
+hardware::
+
+   make test
+
+Cases live one file per mouse under ``tests/drivers/`` plus driver-independent
+cases under ``tests/core/``. A test file registers its cases with the
+``ALLOY_TEST()`` macro and is picked up by the Makefile wildcard automatically
+-- you never edit a central list. When you add a driver, add
+``tests/drivers/<vendor>_<model>.c`` with the exact byte sequences you verified
+on hardware.
+
+Commit style
+============
+
+Subjects are conventional-commit prefixes without a scope::
+
+   feat: add SteelSeries Rival 3 driver
+   fix: clamp Gen 1 DPI to the sensor table
+
+* Use ``feat:`` for new behaviour, ``fix:`` for corrections. Keep the subject
+  under ~72 columns, imperative mood, no trailing period.
+* Every commit has a body that explains **why** the change exists and what it
+  affects, wrapped at 75 columns. A one-line commit is not enough for anything
+  but the most trivial change.
+* Sign every commit off under the Developer Certificate of Origin::
+
+     git commit -s
+
+  which appends ``Signed-off-by: Your Name <you@example.com>`` using your
+  ``git config`` identity. By signing off you certify the DCO
+  (https://developercertificate.org/).
+
+Local validation
+================
+
+Before pushing, run the contributor-side gate::
+
+   make check-patch
+
+It checks the commits on your branch the way CI does: conventional ``feat:``/
+``fix:`` subjects, a non-empty body, a DCO sign-off on every commit, trailing
+whitespace, ``clang-format``, and a clean build. Fix anything it reports before
+you open a pull request.

@@ -7,6 +7,9 @@
 # Tests
 /tests/*.bin
 
+# Documentation build output
+/Documentation/_build/
+
 # Editor droppings
 *.swp
 *~

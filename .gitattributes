@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# reStructuredText section adornments are runs of '=' that git's conflict-marker
+# detection (git diff --check) mistakes for leftover merge markers.
+# Raise the marker size well past any heading underline so real markers still trip it.
+*.rst conflict-marker-size=40
