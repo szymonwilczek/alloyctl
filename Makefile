@@ -58,6 +58,6 @@ format:
 clean:
 	rm -rf build $(BIN)
 
--include $(DEPS)
+-include $(DEPS) $(TEST_OBJS:.o=.d)
 
 .PHONY: all test check-format format clean
