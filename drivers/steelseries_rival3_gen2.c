@@ -1,0 +1,313 @@
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * SteelSeries Rival 3 Gen 2 (wired), USB ID 1038:1870.
+ *
+ * Protocol notes live in docs/protocol/steelseries-rival3-gen2.md.
+ * Configuration uses 64-byte HID output reports on USB interface 3;
+ * every recognized command is ACKed by echo of the command byte.
+ *
+ * TrueMove Core sensor takes one wire byte per axis;
+ * mapping from DPI to that byte is not linear
+ * (about dpi/43.1 with rounding quirks), so the exact table from
+ * the sensor family is used.
+ */
+#include <string.h>
+
+#include "driver.h"
+
+#define R3G2_CMD_SAVE 0x11
+#define R3G2_CMD_ZONE_COLORS 0x21
+#define R3G2_CMD_BRIGHTNESS 0x23
+#define R3G2_CMD_BUTTONS 0x2A
+#define R3G2_CMD_POLLING 0x2B
+#define R3G2_CMD_DPI 0x34
+#define R3G2_CMD_FIRMWARE 0x90
+
+#define R3G2_DPI_MIN 200
+#define R3G2_DPI_MAX 8500
+#define R3G2_DPI_STEP 100
+
+/*
+ * TrueMove Core DPI-to-wire table, one entry per 100 DPI starting at 200.
+ * Index: (dpi - 200) / 100.
+ */
+static const uint8_t r3g2_dpi_table[] = {
+	0x04, 0x06, 0x08, 0x0B, 0x0D, 0x0F, 0x12, 0x14, 0x16, 0x19, 0x1B, 0x1D,
+	0x20, 0x22, 0x24, 0x27, 0x29, 0x2B, 0x2E, 0x30, 0x32, 0x34, 0x37, 0x39,
+	0x3B, 0x3E, 0x40, 0x42, 0x45, 0x47, 0x49, 0x4C, 0x4E, 0x50, 0x53, 0x55,
+	0x57, 0x5A, 0x5C, 0x5E, 0x61, 0x63, 0x65, 0x68, 0x6A, 0x6C, 0x6F, 0x71,
+	0x73, 0x76, 0x78, 0x7A, 0x7D, 0x7F, 0x81, 0x84, 0x86, 0x88, 0x8B, 0x8D,
+	0x8F, 0x92, 0x94, 0x96, 0x99, 0x9B, 0x9D, 0xA0, 0xA2, 0xA4, 0xA7, 0xA9,
+	0xAB, 0xAD, 0xB0, 0xB2, 0xB4, 0xB7, 0xB9, 0xBC, 0xBE, 0xC0, 0xC3, 0xC5,
+};
+
+static uint8_t r3g2_dpi_to_wire(uint16_t dpi)
+{
+	uint16_t clamped;
+
+	clamped = ALLOY_CLAMP(dpi, R3G2_DPI_MIN, R3G2_DPI_MAX);
+	/* Snap to the 100 DPI grid the sensor table is built on. */
+	clamped = (uint16_t)((clamped / R3G2_DPI_STEP) * R3G2_DPI_STEP);
+	return r3g2_dpi_table[(clamped - R3G2_DPI_MIN) / R3G2_DPI_STEP];
+}
+
+/*
+ * Packet builders are pure functions over struct alloy_config so the wire format
+ * can be unit tested without hardware.
+ * Each returns the payload length.
+ */
+size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+
+size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
+{
+	size_t n = 0;
+	uint8_t i;
+
+	buf[n++] = R3G2_CMD_DPI;
+	buf[n++] = cfg->dpi_count;
+	buf[n++] = (uint8_t)(cfg->dpi_active + 1); /* 1-based on wire */
+	for (i = 0; i < cfg->dpi_count; i++) {
+		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][0]);
+		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][1]);
+	}
+	return n;
+}
+
+size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf)
+{
+	uint8_t wire;
+
+	switch (cfg->polling_hz) {
+	case 125:
+		wire = 0x04;
+		break;
+	case 250:
+		wire = 0x03;
+		break;
+	case 500:
+		wire = 0x02;
+		break;
+	case 1000:
+	default:
+		wire = 0x01;
+		break;
+	}
+
+	buf[0] = R3G2_CMD_POLLING;
+	buf[1] = wire;
+	return 2;
+}
+
+size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
+{
+	size_t n = 0;
+	uint8_t i;
+
+	buf[n++] = R3G2_CMD_ZONE_COLORS;
+	buf[n++] = 0x07; /* all three strip zones */
+	for (i = 0; i < 3; i++) {
+		buf[n++] = cfg->zone_color[i].r;
+		buf[n++] = cfg->zone_color[i].g;
+		buf[n++] = cfg->zone_color[i].b;
+	}
+	return n;
+}
+
+size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
+{
+	buf[0] = R3G2_CMD_BRIGHTNESS;
+	buf[1] = ALLOY_MIN(cfg->brightness, 100);
+	return 2;
+}
+
+/* Wire ids of the 5-byte action fields, in config order */
+static const uint8_t r3g2_button_wire_id[] = {
+	0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x31, 0x32,
+};
+
+static uint8_t r3g2_action_first_byte(const struct alloy_action *act)
+{
+	switch (act->type) {
+	case ALLOY_ACT_MOUSE:
+		return (uint8_t)act->value; /* 0x01 - 0x06 */
+	case ALLOY_ACT_DPI_CYCLE:
+		return 0x30;
+	case ALLOY_ACT_SCROLL_UP:
+		return 0x31;
+	case ALLOY_ACT_SCROLL_DOWN:
+		return 0x32;
+	case ALLOY_ACT_KEYBOARD:
+		return 0x51;
+	case ALLOY_ACT_MEDIA:
+		return 0x61;
+	case ALLOY_ACT_DISABLED:
+	default:
+		return 0x00;
+	}
+}
+
+size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
+{
+	size_t n = 1;
+	uint8_t i;
+
+	buf[0] = R3G2_CMD_BUTTONS;
+	memset(buf + 1, 0, 8 * 5);
+
+	for (i = 0; i < ALLOY_ARRAY_SIZE(r3g2_button_wire_id); i++) {
+		const struct alloy_action *act = &cfg->buttons[i];
+		uint8_t *field = buf + 1 + i * 5;
+
+		field[0] = r3g2_action_first_byte(act);
+		if (act->type == ALLOY_ACT_KEYBOARD ||
+		    act->type == ALLOY_ACT_MEDIA)
+			field[1] = (uint8_t)act->value;
+	}
+	return n + 8 * 5;
+}
+
+static int r3g2_apply_dpi(struct alloy_device *dev,
+			  const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_dpi(cfg, buf));
+}
+
+static int r3g2_apply_polling(struct alloy_device *dev,
+			      const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_polling(cfg, buf));
+}
+
+static int r3g2_apply_colors(struct alloy_device *dev,
+			     const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_colors(cfg, buf));
+}
+
+static int r3g2_apply_brightness(struct alloy_device *dev,
+				 const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_brightness(cfg, buf));
+}
+
+static int r3g2_apply_buttons(struct alloy_device *dev,
+			      const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_buttons(cfg, buf));
+}
+
+static int r3g2_save(struct alloy_device *dev)
+{
+	static const uint8_t cmd[] = { R3G2_CMD_SAVE, 0x00 };
+
+	return alloy_hid_cmd(&dev->hid, cmd, sizeof(cmd));
+}
+
+static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
+				 size_t len)
+{
+	static const uint8_t cmd[] = { R3G2_CMD_FIRMWARE };
+	uint8_t resp[ALLOY_HID_REPORT_SIZE];
+	int n;
+	size_t out;
+
+	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
+	if (n < 2 || resp[0] != R3G2_CMD_FIRMWARE)
+		return -1;
+
+	/* Response:
+	 * 0x90 followed by ASCII string */
+	out = ALLOY_MIN((size_t)(n - 1), len - 1);
+	memcpy(buf, resp + 1, out);
+	buf[out] = '\0';
+	return 0;
+}
+
+static const uint16_t r3g2_polling_rates[] = { 1000, 500, 250, 125 };
+
+static const struct alloy_led_zone r3g2_zones[] = {
+	{ .name = "TOP", .def_color = { 0xFF, 0x00, 0x00 } },
+	{ .name = "MIDDLE", .def_color = { 0x00, 0xFF, 0x00 } },
+	{ .name = "BOTTOM", .def_color = { 0x00, 0x00, 0xFF } },
+};
+
+static const struct alloy_button r3g2_buttons[] = {
+	{ "Button 1 (Left)", { ALLOY_ACT_MOUSE, 1 } },
+	{ "Button 2 (Right)", { ALLOY_ACT_MOUSE, 2 } },
+	{ "Button 3 (Middle)", { ALLOY_ACT_MOUSE, 3 } },
+	{ "Button 4 (Back)", { ALLOY_ACT_MOUSE, 4 } },
+	{ "Button 5 (Forward)", { ALLOY_ACT_MOUSE, 5 } },
+	{ "Button 6 (CPI)", { ALLOY_ACT_DPI_CYCLE, 0 } },
+	{ "Scroll Up", { ALLOY_ACT_SCROLL_UP, 0 } },
+	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
+};
+
+/* clang-format off */
+static const char r3g2_art[] =
+	"              _.-------._\n"
+	"           ,-'     |     '-.\n"
+	"         ,'   .----'----.   ',\n"
+	"        /    |     |     |    \\\n"
+	"       /     |    | |    |     \\\n"
+	"      ;      |    |_|    |      ;\n"
+	" B4 --|      |     |     |      |\n"
+	"      |       '----'----'       |\n"
+	" B5 --|            O -- B6      |\n"
+	"      |                         |\n"
+	"  Z1 =|                         |= Z1\n"
+	"      ;                         ;\n"
+	"  Z2 =\\                        /= Z2\n"
+	"        \\                     /\n"
+	"  Z3 ==='.                  ,'=== Z3\n"
+	"           '-.           ,-'\n"
+	"              '-._____.-'\n";
+/* clang-format on */
+
+static const struct alloy_driver_ops r3g2_ops = {
+	.apply_dpi = r3g2_apply_dpi,
+	.apply_polling = r3g2_apply_polling,
+	.apply_colors = r3g2_apply_colors,
+	.apply_brightness = r3g2_apply_brightness,
+	.apply_buttons = r3g2_apply_buttons,
+	.save = r3g2_save,
+	.firmware_version = r3g2_firmware_version,
+};
+
+static const struct alloy_driver steelseries_rival3_gen2 = {
+	.name = "SteelSeries Rival 3 Gen 2",
+	.vendor_id = 0x1038,
+	.product_id = 0x1870,
+	.interface = 3,
+	.dpi = {
+		.min = R3G2_DPI_MIN,
+		.max = R3G2_DPI_MAX,
+		.step = R3G2_DPI_STEP,
+		.max_presets = 5,
+	},
+	.polling_rates = r3g2_polling_rates,
+	.num_polling_rates = ALLOY_ARRAY_SIZE(r3g2_polling_rates),
+	.zones = r3g2_zones,
+	.num_zones = ALLOY_ARRAY_SIZE(r3g2_zones),
+	.buttons = r3g2_buttons,
+	.num_buttons = ALLOY_ARRAY_SIZE(r3g2_buttons),
+	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION,
+	.ascii_art = r3g2_art,
+	.ops = &r3g2_ops,
+	.config_defaults = alloy_config_generic_defaults,
+};
+
+ALLOY_DRIVER_REGISTER(steelseries_rival3_gen2);
