@@ -10,6 +10,9 @@
 # Documentation build output
 /Documentation/_build/
 
+# Python bytecode cache (scripts/get-maintainer)
+__pycache__/
+
 # Editor droppings
 *.swp
 *~
