@@ -17,13 +17,20 @@ void mock_hid_reset(void)
 }
 
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
-		   uint16_t product_id, int interface)
+		   uint16_t product_id, int interface, size_t report_size)
 {
 	(void)vendor_id;
 	(void)product_id;
 	(void)interface;
 	dev->fd = 42;
+	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
 	return 0;
+}
+
+int alloy_hid_send(struct alloy_hid_dev *dev, const uint8_t *payload,
+		   size_t len)
+{
+	return alloy_hid_cmd(dev, payload, len);
 }
 
 void alloy_hid_close(struct alloy_hid_dev *dev)

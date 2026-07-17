@@ -60,13 +60,14 @@ static int uevent_matches(const char *path, uint16_t vendor_id,
 }
 
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
-		   uint16_t product_id, int interface)
+		   uint16_t product_id, int interface, size_t report_size)
 {
 	char path[288];
 	struct dirent *ent;
 	DIR *dir;
 
 	dev->fd = -1;
+	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
 
 	dir = opendir("/sys/class/hidraw");
 	if (!dir)
@@ -101,19 +102,28 @@ static int hid_write_report(struct alloy_hid_dev *dev, const uint8_t *payload,
 			    size_t len)
 {
 	uint8_t buf[1 + ALLOY_HID_REPORT_SIZE];
+	size_t total = 1 + dev->report_size;
 	ssize_t n;
 
-	if (len > ALLOY_HID_REPORT_SIZE)
+	if (len > dev->report_size)
 		return -1;
 
 	memset(buf, 0, sizeof(buf));
 	buf[0] = 0x00; /* report number: device uses unnumbered reports */
 	memcpy(buf + 1, payload, len);
 
-	n = write(dev->fd, buf, sizeof(buf));
-	if (n != (ssize_t)sizeof(buf))
+	n = write(dev->fd, buf, total);
+	if (n != (ssize_t)total)
 		return -1;
 	return 0;
+}
+
+int alloy_hid_send(struct alloy_hid_dev *dev, const uint8_t *payload,
+		   size_t len)
+{
+	if (!len)
+		return -1;
+	return hid_write_report(dev, payload, len);
 }
 
 static int hid_read_report(struct alloy_hid_dev *dev, uint8_t *resp,

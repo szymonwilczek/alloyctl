@@ -14,16 +14,29 @@
 
 #include "alloy.h"
 
-/* Payload size of single vendor report on the config interface */
+/*
+ * Largest vendor report payload across supported devices;
+ * the actual per-device size (64 B on recent firmwares, 32 B on older ones)
+ * is chosen at open time.
+ */
 #define ALLOY_HID_REPORT_SIZE 64
 
 struct alloy_hid_dev {
 	int fd;
+	size_t report_size;
 };
 
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
-		   uint16_t product_id, int interface);
+		   uint16_t product_id, int interface, size_t report_size);
 void alloy_hid_close(struct alloy_hid_dev *dev);
+
+/*
+ * Fire-and-forget write for firmwares that do not acknowledge
+ * commands (e.g. Rival 3 Gen 1).
+ * Returns 0 on a complete write.
+ */
+int alloy_hid_send(struct alloy_hid_dev *dev, const uint8_t *payload,
+		   size_t len);
 
 /*
  * Send command payload (padded to ALLOY_HID_REPORT_SIZE) and wait for the device
