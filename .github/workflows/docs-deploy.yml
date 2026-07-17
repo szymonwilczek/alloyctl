@@ -31,7 +31,7 @@ jobs:
         env:
           ALLOYCTL_DOCS_REF: main
         run: make htmldocs
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: Documentation/_build/html
 
