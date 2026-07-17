@@ -152,6 +152,8 @@ static void parse_line(struct alloy_config *cfg, const char *key,
 	} else if (!strcmp(key, "startup_fx")) {
 		cfg->startup_fx = (uint8_t)ALLOY_CLAMP(
 			atoi(val), 0, ALLOY_STARTUP_REACTIVE_RAINBOW);
+	} else if (!strcmp(key, "fx")) {
+		cfg->fx_index = (uint8_t)ALLOY_CLAMP(atoi(val), 0, 255);
 	} else if (!strcmp(key, "brightness")) {
 		cfg->brightness = (uint8_t)ALLOY_CLAMP(atoi(val), 0, 100);
 	} else if (sscanf(key, "button%u", &idx) == 1 &&
@@ -236,6 +238,8 @@ int alloy_state_store(const struct alloy_driver *drv,
 	}
 	if (drv->caps & ALLOY_CAP_FX_STARTUP)
 		fprintf(f, "startup_fx=%u\n", cfg->startup_fx);
+	if (drv->caps & ALLOY_CAP_FX_GLOBAL)
+		fprintf(f, "fx=%u\n", cfg->fx_index);
 	fprintf(f, "brightness=%u\n", cfg->brightness);
 	for (i = 0; i < drv->num_buttons; i++)
 		fprintf(f, "button%u=%s:%u\n", i,

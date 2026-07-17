@@ -44,13 +44,31 @@ int alloy_device_open(struct alloy_device *dev)
 	alloy_for_each_driver(iter)
 	{
 		if (alloy_hid_open(&dev->hid, (*iter)->vendor_id,
-				   (*iter)->product_id,
-				   (*iter)->interface) == 0) {
+				   (*iter)->product_id, (*iter)->interface,
+				   (*iter)->report_size) == 0) {
 			dev->drv = *iter;
 			return 0;
 		}
 	}
 	return -1;
+}
+
+int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
+			 uint16_t product_id)
+{
+	const struct alloy_driver *drv;
+
+	memset(dev, 0, sizeof(*dev));
+	dev->hid.fd = -1;
+
+	drv = alloy_driver_find(vendor_id, product_id);
+	if (!drv)
+		return -1;
+	if (alloy_hid_open(&dev->hid, drv->vendor_id, drv->product_id,
+			   drv->interface, drv->report_size))
+		return -1;
+	dev->drv = drv;
+	return 0;
 }
 
 void alloy_device_close(struct alloy_device *dev)
@@ -90,6 +108,8 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 	cfg->startup_fx = (drv->caps & ALLOY_CAP_FX_RAINBOW) ?
 				  ALLOY_STARTUP_RAINBOW :
 				  ALLOY_STARTUP_OFF;
+
+	cfg->fx_index = 0; /* steady */
 
 	for (i = 0; i < drv->num_buttons && i < ALLOY_MAX_BUTTONS; i++)
 		cfg->buttons[i] = drv->buttons[i].def;

@@ -53,6 +53,7 @@ struct alloy_led_zone {
 #define ALLOY_CAP_FX_RAINBOW (1u << 5) /* per-zone rainbow cycle */
 #define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
 #define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
+#define ALLOY_CAP_FX_GLOBAL (1u << 8) /* driver-defined effect list */
 
 /* Per-zone lighting mode */
 enum alloy_led_mode {
@@ -91,6 +92,13 @@ struct alloy_config {
 	/* only meaningful with ALLOY_CAP_FX_STARTUP */
 	uint8_t startup_fx; /* enum alloy_startup_fx */
 
+	/*
+	 * only meaningful with ALLOY_CAP_FX_GLOBAL:
+	 * index into the driver's fx_names list.
+	 * Index 0 is by convention the static "steady" mode
+	 */
+	uint8_t fx_index;
+
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
 	/* only meaningful when the matching ALLOY_CAP_* bit is set */
@@ -128,6 +136,10 @@ struct alloy_driver {
 	uint16_t product_id;
 	int interface; /* USB interface carrying config reports */
 
+	/* Vendor report payload size;
+	 * 0 selects the 64-byte default */
+	uint16_t report_size;
+
 	struct {
 		uint16_t min;
 		uint16_t max;
@@ -145,6 +157,14 @@ struct alloy_driver {
 	uint8_t num_buttons;
 
 	uint32_t caps; /* ALLOY_CAP_* bits */
+
+	/*
+	 * Global lighting effects (ALLOY_CAP_FX_GLOBAL):
+	 * display names in wire order, index 0 being the static/steady mode.
+	 * Driver maps the index to its wire encoding.
+	 */
+	const char *const *fx_names;
+	uint8_t num_fx;
 
 	/*
 	 * Optional ASCII art of the mouse, drawn in the center pane.
@@ -182,6 +202,9 @@ const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 
 /* Scan the registry against connected hardware and open device */
 int alloy_device_open(struct alloy_device *dev);
+/* Open a specific device by USB id (e.g. from --device) */
+int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
+			 uint16_t product_id);
 void alloy_device_close(struct alloy_device *dev);
 
 /* Generic default-config helper usable by most drivers */
