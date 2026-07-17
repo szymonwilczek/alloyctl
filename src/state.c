@@ -27,19 +27,24 @@ static int state_path(const struct alloy_driver *drv, char *buf, size_t len,
 	const char *xdg = getenv("XDG_CONFIG_HOME");
 	const char *home = getenv("HOME");
 	char dir[PATH_MAX];
+	int n;
 
 	if (xdg && *xdg)
-		snprintf(dir, sizeof(dir), "%s/alloyctl", xdg);
+		n = snprintf(dir, sizeof(dir), "%s/alloyctl", xdg);
 	else if (home && *home)
-		snprintf(dir, sizeof(dir), "%s/.config/alloyctl", home);
+		n = snprintf(dir, sizeof(dir), "%s/.config/alloyctl", home);
 	else
+		return -1;
+	if (n < 0 || (size_t)n >= sizeof(dir))
 		return -1;
 
 	if (create_dirs && mkdir(dir, 0755) && errno != EEXIST)
 		return -1;
 
-	snprintf(buf, len, "%s/%04x-%04x.conf", dir, drv->vendor_id,
-		 drv->product_id);
+	n = snprintf(buf, len, "%s/%04x-%04x.conf", dir, drv->vendor_id,
+		     drv->product_id);
+	if (n < 0 || (size_t)n >= len)
+		return -1;
 	return 0;
 }
 
