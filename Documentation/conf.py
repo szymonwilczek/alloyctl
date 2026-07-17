@@ -20,10 +20,17 @@ copyright = "2026, Szymon Wilczek"  # noqa: A001 - Sphinx-reserved name
 
 # Version shown on the site.
 # Deploy/CI can override it through ALLOYCTL_DOCS_VERSION (release tag);
-# Otherwise fall back to ALLOY_VERSION as defined in src/alloy.h so the docs
-# and the binary never disagree about the version string.
+# otherwise read the bare VERSION file at the repository root --
+# the single source of truth a release tag is checked against --
+# and fall back to ALLOY_VERSION in src/alloy.h if it is missing.
 def _version_from_source() -> str:
-    header = pathlib.Path(__file__).resolve().parent.parent / "src" / "alloy.h"
+    root = pathlib.Path(__file__).resolve().parent.parent
+    version_file = root / "VERSION"
+    if version_file.is_file():
+        text = version_file.read_text(encoding="utf-8").strip()
+        if text:
+            return text
+    header = root / "src" / "alloy.h"
     if header.is_file():
         match = re.search(
             r'#define\s+ALLOY_VERSION\s+"([^"]+)"',

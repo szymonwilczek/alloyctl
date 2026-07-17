@@ -79,10 +79,26 @@ docs-serve:
 check-patch:
 	scripts/check-patch
 
+# Release guard:
+# Annotated tag on HEAD must equal v + the VERSION file, so release can never ship
+# version string that disagrees with its tag.
+# Silence means OK.
+# Release workflow runs this before publishing.
+check-version-tag:
+	@tag=$$(git describe --exact-match --tags HEAD 2>/dev/null); \
+	if [ -z "$$tag" ]; then \
+		echo "check-version-tag: HEAD is not tagged"; exit 1; \
+	fi; \
+	ver=$$(cat VERSION); \
+	if [ "$$tag" != "v$$ver" ]; then \
+		echo "check-version-tag: tag $$tag != v$$ver (VERSION)"; exit 1; \
+	fi
+
 clean:
 	rm -rf build $(BIN)
 	$(MAKE) -C Documentation clean
 
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test check-format format htmldocs checkdocs docs-serve check-patch clean
+.PHONY: all test check-format format htmldocs checkdocs docs-serve check-patch \
+	check-version-tag clean
