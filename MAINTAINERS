@@ -83,5 +83,8 @@ M:    Szymon Wilczek <swilczek.lx@gmail.com>
 S:    Maintained
 W:    https://github.com/szymonwilczek/alloyctl
 B:    https://github.com/szymonwilczek/alloyctl/issues
-F:    *
-F:    */
+
+..
+   THE REST carries no F: pattern on purpose: it is the fallback owner for any
+   file that no more precise section above claims. scripts/get-maintainer
+   attributes unmatched files here.

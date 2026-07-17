@@ -80,8 +80,15 @@ in the tree -- must, in the same pull request:
    with ``M:``, ``S: Maintained``, and one ``F:`` line each for the driver, its
    test file, and its protocol document.
 
-This is what lets later phases of the project route a pull request that touches
-a driver to the right person. Changing an existing driver does not transfer its
+This is what lets the project route a pull request that touches a driver to the
+right person. The ``scripts/get-maintainer`` helper resolves the maintainers of
+a set of files straight from ``MAINTAINERS``::
+
+   git diff --name-only origin/main... | scripts/get-maintainer
+
+and the ``Maintainer notify`` workflow uses it to email a driver's maintainer a
+review request when a pull request touches their driver -- unless they opened
+the pull request themselves. Changing an existing driver does not transfer its
 maintainership; when you do, request review from the maintainer named in
 ``MAINTAINERS``.
 

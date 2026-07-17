@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2026 Szymon Wilczek
+#
+# Resolve the maintainers of set of changed files from the MAINTAINERS file.
+#
+# Tiny, dependency-free stand-in for the kernel's get_maintainer.pl:
+# it reads the section list in MAINTAINERS, matches each path against
+# the F: patterns (honouring X: exclusions), and prints the M: maintainers
+# of the matched sections.
+# Files that no precise section claims fall back to THE REST.
+#
+# Usage:
+#   scripts/get-maintainer FILE [FILE ...]
+#   git diff --name-only BASE..HEAD | scripts/get-maintainer
+#
+# Options:
+#   --email-only   print bare addresses (you@example.com) instead of
+#                  "Full Name <you@example.com>"
+#   --maintainers  path to the MAINTAINERS file (default: repo root)
+
+import argparse
+import os
+import re
+import sys
+
+TAG_RE = re.compile(r"^([A-Z]):\s+(.*)$")
+EMAIL_RE = re.compile(r"<([^>]+)>")
+FALLBACK_SECTION = "THE REST"
+
+
+def glob_to_regex(pattern):
+    """Translate an F:/X: glob to an anchored regex.
+
+    '*' matches within a path component, '**' crosses '/', and a trailing '/'
+    means "this directory and everything under it".
+    """
+    prefix_dir = pattern.endswith("/")
+    out = []
+    i = 0
+    while i < len(pattern):
+        c = pattern[i]
+        if c == "*":
+            if i + 1 < len(pattern) and pattern[i + 1] == "*":
+                out.append(".*")
+                i += 2
+                continue
+            out.append("[^/]*")
+        elif c == "?":
+            out.append("[^/]")
+        else:
+            out.append(re.escape(c))
+        i += 1
+    body = "".join(out)
+    if prefix_dir:
+        # match the directory itself and any file below it
+        return re.compile("^" + body + ".*$")
+    return re.compile("^" + body + "$")
+
+
+def parse_maintainers(path):
+    """Return a list of sections: {'title', 'M': [...], 'F': [regex], 'X': [regex]}."""
+    sections = []
+    current = None
+    after_list = False
+
+    with open(path, encoding="utf-8") as handle:
+        for raw in handle:
+            line = raw.rstrip("\n")
+
+            if not after_list:
+                if line.strip() == "Maintainers List":
+                    after_list = True
+                continue
+
+            # skip blank lines, the section underline, and the .. note:: block
+            if not line.strip():
+                continue
+            if line[0] in " \t" or line.startswith(".."):
+                continue
+            if set(line) <= {"-", "="}:
+                continue
+
+            tag = TAG_RE.match(line)
+            if tag:
+                if current is None:
+                    continue
+                key, value = tag.group(1), tag.group(2).strip()
+                if key == "M":
+                    current["M"].append(value)
+                elif key == "F":
+                    current["F"].append(glob_to_regex(value))
+                elif key == "X":
+                    current["X"].append(glob_to_regex(value))
+                continue
+
+            # anything else at column zero starts a new section
+            current = {"title": line, "M": [], "F": [], "X": []}
+            sections.append(current)
+
+    return sections
+
+
+def section_claims(section, path):
+    if any(rx.match(path) for rx in section["X"]):
+        return False
+    return any(rx.match(path) for rx in section["F"])
+
+
+def resolve(sections, files):
+    maintainers = []
+    seen = set()
+    fallback = next((s for s in sections if s["title"] == FALLBACK_SECTION), None)
+
+    for path in files:
+        matched = [s for s in sections if section_claims(s, path)]
+        if not matched and fallback is not None:
+            matched = [fallback]
+        for section in matched:
+            for entry in section["M"]:
+                if entry not in seen:
+                    seen.add(entry)
+                    maintainers.append(entry)
+    return maintainers
+
+
+def main():
+    parser = argparse.ArgumentParser(add_help=True)
+    parser.add_argument("files", nargs="*")
+    parser.add_argument("--email-only", action="store_true")
+    parser.add_argument("--maintainers", default=None)
+    args = parser.parse_args()
+
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    maint_path = args.maintainers or os.path.join(root, "MAINTAINERS")
+    if not os.path.isfile(maint_path):
+        sys.exit(f"get-maintainer: MAINTAINERS not found at {maint_path}")
+
+    files = args.files
+    if not files:
+        files = [line.strip() for line in sys.stdin if line.strip()]
+
+    sections = parse_maintainers(maint_path)
+    for entry in resolve(sections, files):
+        if args.email_only:
+            match = EMAIL_RE.search(entry)
+            print(match.group(1) if match else entry)
+        else:
+            print(entry)
+
+
+if __name__ == "__main__":
+    main()
