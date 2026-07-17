@@ -73,14 +73,21 @@ That is the default and it is automatic -- you do not have to ask. You keep the
 role until you explicitly hand it to someone else (change the ``M:`` line in a
 pull request they agree to).
 
+Being a maintainer is a **responsibility, not a grant of power**: you review and
+keep your driver working, but it does not give you merge or commit access -- the
+project lead merges every pull request. Repository collaborator access, which lets
+you block a merge, is earned separately over time; see :ghsrc:`GOVERNANCE.md`.
+If you stop responding, your driver is marked ``S: Orphan`` and someone else may adopt it.
+
 A pull request that adds a **brand-new** driver -- one for a mouse not already
 in the tree -- must, in the same pull request:
 
 #. add a ``Maintainer: Your Name <you@example.com>`` line to the driver header,
    right under the protocol-notes line, and
 #. add a new section to the :ghsrc:`MAINTAINERS` file, in alphabetical order,
-   with ``M:``, ``S: Maintained``, and one ``F:`` line each for the driver, its
-   test file, and its protocol document.
+   with ``M:``, a status (``S: Maintained`` if you will look after it, or
+   ``S: Odd Fixes`` if only occasionally), and one ``F:`` line each for the
+   driver, its test file, and its protocol document.
 
 This is what lets the project route a pull request that touches a driver to the
 right person. ``MAINTAINERS`` is the single source of truth; ``scripts/get-maintainer``

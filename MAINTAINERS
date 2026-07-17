@@ -7,9 +7,18 @@ becomes its maintainer by default (unless they explicitly hand the role to
 someone else). A pull request that adds a brand-new driver MUST also add the
 matching entry to this file.
 
+Being a maintainer here means *responsibility*, not power: you are the person
+who reviews and keeps your driver working. It does not grant merge or commit
+access -- the project lead merges every pull request (see GOVERNANCE.md).
+
+Set your status honestly with S:: ``Maintained`` if you intend to look after
+the driver, ``Odd Fixes`` if you will only occasionally.
+Maintainer who stops responding is moved to ``Orphan``, and anyone may then
+adopt the driver by sending a pull request that puts their own name on the M: line.
+
 This file is used to work out who should review and be assigned a pull request
-that touches a given area. When you change a driver, CC or request review from
-its maintainer.
+that touches a given area. When you change a driver, request review from its
+maintainer.
 
 Descriptions of section entries and preferred order
 ---------------------------------------------------

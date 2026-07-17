@@ -25,9 +25,11 @@ In short:
 * Match the kernel code style; ``make format`` enforces it.
 * ``make test`` must pass, and new packet builders need new tests under
   ``tests/drivers/``.
-* The first person to contribute a working driver becomes its maintainer. A
-  pull request adding a brand-new driver must also add a ``Maintainer:`` line to
-  the driver header and a section to the `MAINTAINERS <MAINTAINERS>`_ file.
+* The first person to contribute a working driver becomes its maintainer --
+  responsible for reviewing and keeping it working, which is not merge access
+  (the lead merges everything; see `GOVERNANCE.md <GOVERNANCE.md>`_). A pull
+  request adding a brand-new driver must also add a ``Maintainer:`` line to the
+  driver header and a section to the `MAINTAINERS <MAINTAINERS>`_ file.
 * Every commit is ``feat:``/``fix:``, has a body explaining *why*, and carries
   your ``Signed-off-by:`` (DCO).
 * Run ``make check-patch`` before you push; it runs the same gate CI does.

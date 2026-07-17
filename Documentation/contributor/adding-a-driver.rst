@@ -145,8 +145,9 @@ Ground rules
   ``tests/drivers/<vendor>_<model>.c`` with the exact byte sequences you
   verified on hardware. The file is picked up by the Makefile wildcard.
 * **Maintainership.** By contributing the first working driver for a mouse you
-  become its maintainer. Your pull request must add a ``Maintainer:`` line to
-  the driver header (shown in the skeleton above) **and** a new section to the
+  become its maintainer -- responsible for reviewing and keeping it working, not
+  granted merge access. Your pull request must add a ``Maintainer:`` line to the
+  driver header (shown in the skeleton above) **and** a new section to the
   :ghsrc:`MAINTAINERS` file, kept in alphabetical order. See
   :ref:`maintainership` in the contribution rules.
 * **Style.** ``make format`` before committing; CI enforces it.
