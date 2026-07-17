@@ -1,30 +1,30 @@
 # SPDX-License-Identifier: GPL-2.0-only
-name: Maintainer notify
+name: Maintainer review request
 
-# Email the maintainer of every driver a pull request touches, asking them
-# to review it -- unless they opened the pull request themselves.
+# Request review from the maintainer of every driver a pull request touches,
+# so GitHub notifies them -- unless they opened the pull request themselves.
 #
-# Uses pull_request_target so the run has repository secrets (the SMTP credentials)
-# even for pull requests from forks.
+# Uses pull_request_target so the GITHUB_TOKEN can write (request reviews) even
+# on pull requests from forks, where a pull_request token is read-only.
 #
-# For that to be safe this job never checks out or executes the pull request's code:
-# it reads the trusted base checkout (MAINTAINERS + scripts/get-maintainer) and pulls
-# the changed files and commit authors from the API only.
+# This is safe because the job never checks out or runs the pull request's code:
+# it reads the trusted base MAINTAINERS and scripts/get-maintainer,
+# and pulls the changed files from the API only.
 
 on:
   pull_request_target:
-    types: [opened, reopened, ready_for_review, synchronize]
+    types: [opened, reopened, ready_for_review]
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 concurrency:
-  group: maintainer-notify-${{ github.event.pull_request.number }}
+  group: maintainer-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  notify:
+  request-review:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
@@ -33,52 +33,41 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Resolve reviewers
-        id: resolve
+      - name: Request maintainer reviews
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
         run: |
           set -euo pipefail
 
-          # Files changed by the PR and the emails that authored its commits
           gh api --paginate "repos/$REPO/pulls/$PR/files" \
             --jq '.[].filename' > changed.txt
-          gh api --paginate "repos/$REPO/pulls/$PR/commits" \
-            --jq '.[].commit.author.email' \
-            | tr '[:upper:]' '[:lower:]' | sort -u > authors.txt
+          scripts/get-maintainer --github < changed.txt \
+            | sort -u | grep -vixF "$AUTHOR" > reviewers.txt || true
 
-          # Maintainers of those files, lower-cased for case-insensitive match
-          scripts/get-maintainer --email-only < changed.txt \
-            | tr '[:upper:]' '[:lower:]' | sort -u > maintainers.txt
+          if [[ ! -s reviewers.txt ]]; then
+            echo "No maintainers to notify for this pull request."
+            exit 0
+          fi
+          echo "Maintainers to notify:"; sed 's/^/  /' reviewers.txt
 
-          # Drop anyone who authored a commit in this PR (covers the maintainer
-          # opening their own PR), then hand back comma-separated recipient list
-          comm -23 maintainers.txt authors.txt > recipients.txt
-          echo "Changed files:";   sed 's/^/  /' changed.txt
-          echo "Maintainers:";     sed 's/^/  /' maintainers.txt
-          echo "Recipients:";      sed 's/^/  /' recipients.txt
-          echo "recipients=$(paste -sd, recipients.txt)" >> "$GITHUB_OUTPUT"
+          # request each review individually so one non-collaborator
+          # (which the API rejects) does not block the others;
+          # fall back to an @-mention comment for anyone who could not be added as a reviewer.
+          mention=""
+          while IFS= read -r user; do
+            [[ -z $user ]] && continue
+            if gh pr edit "$PR" --add-reviewer "$user" 2>edit.err; then
+              echo "Requested review from @$user"
+            else
+              echo "Could not add @$user as a reviewer:"; sed 's/^/  /' edit.err
+              mention+=" @$user"
+            fi
+          done < reviewers.txt
 
-      - name: Send review-request email
-        if: ${{ steps.resolve.outputs.recipients != '' && secrets.SMTP_SERVER != '' }}
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: ${{ secrets.SMTP_SERVER }}
-          server_port: ${{ secrets.SMTP_PORT }}
-          username: ${{ secrets.SMTP_USERNAME }}
-          password: ${{ secrets.SMTP_PASSWORD }}
-          from: alloyctl CI <${{ secrets.SMTP_FROM }}>
-          to: ${{ steps.resolve.outputs.recipients }}
-          subject: "[alloyctl] Review request: PR #${{ github.event.pull_request.number }} - ${{ github.event.pull_request.title }}"
-          body: |
-            A pull request touches a driver you maintain in alloyctl.
-
-            PR #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}
-            Author:  @${{ github.event.pull_request.user.login }}
-            Link:    ${{ github.event.pull_request.html_url }}
-
-            You are receiving this because MAINTAINERS lists you for one of the
-            changed files. Please review when you have a moment. If this is no
-            longer your area, hand the entry over in a follow-up pull request.
+          if [[ -n $mention ]]; then
+            gh pr comment "$PR" --body \
+              "Review requested from${mention} -- maintainer(s) of a driver this pull request touches (see MAINTAINERS)."
+          fi

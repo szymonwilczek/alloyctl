@@ -14,9 +14,11 @@ its maintainer.
 Descriptions of section entries and preferred order
 ---------------------------------------------------
 
-    M: *Maintainer* of this area: FullName <address@domain>
-    R: Designated *Reviewer*: FullName <address@domain>
-       These reviewers should be CCed on pull requests.
+    M: *Maintainer* of this area: FullName <address@domain> (@github-handle)
+       The GitHub handle is required: CI requests this person's review on any
+       pull request that touches a file the section's F: patterns match.
+    R: Designated *Reviewer*: FullName <address@domain> (@github-handle)
+       These reviewers should also be requested on pull requests.
     S: *Status*, one of the following:
        Maintained:   Someone actually looks after it.
        Odd Fixes:    It has a maintainer but they don't have time to do
@@ -42,7 +44,7 @@ Maintainers List
           alphabetical order.
 
 ALLOYCTL CORE
-M:    Szymon Wilczek <swilczek.lx@gmail.com>
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    Makefile
 F:    defaults/
@@ -51,7 +53,7 @@ F:    tools/
 X:    drivers/
 
 ALLOYCTL DOCUMENTATION
-M:    Szymon Wilczek <swilczek.lx@gmail.com>
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    CONTRIBUTING.rst
 F:    Documentation/
@@ -59,27 +61,27 @@ F:    README.rst
 X:    Documentation/protocol/
 
 ALLOYCTL INFRASTRUCTURE
-M:    Szymon Wilczek <swilczek.lx@gmail.com>
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    .github/
 F:    scripts/
 
 STEELSERIES RIVAL 3 GEN 1 DRIVER
-M:    Szymon Wilczek <swilczek.lx@gmail.com>
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    Documentation/protocol/steelseries-rival3.rst
 F:    drivers/steelseries_rival3.c
 F:    tests/drivers/steelseries_rival3.c
 
 STEELSERIES RIVAL 3 GEN 2 DRIVER
-M:    Szymon Wilczek <swilczek.lx@gmail.com>
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    Documentation/protocol/steelseries-rival3-gen2.rst
 F:    drivers/steelseries_rival3_gen2.c
 F:    tests/drivers/steelseries_rival3_gen2.c
 
 THE REST
-M:    Szymon Wilczek <swilczek.lx@gmail.com>
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 W:    https://github.com/szymonwilczek/alloyctl
 B:    https://github.com/szymonwilczek/alloyctl/issues

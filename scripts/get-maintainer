@@ -17,6 +17,8 @@
 # Options:
 #   --email-only   print bare addresses (you@example.com) instead of
 #                  "Full Name <you@example.com>"
+#   --github       print GitHub handles without the '@' (skips any maintainer
+#                  entry that has no (@handle) recorded)
 #   --maintainers  path to the MAINTAINERS file (default: repo root)
 
 import argparse
@@ -26,6 +28,7 @@ import sys
 
 TAG_RE = re.compile(r"^([A-Z]):\s+(.*)$")
 EMAIL_RE = re.compile(r"<([^>]+)>")
+HANDLE_RE = re.compile(r"\(@([A-Za-z0-9-]+)\)")
 FALLBACK_SECTION = "THE REST"
 
 
@@ -128,6 +131,7 @@ def main():
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("files", nargs="*")
     parser.add_argument("--email-only", action="store_true")
+    parser.add_argument("--github", action="store_true")
     parser.add_argument("--maintainers", default=None)
     args = parser.parse_args()
 
@@ -142,7 +146,11 @@ def main():
 
     sections = parse_maintainers(maint_path)
     for entry in resolve(sections, files):
-        if args.email_only:
+        if args.github:
+            match = HANDLE_RE.search(entry)
+            if match:
+                print(match.group(1))
+        elif args.email_only:
             match = EMAIL_RE.search(entry)
             print(match.group(1) if match else entry)
         else:
