@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: Docs deploy
+
+# Build the manual and publish it to GitHub Pages on every push to main.
+on:
+  push:
+    branches: [main]
+
+# Least privilege: the build needs only read; deploy needs pages + id-token.
+permissions:
+  contents: read
+
+# One in-flight deploy at a time; do not cancel a running publish.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install documentation toolchain
+        run: pip install -r Documentation/requirements.txt
+      - name: Build documentation (strict)
+        env:
+          ALLOYCTL_DOCS_REF: main
+        run: make htmldocs
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: Documentation/_build/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
