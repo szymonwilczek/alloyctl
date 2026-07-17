@@ -11,4 +11,5 @@ Everything you need to add a mouse and get the patch merged.
    :maxdepth: 1
 
    contributing
+   branching
    adding-a-driver

@@ -1,0 +1,57 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: PR router
+
+# main is the default branch, so external contributors probably will open PRs against it.
+#
+# Development belongs on alloy-next, so retarget any PR that an outside contributor opens
+# against main and explain the branch model.
+# Because the maintainer's own alloy-next -> main promotion PR is left untouched,
+# this also enforces that only the maintainer ever opens a PR against main.
+#
+# pull_request_target runs with token that can edit PRs (pull_request from fork is read-only).
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+# one router run per PR; supersede an earlier run on reopen
+concurrency:
+  group: pr-router-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# no token at the workflow level; the single job requests exactly what it needs
+permissions: {}
+
+jobs:
+  retarget:
+    name: redirect main PRs to alloy-next
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # retarget the PR base branch and post one comment
+    # only act on PRs aimed at main, opened by someone other than the
+    # maintainer, and not by a bot (dependabot et al are left alone)
+    if: >-
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.user.login != 'szymonwilczek' &&
+      github.event.pull_request.user.type != 'Bot'
+    steps:
+      - name: Retarget to alloy-next and explain
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUM: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+        run: |
+          set -eu
+          gh pr edit "$NUM" --repo "$REPO" --base alloy-next
+          cat > /tmp/pr-comment.md <<EOF
+          Hi @$AUTHOR -- thanks for the contribution!
+
+          \`main\` carries only stable, released code.
+          All development lands on the **\`alloy-next\`** integration branch first.
+          I have automatically retargeted this PR to \`alloy-next\`.
+          If it now shows conflicts, please rebase your branch onto \`alloy-next\`.
+
+          See the branch model and release flow in \`Documentation/contributor/branching.rst\`.
+          EOF
+          gh pr comment "$NUM" --repo "$REPO" --body-file /tmp/pr-comment.md

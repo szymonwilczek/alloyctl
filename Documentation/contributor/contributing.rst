@@ -12,6 +12,8 @@ a pointer to it.
 Short version
 =================
 
+#. Open pull requests against the ``alloy-next`` branch, not ``main``. See
+   :doc:`branching`.
 #. One mouse is one file under ``drivers/``. Read
    :doc:`adding-a-driver` before writing code.
 #. Match the existing code style; ``make format`` enforces it.

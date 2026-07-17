@@ -9,6 +9,11 @@ alloyctl lives or dies by its drivers, and every driver is a contribution. One
 mouse is one file under ``drivers/``; the build and the runtime registry pick
 it up automatically.
 
+Open pull requests against the ``alloy-next`` branch, not ``main`` -- ``main``
+carries only released code. A pull request opened against ``main`` is retargeted
+automatically. See `the branch model
+<Documentation/contributor/branching.rst>`_.
+
 The full contribution rules -- code style, testing, commit style, DCO sign-off,
 and local validation -- live in `Documentation/contributor/contributing.rst
 <Documentation/contributor/contributing.rst>`_.
