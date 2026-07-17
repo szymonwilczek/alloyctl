@@ -1,0 +1,14 @@
+# Build artifacts
+*.o
+*.d
+/alloyctl
+/build/
+
+# Tests
+/tests/*.bin
+
+# Editor droppings
+*.swp
+*~
+.cache/
+compile_commands.json
