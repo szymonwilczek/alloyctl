@@ -17,7 +17,10 @@
 
 #define R3G2_CMD_SAVE 0x11
 #define R3G2_CMD_ZONE_COLORS 0x21
+#define R3G2_CMD_RAINBOW 0x22
 #define R3G2_CMD_BRIGHTNESS 0x23
+#define R3G2_CMD_REACTIVE 0x26
+#define R3G2_CMD_STARTUP_FX 0x27
 #define R3G2_CMD_BUTTONS 0x2A
 #define R3G2_CMD_POLLING 0x2B
 #define R3G2_CMD_DPI 0x34
@@ -59,6 +62,9 @@ static uint8_t r3g2_dpi_to_wire(uint16_t dpi)
 size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
 
@@ -102,19 +108,84 @@ size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf)
 	return 2;
 }
 
+/*
+ * Static colors: 0x21 <mask> followed by positional RGB triplets.
+ * Only zones running in static mode are selected by the mask;
+ * zones cycling the rainbow keep doing so.
+ * Returns 0 when every zone is on the rainbow (nothing to send).
+ */
 size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 {
 	size_t n = 0;
+	uint8_t mask = 0;
 	uint8_t i;
 
+	for (i = 0; i < 3; i++) {
+		if (cfg->zone_mode[i] == ALLOY_LED_STATIC)
+			mask |= (uint8_t)(1u << i);
+	}
+	if (!mask)
+		return 0;
+
 	buf[n++] = R3G2_CMD_ZONE_COLORS;
-	buf[n++] = 0x07; /* all three strip zones */
+	buf[n++] = mask;
 	for (i = 0; i < 3; i++) {
 		buf[n++] = cfg->zone_color[i].r;
 		buf[n++] = cfg->zone_color[i].g;
 		buf[n++] = cfg->zone_color[i].b;
 	}
 	return n;
+}
+
+/*
+ * Rainbow effect: 0x22 <mask> starts the cycle on the selected zones.
+ * Returns 0 when no zone runs the rainbow;
+ * Sending a static color afterwards clears the effect on those zones,
+ * so ordering is rainbow first, colors second (see r3g2_apply_lighting).
+ */
+size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
+{
+	uint8_t mask = 0;
+	uint8_t i;
+
+	for (i = 0; i < 3; i++) {
+		if (cfg->zone_mode[i] == ALLOY_LED_RAINBOW)
+			mask |= (uint8_t)(1u << i);
+	}
+	if (!mask)
+		return 0;
+
+	buf[0] = R3G2_CMD_RAINBOW;
+	buf[1] = mask;
+	return 2;
+}
+
+/* Reactive click color: 0x26 <R> <G> <B>
+ * All zero disables.*/
+size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
+{
+	buf[0] = R3G2_CMD_REACTIVE;
+	if (cfg->reactive_enabled) {
+		buf[1] = cfg->reactive_color.r;
+		buf[2] = cfg->reactive_color.g;
+		buf[3] = cfg->reactive_color.b;
+	} else {
+		buf[1] = 0x00;
+		buf[2] = 0x00;
+		buf[3] = 0x00;
+	}
+	return 4;
+}
+
+/* Power-up lighting: 0x27 <rainbow> <reactive> */
+size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf)
+{
+	buf[0] = R3G2_CMD_STARTUP_FX;
+	buf[1] = (cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
+		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	buf[2] = (cfg->startup_fx == ALLOY_STARTUP_REACTIVE ||
+		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	return 3;
 }
 
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
@@ -186,12 +257,31 @@ static int r3g2_apply_polling(struct alloy_device *dev,
 	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_polling(cfg, buf));
 }
 
+/*
+ * Full lighting state.
+ * Static color write clears the rainbow on the zones it touches,
+ * so the rainbow mask goes out first and the static colors
+ * (masked to static zones only) second.
+ */
 static int r3g2_apply_colors(struct alloy_device *dev,
 			     const struct alloy_config *cfg)
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	size_t len;
+	int ret = 0;
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_colors(cfg, buf));
+	len = r3g2_build_rainbow(cfg, buf);
+	if (len)
+		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+
+	len = r3g2_build_colors(cfg, buf);
+	if (len)
+		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+
+	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_reactive(cfg, buf));
+	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
+
+	return ret ? -1 : 0;
 }
 
 static int r3g2_apply_brightness(struct alloy_device *dev,
@@ -304,7 +394,9 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.num_zones = ALLOY_ARRAY_SIZE(r3g2_zones),
 	.buttons = r3g2_buttons,
 	.num_buttons = ALLOY_ARRAY_SIZE(r3g2_buttons),
-	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION,
+	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
+		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
+		ALLOY_CAP_FX_STARTUP,
 	.ascii_art = r3g2_art,
 	.ops = &r3g2_ops,
 	.config_defaults = alloy_config_generic_defaults,
