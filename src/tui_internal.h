@@ -42,6 +42,8 @@ enum tui_color {
 	CLR_BUTTON,
 	CLR_BUTTON_HOT,
 	CLR_ZONE_BASE, /* CLR_ZONE_BASE + zone index, dynamic RGB */
+	CLR_PICKER_PREVIEW = CLR_ZONE_BASE + ALLOY_MAX_LED_ZONES,
+	CLR_PICKER_SWATCH, /* + swatch index */
 };
 
 struct tui {
@@ -72,6 +74,14 @@ void tui_apply(struct tui *t,
 void tui_apply_all(struct tui *t);
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
 
+/*
+ * Item indices of the center pane after the LED zones.
+ * Returns -1 for items the device lacks the capability for.
+ */
+int tui_center_idx_brightness(const struct tui *t);
+int tui_center_idx_reactive(const struct tui *t);
+int tui_center_idx_startup(const struct tui *t);
+
 /* tui_panes.c */
 void tui_draw(struct tui *t);
 void tui_zone_color_pairs(const struct tui *t);
@@ -79,6 +89,11 @@ void tui_zone_color_pairs(const struct tui *t);
 /* tui_modal.c */
 void tui_modal_message(const char *title, const char *text);
 void tui_modal_remap(struct tui *t, int button);
+void tui_modal_frame(int h, int w, int *py, int *px, const char *title);
+
+/* tui_colorpicker.c */
+void tui_modal_color_zone(struct tui *t, int zone);
+void tui_modal_color_reactive(struct tui *t);
 
 /* tui_input.c */
 void tui_handle_key(struct tui *t, int ch);

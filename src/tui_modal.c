@@ -9,7 +9,7 @@
 
 #include "tui_internal.h"
 
-static void modal_frame(int h, int w, int *py, int *px, const char *title)
+void tui_modal_frame(int h, int w, int *py, int *px, const char *title)
 {
 	int y = (LINES - h) / 2;
 	int x = (COLS - w) / 2;
@@ -43,7 +43,7 @@ void tui_modal_message(const char *title, const char *text)
 	int y;
 	int x;
 
-	modal_frame(5, w, &y, &x, title);
+	tui_modal_frame(5, w, &y, &x, title);
 	mvprintw(y + 2, x + 3, "%s", text);
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + 4, x + 2, " any key ");
@@ -112,7 +112,7 @@ static int capture_keyboard_key(struct tui *t, struct alloy_action *out)
 	int ch;
 	int usage;
 
-	modal_frame(5, 36, &y, &x, "PRESS A KEY");
+	tui_modal_frame(5, 36, &y, &x, "PRESS A KEY");
 	mvprintw(y + 2, x + 3, "press the key to bind (esc: back)");
 	refresh();
 
@@ -142,8 +142,8 @@ void tui_modal_remap(struct tui *t, int button)
 
 	while (!done) {
 		tui_draw(t);
-		modal_frame(count + 4, 34, &y, &x,
-			    t->drv->buttons[button].name);
+		tui_modal_frame(count + 4, 34, &y, &x,
+				t->drv->buttons[button].name);
 
 		for (i = 0; i < count; i++) {
 			if (i == sel)
