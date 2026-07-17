@@ -19,7 +19,13 @@ mouse, community drivers are the whole point of this project.
 * **Button remapping** - every physical control, including scroll
   directions, to mouse buttons, CPI toggle, keyboard keys, or off.
 * **Per-zone RGB** - each LED zone addressed individually, not one
-  color smeared over everything.
+  color smeared over everything. The color picker modal offers R/G/B
+  steppers, a preset palette and hex entry, all previewed live on the
+  hardware.
+* **Hardware lighting effects** - everything the firmware can run on
+  its own: per-zone rainbow cycling, reactive click color, and the
+  power-up lighting choice. Drivers declare what their mouse
+  supports; nothing is emulated host-side.
 * **Two CPI presets** on interval sliders across the sensor's real
   range, plus the active-preset toggle.
 * **Polling rate** stepper with a live waveform.
