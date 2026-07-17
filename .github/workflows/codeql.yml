@@ -1,0 +1,46 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: CodeQL
+
+# Static security analysis of the C sources with GitHub CodeQL.
+#
+# Runs on pushes and pull requests to the development branches,
+# plus weekly scheduled scan so newly published queries reach existing code.
+on:
+  push:
+    branches: [main, alloy-next]
+  pull_request:
+    branches: [main, alloy-next]
+  schedule:
+    - cron: '27 3 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: analyze C
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write   # upload findings to the Security tab
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: c-cpp
+          build-mode: manual
+
+      - name: Build
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncursesw5-dev pkg-config
+          make
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: /language:c-cpp
