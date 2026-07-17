@@ -17,6 +17,9 @@
 size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
+size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
 
@@ -141,12 +144,90 @@ static void test_colors_packet(void)
 
 	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 11);
 	ASSERT_EQ(buf[0], 0x21);
-	ASSERT_EQ(buf[1], 0x07); /* all three zones */
+	ASSERT_EQ(buf[1], 0x07); /* all three zones static */
 	ASSERT_EQ(buf[2], 0x11);
 	ASSERT_EQ(buf[3], 0x22);
 	ASSERT_EQ(buf[4], 0x33);
 	ASSERT_EQ(buf[8], 0x77);
 	ASSERT_EQ(buf[10], 0x99);
+
+	/* rainbow on the middle zone drops it from the static mask
+	 * but keeps the RGB triplets positional */
+	cfg.zone_mode[1] = ALLOY_LED_RAINBOW;
+	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 11);
+	ASSERT_EQ(buf[1], 0x05);
+	ASSERT_EQ(buf[8], 0x77); /* zone 3 still in triplet 3 */
+
+	/* all zones on the rainbow: nothing static to send */
+	cfg.zone_mode[0] = ALLOY_LED_RAINBOW;
+	cfg.zone_mode[2] = ALLOY_LED_RAINBOW;
+	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 0);
+}
+
+static void test_rainbow_packet(void)
+{
+	struct alloy_config cfg;
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	r3g2()->config_defaults(r3g2(), &cfg);
+
+	/* defaults are all static: no rainbow packet */
+	ASSERT_EQ(r3g2_build_rainbow(&cfg, buf), 0);
+
+	cfg.zone_mode[0] = ALLOY_LED_RAINBOW;
+	cfg.zone_mode[2] = ALLOY_LED_RAINBOW;
+	ASSERT_EQ(r3g2_build_rainbow(&cfg, buf), 2);
+	ASSERT_EQ(buf[0], 0x22);
+	ASSERT_EQ(buf[1], 0x05);
+}
+
+static void test_reactive_packet(void)
+{
+	struct alloy_config cfg;
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	r3g2()->config_defaults(r3g2(), &cfg);
+
+	cfg.reactive_enabled = 1;
+	cfg.reactive_color = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
+	ASSERT_EQ(r3g2_build_reactive(&cfg, buf), 4);
+	ASSERT_EQ(buf[0], 0x26);
+	ASSERT_EQ(buf[1], 0x12);
+	ASSERT_EQ(buf[2], 0x34);
+	ASSERT_EQ(buf[3], 0x56);
+
+	/* disabled: all-zero payload turns the effect off */
+	cfg.reactive_enabled = 0;
+	r3g2_build_reactive(&cfg, buf);
+	ASSERT_EQ(buf[1], 0x00);
+	ASSERT_EQ(buf[2], 0x00);
+	ASSERT_EQ(buf[3], 0x00);
+}
+
+static void test_startup_packet(void)
+{
+	struct alloy_config cfg;
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	static const struct {
+		uint8_t fx;
+		uint8_t rainbow;
+		uint8_t reactive;
+	} cases[] = {
+		{ ALLOY_STARTUP_OFF, 0, 0 },
+		{ ALLOY_STARTUP_REACTIVE, 0, 1 },
+		{ ALLOY_STARTUP_RAINBOW, 1, 0 },
+		{ ALLOY_STARTUP_REACTIVE_RAINBOW, 1, 1 },
+	};
+	size_t i;
+
+	r3g2()->config_defaults(r3g2(), &cfg);
+	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
+		cfg.startup_fx = cases[i].fx;
+		ASSERT_EQ(r3g2_build_startup(&cfg, buf), 3);
+		ASSERT_EQ(buf[0], 0x27);
+		ASSERT_EQ(buf[1], cases[i].rainbow);
+		ASSERT_EQ(buf[2], cases[i].reactive);
+	}
 }
 
 static void test_buttons_packet(void)
@@ -222,6 +303,10 @@ static void test_state_roundtrip(void)
 	in.dpi_active = 1;
 	in.polling_hz = 250;
 	in.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
+	in.zone_mode[1] = ALLOY_LED_RAINBOW;
+	in.reactive_enabled = 1;
+	in.reactive_color = (struct alloy_rgb){ 0x10, 0x20, 0x30 };
+	in.startup_fx = ALLOY_STARTUP_REACTIVE_RAINBOW;
 	in.brightness = 42;
 	in.buttons[5].type = ALLOY_ACT_KEYBOARD;
 	in.buttons[5].value = 0x29;
@@ -235,7 +320,18 @@ static void test_state_roundtrip(void)
 	ASSERT_EQ(out.zone_color[2].r, 0xAB);
 	ASSERT_EQ(out.zone_color[2].g, 0xCD);
 	ASSERT_EQ(out.zone_color[2].b, 0xEF);
+	ASSERT_EQ(out.zone_mode[0], ALLOY_LED_STATIC);
+	ASSERT_EQ(out.zone_mode[1], ALLOY_LED_RAINBOW);
+	ASSERT_EQ(out.reactive_enabled, 1);
+	ASSERT_EQ(out.reactive_color.g, 0x20);
+	ASSERT_EQ(out.startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
 	ASSERT_EQ(out.brightness, 42);
+
+	/* reactive=off round-trips to disabled */
+	in.reactive_enabled = 0;
+	ASSERT_EQ(alloy_state_store(drv, &in), 0);
+	ASSERT_EQ(alloy_state_load(drv, &out), 0);
+	ASSERT_EQ(out.reactive_enabled, 0);
 	ASSERT_EQ(out.buttons[5].type, ALLOY_ACT_KEYBOARD);
 	ASSERT_EQ(out.buttons[5].value, 0x29);
 }
@@ -266,6 +362,9 @@ int main(void)
 	test_dpi_packet();
 	test_polling_packet();
 	test_colors_packet();
+	test_rainbow_packet();
+	test_reactive_packet();
+	test_startup_packet();
 	test_buttons_packet();
 	test_brightness_packet();
 	test_state_roundtrip();
