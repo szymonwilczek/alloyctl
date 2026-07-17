@@ -3,6 +3,7 @@
 *.d
 /alloyctl
 /build/
+/release/
 
 # Tests
 /tests/*.bin

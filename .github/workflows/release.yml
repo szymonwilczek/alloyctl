@@ -1,0 +1,115 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: Release
+
+# Tag-triggered release.
+#
+# alloyctl ships as one portable C binary, so single build serves every distribution:
+# this builds it, hashes the artifacts into a SHA256SUMS manifest, signs that manifest
+# with cosign keyless (Sigstore OIDC, no secrets), and publishes GitHub Release.
+#
+# Tag whose commit is on alloy-next but not yet on main (or any tag with pre-release
+# suffix such as -rc1) is published as pre-release.
+# Once the same commit is part of main it publishes as a normal release.
+#
+# Only the maintainer pushes tags, so only the maintainer cuts releases.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# one release run per tag; never cancel a release that is already publishing
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: build and publish release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the release and upload assets
+      id-token: write    # OIDC token for cosign keyless signing
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential libncursesw5-dev pkg-config
+
+      - name: Confirm the tag matches VERSION
+        # check-version-tag fails when the tag (vX.Y.Z) does not equal the VERSION file,
+        # so release cannot ship a version that disagrees with its tag
+        run: make check-version-tag
+
+      - name: Build
+        run: make
+
+      - name: Stage artifacts and hash manifest
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          ver="${TAG#v}"
+          dist="alloyctl-${ver}-linux-x86_64"
+          mkdir -p "release/$dist"
+          cp alloyctl "release/$dist/"
+          cp README.rst LICENSE VERSION "release/$dist/"
+          tar -czf "release/${dist}.tar.gz" -C release "$dist"
+          rm -rf "release/$dist"
+          cp alloyctl release/alloyctl
+          (cd release && sha256sum alloyctl "${dist}.tar.gz" > SHA256SUMS)
+          cat release/SHA256SUMS
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign the manifest (keyless)
+        # GitHub's OIDC token mints ephemeral Sigstore certificate bound to
+        # this workflow's identity; self-contained bundle carries the certificate
+        # and transparency-log proof, so verification needs no key distribution,
+        # only the workflow identity and the OIDC issuer
+        run: |
+          cosign sign-blob --yes \
+            --bundle release/SHA256SUMS.cosign.bundle \
+            release/SHA256SUMS
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+
+          # pre-release unless the tagged commit is already part of main
+          # -rc (or any suffix) tag is always pre-release
+          git fetch --no-tags --quiet origin main || true
+          prerelease="--prerelease"
+          ver="${TAG#v}"
+          case "$ver" in
+            *-*) prerelease="--prerelease" ;;
+            *)
+              if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD 2>/dev/null; then
+                prerelease=""
+              fi
+              ;;
+          esac
+
+          notes="Portable Linux x86_64 build of alloyctl $TAG."
+          notes="$notes Verify with: cosign verify-blob --bundle SHA256SUMS.cosign.bundle SHA256SUMS && sha256sum -c SHA256SUMS."
+
+          gh release create "$TAG" \
+            release/alloyctl release/*.tar.gz \
+            release/SHA256SUMS release/SHA256SUMS.cosign.bundle \
+            --title "$TAG" \
+            --notes "$notes" \
+            $prerelease
