@@ -30,14 +30,20 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 	@mkdir -p build
 	sh tools/txt2c.sh alloy_default_mouse_art < $< > $@
 
-# Unit tests build without ncurses and with mocked HID transport
-TEST_SRCS := $(wildcard tests/*.c) src/driver.c src/state.c \
+# Unit tests build without ncurses and with mocked HID transport.
+# Cases live one file per mouse under tests/drivers/ plus driver-independent cases under tests/core/;
+# both trees are wildcarded, so new test file is picked up automatically
+# (the runner walks linker section, see tests/test.h).
+TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
+	     $(wildcard tests/drivers/*.c) src/driver.c src/state.c \
 	     $(wildcard drivers/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
+# -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
+# harness (test.h) and mock transport (mock_hid.h) that live in tests/
 build/test/%.o: %.c build/default_art.h
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CPPFLAGS) -Itests $(CFLAGS) -c -o $@ $<
 
 build/test/run-tests: $(TEST_OBJS)
 	$(CC) $(CFLAGS) -o $@ $(TEST_OBJS)
