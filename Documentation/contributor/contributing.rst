@@ -58,6 +58,33 @@ cases under ``tests/core/``. A test file registers its cases with the
 ``tests/drivers/<vendor>_<model>.c`` with the exact byte sequences you verified
 on hardware.
 
+.. _maintainership:
+
+Maintainership
+==============
+
+alloyctl is community-driven: every mouse is one driver, and every driver has a
+maintainer listed in the :ghsrc:`MAINTAINERS` file.
+
+**The first person to contribute a working driver becomes its maintainer.**
+That is the default and it is automatic -- you do not have to ask. You keep the
+role until you explicitly hand it to someone else (change the ``M:`` line in a
+pull request they agree to).
+
+A pull request that adds a **brand-new** driver -- one for a mouse not already
+in the tree -- must, in the same pull request:
+
+#. add a ``Maintainer: Your Name <you@example.com>`` line to the driver header,
+   right under the protocol-notes line, and
+#. add a new section to the :ghsrc:`MAINTAINERS` file, in alphabetical order,
+   with ``M:``, ``S: Maintained``, and one ``F:`` line each for the driver, its
+   test file, and its protocol document.
+
+This is what lets later phases of the project route a pull request that touches
+a driver to the right person. Changing an existing driver does not transfer its
+maintainership; when you do, request review from the maintainer named in
+``MAINTAINERS``.
+
 Commit style
 ============
 

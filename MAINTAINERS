@@ -1,0 +1,87 @@
+List of maintainers
+===================
+
+alloyctl is a community-driven project: every mouse is one driver, and every
+driver has a maintainer. The person who first contributes a working driver
+becomes its maintainer by default (unless they explicitly hand the role to
+someone else). A pull request that adds a brand-new driver MUST also add the
+matching entry to this file.
+
+This file is used to work out who should review and be assigned a pull request
+that touches a given area. When you change a driver, CC or request review from
+its maintainer.
+
+Descriptions of section entries and preferred order
+---------------------------------------------------
+
+    M: *Maintainer* of this area: FullName <address@domain>
+    R: Designated *Reviewer*: FullName <address@domain>
+       These reviewers should be CCed on pull requests.
+    S: *Status*, one of the following:
+       Maintained:   Someone actually looks after it.
+       Odd Fixes:    It has a maintainer but they don't have time to do
+                     much other than throw the odd patch in.
+       Orphan:       No current maintainer, but maybe you could take the
+                     role as you write your new code.
+       Obsolete:     Old code, replaced by a better system; use that instead.
+    W: *Web-page* with status/info
+    B: URI for where to file *bugs*, e.g. a bug tracker link or a mailto: URI.
+    F: *Files* and directories wildcard patterns.
+       A trailing slash includes all files and subdirectory files.
+       F:    drivers/         all files in and below drivers/
+       F:    drivers/*        all files in drivers/, but not below
+       One pattern per line. Multiple F: lines acceptable.
+    X: *Excluded* files and directories that are NOT maintained, same rules
+       as F:. File exclusions are tested before file matches.
+
+Maintainers List
+----------------
+
+.. note:: When reading this list, please look for the most precise areas
+          first. When adding to this list, please keep the entries in
+          alphabetical order.
+
+ALLOYCTL CORE
+M:    Szymon Wilczek <swilczek.lx@gmail.com>
+S:    Maintained
+F:    Makefile
+F:    defaults/
+F:    src/
+F:    tools/
+X:    drivers/
+
+ALLOYCTL DOCUMENTATION
+M:    Szymon Wilczek <swilczek.lx@gmail.com>
+S:    Maintained
+F:    CONTRIBUTING.rst
+F:    Documentation/
+F:    README.rst
+X:    Documentation/protocol/
+
+ALLOYCTL INFRASTRUCTURE
+M:    Szymon Wilczek <swilczek.lx@gmail.com>
+S:    Maintained
+F:    .github/
+F:    scripts/
+
+STEELSERIES RIVAL 3 GEN 1 DRIVER
+M:    Szymon Wilczek <swilczek.lx@gmail.com>
+S:    Maintained
+F:    Documentation/protocol/steelseries-rival3.rst
+F:    drivers/steelseries_rival3.c
+F:    tests/drivers/steelseries_rival3.c
+
+STEELSERIES RIVAL 3 GEN 2 DRIVER
+M:    Szymon Wilczek <swilczek.lx@gmail.com>
+S:    Maintained
+F:    Documentation/protocol/steelseries-rival3-gen2.rst
+F:    drivers/steelseries_rival3_gen2.c
+F:    tests/drivers/steelseries_rival3_gen2.c
+
+THE REST
+M:    Szymon Wilczek <swilczek.lx@gmail.com>
+S:    Maintained
+W:    https://github.com/szymonwilczek/alloyctl
+B:    https://github.com/szymonwilczek/alloyctl/issues
+F:    *
+F:    */

@@ -3,6 +3,8 @@
  * SteelSeries Rival 3 Gen 2 (wired), USB ID 1038:1870.
  *
  * Protocol notes live in Documentation/protocol/steelseries-rival3-gen2.rst.
+ * Maintainer: Szymon Wilczek <swilczek.lx@gmail.com>
+ *
  * Configuration uses 64-byte HID output reports on USB interface 3;
  * every recognized command is ACKed by echo of the command byte.
  *

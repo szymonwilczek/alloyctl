@@ -51,6 +51,7 @@ imitate.
     * <Vendor> <Model> (<wired/wireless>), USB ID xxxx:yyyy.
     *
     * Protocol notes live in Documentation/protocol/<your-mouse>.rst.
+    * Maintainer: Your Name <you@example.com>
     */
    #include <string.h>
 
@@ -143,6 +144,11 @@ Ground rules
 * **Tests.** Add packet-builder tests in
   ``tests/drivers/<vendor>_<model>.c`` with the exact byte sequences you
   verified on hardware. The file is picked up by the Makefile wildcard.
+* **Maintainership.** By contributing the first working driver for a mouse you
+  become its maintainer. Your pull request must add a ``Maintainer:`` line to
+  the driver header (shown in the skeleton above) **and** a new section to the
+  :ghsrc:`MAINTAINERS` file, kept in alphabetical order. See
+  :ref:`maintainership` in the contribution rules.
 * **Style.** ``make format`` before committing; CI enforces it.
 * **Commits.** ``feat:``/``fix:`` prefix, a body explaining the why, and your
   ``Signed-off-by:`` (DCO). See :doc:`contributing`.
