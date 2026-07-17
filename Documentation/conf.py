@@ -85,6 +85,11 @@ except ImportError:
 
 html_title = f"alloyctl {release}"
 html_static_path: list[str] = []
+
+# Files copied verbatim to the site root.
+# CNAME pins the GitHub Pages custom domain so it survives every Actions deploy
+# (settings-only domains get dropped).
+html_extra_path: list[str] = ["_extra"]
 html_show_sourcelink = True
 
 # -- Link checking ------------------------------------------------------------
