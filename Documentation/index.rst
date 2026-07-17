@@ -45,3 +45,11 @@ supported hardware, features, and key bindings.
 
    contributor/index
    protocol/index
+
+Disclaimer
+==========
+
+alloyctl is an independent, unofficial project. It is not affiliated with,
+endorsed by, or sponsored by SteelSeries ApS. "SteelSeries" and "SteelSeries
+Engine" are trademarks of their respective owners, used here only to describe
+hardware compatibility.
