@@ -39,6 +39,36 @@ jobs:
       - name: Check formatting
         run: make check-format
 
+  sanitizers:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        san: [asan, ubsan, tsan]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncursesw5-dev pkg-config
+      - name: Run unit tests under ${{ matrix.san }}
+        run: make test-${{ matrix.san }}
+
+  valgrind:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncursesw5-dev pkg-config valgrind
+      - name: Memcheck the unit tests
+        run: make test-valgrind
+
   docs:
     runs-on: ubuntu-latest
     steps:
