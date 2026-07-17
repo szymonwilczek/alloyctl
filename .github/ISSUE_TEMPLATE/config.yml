@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: GPL-2.0-only
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/szymonwilczek/alloyctl/security/advisories/new
+    about: Report security issues privately, not as a public issue. See SECURITY.md.
+  - name: Adding a driver yourself
+    url: https://github.com/szymonwilczek/alloyctl/blob/main/Documentation/contributor/adding-a-driver.rst
+    about: Want to write the driver? One mouse is one file. Read this and open a pull request.

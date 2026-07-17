@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: Bug report
+description: Something in alloyctl misbehaves
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. For a security issue, use private reporting
+        instead (see SECURITY.md), not this form.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The `VERSION` file, release tag, or commit you are on.
+      placeholder: 0.1.0
+    validations:
+      required: true
+  - type: input
+    id: mouse
+    attributes:
+      label: Mouse and USB ID
+      description: Model and `VID:PID` from `lsusb`, if the bug is hardware-specific.
+      placeholder: SteelSeries Rival 3 Gen 2 (1038:1870)
+    validations:
+      required: false
+  - type: input
+    id: environment
+    attributes:
+      label: Distribution and terminal
+      placeholder: Fedora 44, foot / kitty / xterm
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What did you do, exactly?
+      placeholder: |
+        1. Run `./alloyctl`
+        2. Open the color picker on zone ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual behaviour
+      description: What did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / logs
+      description: Any error output. This is automatically formatted as code.
+      render: text
+    validations:
+      required: false

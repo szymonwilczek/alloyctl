@@ -1,0 +1,65 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: New mouse support request
+description: Ask for a mouse alloyctl does not support yet
+labels: [driver-request]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        alloyctl is community-driven: one mouse is one driver file. If you can,
+        writing it yourself is the fastest path -- see
+        [Adding a driver](https://github.com/szymonwilczek/alloyctl/blob/main/Documentation/contributor/adding-a-driver.rst),
+        and you become its maintainer. This form is for requesting or
+        coordinating a driver, and for parking the reverse-engineering notes.
+  - type: input
+    id: model
+    attributes:
+      label: Mouse model
+      placeholder: SteelSeries Rival 3
+    validations:
+      required: true
+  - type: input
+    id: usbid
+    attributes:
+      label: USB ID
+      description: Output of `lsusb | grep -i <vendor>` (VID:PID).
+      placeholder: 1038:1854
+    validations:
+      required: true
+  - type: dropdown
+    id: willing
+    attributes:
+      label: Are you able to work on the driver?
+      options:
+        - "Yes, I want to write it (and maintain it)"
+        - "I can test on real hardware but not code it"
+        - "No, just requesting support"
+    validations:
+      required: true
+  - type: textarea
+    id: descriptor
+    attributes:
+      label: HID report descriptor
+      description: |
+        If you have the hardware, paste the vendor interface dump (see the
+        adding-a-driver guide for the one-liner). Helps whoever writes the driver.
+      render: text
+    validations:
+      required: false
+  - type: input
+    id: rivalcfg
+    attributes:
+      label: rivalcfg support?
+      description: |
+        Does rivalcfg support this device? Link the profile if so.
+        This increases the level of confidence and also helps with testing.
+      placeholder: https://github.com/flozz/rivalcfg
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Known protocol notes, links, similar supported models, etc.
+    validations:
+      required: false
