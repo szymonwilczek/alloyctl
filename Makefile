@@ -75,10 +75,14 @@ checkdocs:
 docs-serve:
 	$(MAKE) -C Documentation serve
 
+# Local contributor-side patch quality gate (mirrors CI).
+check-patch:
+	scripts/check-patch
+
 clean:
 	rm -rf build $(BIN)
 	$(MAKE) -C Documentation clean
 
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test check-format format htmldocs checkdocs docs-serve clean
+.PHONY: all test check-format format htmldocs checkdocs docs-serve check-patch clean
