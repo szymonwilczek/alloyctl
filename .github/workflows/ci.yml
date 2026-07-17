@@ -39,6 +39,17 @@ jobs:
       - name: Check formatting
         run: make check-format
 
+  codeowners:
+    # .github/CODEOWNERS is generated from MAINTAINERS
+    # Fail if it drifted
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Check CODEOWNERS is in sync with MAINTAINERS
+        run: make check-codeowners
+
   sanitizers:
     runs-on: ubuntu-latest
     strategy:

@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# GENERATED from MAINTAINERS by scripts/get-maintainer --codeowners.
+# Do not edit by hand: run 'make codeowners'. CI fails if the two drift.
+
+*	@szymonwilczek
+
+/Makefile	@szymonwilczek
+/README.rst	@szymonwilczek
+/CONTRIBUTING.rst	@szymonwilczek
+/src/	@szymonwilczek
+/tools/	@szymonwilczek
+/drivers/
+/.github/	@szymonwilczek
+/scripts/	@szymonwilczek
+/defaults/	@szymonwilczek
+/Documentation/	@szymonwilczek
+/drivers/steelseries_rival3.c	@szymonwilczek
+/drivers/steelseries_rival3_gen2.c	@szymonwilczek
+/Documentation/protocol/
+/tests/drivers/steelseries_rival3.c	@szymonwilczek
+/tests/drivers/steelseries_rival3_gen2.c	@szymonwilczek
+/Documentation/protocol/steelseries-rival3.rst	@szymonwilczek
+/Documentation/protocol/steelseries-rival3-gen2.rst	@szymonwilczek

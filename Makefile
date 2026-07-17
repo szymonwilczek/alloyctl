@@ -115,6 +115,15 @@ docs-serve:
 check-patch:
 	scripts/check-patch
 
+# .github/CODEOWNERS is generated from MAINTAINERS; never hand-edit it!
+codeowners:
+	scripts/get-maintainer --codeowners > .github/CODEOWNERS
+
+# Fail if the committed CODEOWNERS drifted from MAINTAINERS (CI enforces this)
+check-codeowners:
+	@scripts/get-maintainer --codeowners | diff -u .github/CODEOWNERS - \
+		|| { echo "check-codeowners: .github/CODEOWNERS is stale; run 'make codeowners'"; exit 1; }
+
 # Release guard:
 # Annotated tag on HEAD must equal v + the VERSION file, so release can never ship
 # version string that disagrees with its tag.
@@ -138,4 +147,4 @@ clean:
 
 .PHONY: all test test-asan test-ubsan test-tsan test-valgrind \
 	check-format format htmldocs checkdocs docs-serve check-patch \
-	check-version-tag clean
+	codeowners check-codeowners check-version-tag clean

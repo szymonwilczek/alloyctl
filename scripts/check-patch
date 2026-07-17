@@ -39,7 +39,8 @@ Checks:
   - no trailing blank lines at the end of changed text files,
   - clang-format on changed C and header files,
   - full project build,
-  - the unit test suite.
+  - the unit test suite,
+  - .github/CODEOWNERS still in sync with MAINTAINERS.
 USAGE
 }
 
@@ -394,6 +395,15 @@ check_tests() {
 	fi
 }
 
+check_codeowners() {
+	if make check-codeowners >/dev/null 2>&1; then
+		pass "CODEOWNERS in sync"
+	else
+		fail "CODEOWNERS in sync" \
+			"MAINTAINERS changed without regenerating; run make codeowners and commit .github/CODEOWNERS."
+	fi
+}
+
 main() {
 	local base="" head="HEAD"
 	local -a commits changed_files
@@ -443,6 +453,7 @@ main() {
 	check_clang_format "${changed_files[@]}"
 	check_build
 	check_tests
+	check_codeowners
 
 	if ((FAILURES != 0)); then
 		printf 'FAIL patch quality checks completed with %d failure(s).\n' "$FAILURES"

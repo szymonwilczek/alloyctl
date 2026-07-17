@@ -83,16 +83,22 @@ in the tree -- must, in the same pull request:
    test file, and its protocol document.
 
 This is what lets the project route a pull request that touches a driver to the
-right person. Every ``M:`` entry records a GitHub handle, so the
-``scripts/get-maintainer`` helper can resolve the maintainers of a set of files
-straight from ``MAINTAINERS``::
+right person. ``MAINTAINERS`` is the single source of truth; ``scripts/get-maintainer``
+resolves it, and ``.github/CODEOWNERS`` is **generated from it** (``make
+codeowners``, with ``make check-codeowners`` and a CI job failing if the two
+drift, so they never disagree). Query it locally with::
 
    git diff --name-only origin/main... | scripts/get-maintainer            # Name <email> (@handle)
    git diff --name-only origin/main... | scripts/get-maintainer --github   # just the handles
 
-The ``Maintainer review request`` workflow uses ``--github`` to request a
-review from a driver's maintainer whenever a pull request touches their driver,
-so GitHub notifies them -- unless they opened the pull request themselves.
+Review routing is a hybrid: GitHub uses ``CODEOWNERS`` to natively request a
+review from a driver's maintainer when a pull request touches their driver
+(and, if the maintainer branch protection is enabled, can require their
+approval to merge). Because ``CODEOWNERS`` only reaches maintainers who are
+repository collaborators, the ``Maintainer review request`` workflow @-mentions
+any maintainer who is not a collaborator, so nobody is silently skipped -- and
+neither path pings a maintainer who opened the pull request themselves.
+
 Changing an existing driver does not transfer its maintainership; when you do,
 request review from the maintainer named in ``MAINTAINERS``.
 

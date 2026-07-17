@@ -1,15 +1,21 @@
 # SPDX-License-Identifier: GPL-2.0-only
 name: Maintainer review request
 
-# Request review from the maintainer of every driver a pull request touches,
-# so GitHub notifies them -- unless they opened the pull request themselves.
+# Complements .github/CODEOWNERS.
 #
-# Uses pull_request_target so the GITHUB_TOKEN can write (request reviews) even
-# on pull requests from forks, where a pull_request token is read-only.
+# CODEOWNERS natively requests review from driver's maintainer -- but only if that
+# maintainer is a repository collaborator;
+# GitHub silently ignores code owners without access.
 #
-# This is safe because the job never checks out or runs the pull request's code:
+# This workflow covers exactly that gap:
+# it @-mentions, in a comment, any maintainer of a changed file who is NOT a collaborator
+# (and is not the PR author), so community maintainer without push access still gets pinged.
+#
+# Uses pull_request_target so the token can comment on fork pull requests.
+#
+# It never checks out or runs the pull request's code:
 # it reads the trusted base MAINTAINERS and scripts/get-maintainer,
-# and pulls the changed files from the API only.
+# and the changed files from the API.
 
 on:
   pull_request_target:
@@ -24,7 +30,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  request-review:
+  mention-non-collaborators:
     if: github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
@@ -33,7 +39,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Request maintainer reviews
+      - name: Mention maintainers CODEOWNERS cannot reach
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -45,29 +51,29 @@ jobs:
           gh api --paginate "repos/$REPO/pulls/$PR/files" \
             --jq '.[].filename' > changed.txt
           scripts/get-maintainer --github < changed.txt \
-            | sort -u | grep -vixF "$AUTHOR" > reviewers.txt || true
+            | sort -u | grep -vixF "$AUTHOR" > candidates.txt || true
 
-          if [[ ! -s reviewers.txt ]]; then
-            echo "No maintainers to notify for this pull request."
+          if [[ ! -s candidates.txt ]]; then
+            echo "No maintainers to consider."
             exit 0
           fi
-          echo "Maintainers to notify:"; sed 's/^/  /' reviewers.txt
 
-          # request each review individually so one non-collaborator
-          # (which the API rejects) does not block the others;
-          # fall back to an @-mention comment for anyone who could not be added as a reviewer.
+          # Collaborator is already review-requested by CODEOWNERS;
+          # Only ping the rest.
+          # If the access check fails for any reason, err toward mentioning
+          # so maintainer is never silently dropped
           mention=""
           while IFS= read -r user; do
             [[ -z $user ]] && continue
-            if gh pr edit "$PR" --add-reviewer "$user" 2>edit.err; then
-              echo "Requested review from @$user"
+            if gh api "repos/$REPO/collaborators/$user" >/dev/null 2>&1; then
+              echo "@$user is a collaborator; CODEOWNERS handles the request"
             else
-              echo "Could not add @$user as a reviewer:"; sed 's/^/  /' edit.err
+              echo "@$user is not a collaborator; will mention"
               mention+=" @$user"
             fi
-          done < reviewers.txt
+          done < candidates.txt
 
           if [[ -n $mention ]]; then
             gh pr comment "$PR" --body \
-              "Review requested from${mention} -- maintainer(s) of a driver this pull request touches (see MAINTAINERS)."
+              "Review requested from${mention} -- maintainer(s) of a driver this pull request touches (see MAINTAINERS). You are not a repository collaborator, so CODEOWNERS could not request you automatically."
           fi

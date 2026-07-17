@@ -19,6 +19,8 @@
 #                  "Full Name <you@example.com>"
 #   --github       print GitHub handles without the '@' (skips any maintainer
 #                  entry that has no (@handle) recorded)
+#   --codeowners   ignore the file list; emit a .github/CODEOWNERS file
+#                  projected from MAINTAINERS (used by 'make codeowners')
 #   --maintainers  path to the MAINTAINERS file (default: repo root)
 
 import argparse
@@ -93,12 +95,21 @@ def parse_maintainers(path):
                     current["M"].append(value)
                 elif key == "F":
                     current["F"].append(glob_to_regex(value))
+                    current["Fraw"].append(value)
                 elif key == "X":
                     current["X"].append(glob_to_regex(value))
+                    current["Xraw"].append(value)
                 continue
 
             # anything else at column zero starts a new section
-            current = {"title": line, "M": [], "F": [], "X": []}
+            current = {
+                "title": line,
+                "M": [],
+                "F": [],
+                "X": [],
+                "Fraw": [],
+                "Xraw": [],
+            }
             sections.append(current)
 
     return sections
@@ -127,11 +138,71 @@ def resolve(sections, files):
     return maintainers
 
 
+def handles_of(section):
+    out = []
+    for entry in section["M"]:
+        match = HANDLE_RE.search(entry)
+        if match:
+            out.append("@" + match.group(1))
+    return out
+
+
+def codeowners_pattern(pat):
+    """Translate a MAINTAINERS F:/X: glob to a root-anchored CODEOWNERS glob."""
+    if pat.startswith("*"):
+        return pat
+    return "/" + pat
+
+
+def specificity(pattern):
+    return (pattern.count("/"), len(pattern))
+
+
+def render_codeowners(sections):
+    """Project MAINTAINERS onto a CODEOWNERS file.
+
+    THE REST becomes the '*' fallback owner; every other section's F: patterns
+    become owned lines and its X: patterns become owner-less lines that clear
+    ownership, all ordered least-specific-first so GitHub's last-match-wins rule
+    reproduces most-precise ownership.
+    """
+    lines = [
+        "# SPDX-License-Identifier: GPL-2.0-only",
+        "#",
+        "# GENERATED from MAINTAINERS by scripts/get-maintainer --codeowners.",
+        "# Do not edit by hand: run 'make codeowners'. CI fails if the two drift.",
+        "",
+    ]
+
+    fallback = next((s for s in sections if s["title"] == FALLBACK_SECTION), None)
+    if fallback is not None:
+        for handle in handles_of(fallback):
+            lines.append(f"*\t{handle}")
+        if handles_of(fallback):
+            lines.append("")
+
+    entries = []
+    for section in sections:
+        if section["title"] == FALLBACK_SECTION:
+            continue
+        handles = handles_of(section)
+        for pat in section["Fraw"]:
+            entries.append((codeowners_pattern(pat), handles))
+        for pat in section["Xraw"]:
+            entries.append((codeowners_pattern(pat), []))
+
+    for pattern, handles in sorted(entries, key=lambda e: specificity(e[0])):
+        lines.append(f"{pattern}\t{' '.join(handles)}".rstrip())
+
+    return "\n".join(lines) + "\n"
+
+
 def main():
     parser = argparse.ArgumentParser(add_help=True)
     parser.add_argument("files", nargs="*")
     parser.add_argument("--email-only", action="store_true")
     parser.add_argument("--github", action="store_true")
+    parser.add_argument("--codeowners", action="store_true")
     parser.add_argument("--maintainers", default=None)
     args = parser.parse_args()
 
@@ -140,11 +211,16 @@ def main():
     if not os.path.isfile(maint_path):
         sys.exit(f"get-maintainer: MAINTAINERS not found at {maint_path}")
 
+    sections = parse_maintainers(maint_path)
+
+    if args.codeowners:
+        sys.stdout.write(render_codeowners(sections))
+        return
+
     files = args.files
     if not files:
         files = [line.strip() for line in sys.stdin if line.strip()]
 
-    sections = parse_maintainers(maint_path)
     for entry in resolve(sections, files):
         if args.github:
             match = HANDLE_RE.search(entry)
