@@ -24,7 +24,7 @@ jobs:
       contents: read
       security-events: write   # upload findings to the Security tab
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
