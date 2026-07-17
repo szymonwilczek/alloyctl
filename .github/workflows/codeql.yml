@@ -21,6 +21,7 @@ jobs:
     name: analyze C
     runs-on: ubuntu-latest
     permissions:
+      actions: read            # read this workflow run (CodeQL status/telemetry)
       contents: read
       security-events: write   # upload findings to the Security tab
     steps:
