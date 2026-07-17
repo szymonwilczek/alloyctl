@@ -135,6 +135,23 @@ static void parse_line(struct alloy_config *cfg, const char *key,
 			cfg->zone_color[idx].g = (rgb >> 8) & 0xFF;
 			cfg->zone_color[idx].b = rgb & 0xFF;
 		}
+	} else if (sscanf(key, "zone_fx%u", &idx) == 1 &&
+		   idx < ALLOY_MAX_LED_ZONES) {
+		cfg->zone_mode[idx] = strcmp(val, "rainbow") ?
+					      ALLOY_LED_STATIC :
+					      ALLOY_LED_RAINBOW;
+	} else if (!strcmp(key, "reactive")) {
+		if (sscanf(val, "%x", &rgb) == 1) {
+			cfg->reactive_enabled = 1;
+			cfg->reactive_color.r = (rgb >> 16) & 0xFF;
+			cfg->reactive_color.g = (rgb >> 8) & 0xFF;
+			cfg->reactive_color.b = rgb & 0xFF;
+		} else {
+			cfg->reactive_enabled = 0;
+		}
+	} else if (!strcmp(key, "startup_fx")) {
+		cfg->startup_fx = (uint8_t)ALLOY_CLAMP(
+			atoi(val), 0, ALLOY_STARTUP_REACTIVE_RAINBOW);
 	} else if (!strcmp(key, "brightness")) {
 		cfg->brightness = (uint8_t)ALLOY_CLAMP(atoi(val), 0, 100);
 	} else if (sscanf(key, "button%u", &idx) == 1 &&
@@ -202,6 +219,23 @@ int alloy_state_store(const struct alloy_driver *drv,
 	for (i = 0; i < drv->num_zones; i++)
 		fprintf(f, "zone%u=%02x%02x%02x\n", i, cfg->zone_color[i].r,
 			cfg->zone_color[i].g, cfg->zone_color[i].b);
+	if (drv->caps & ALLOY_CAP_FX_RAINBOW) {
+		for (i = 0; i < drv->num_zones; i++)
+			fprintf(f, "zone_fx%u=%s\n", i,
+				cfg->zone_mode[i] == ALLOY_LED_RAINBOW ?
+					"rainbow" :
+					"static");
+	}
+	if (drv->caps & ALLOY_CAP_FX_REACTIVE) {
+		if (cfg->reactive_enabled)
+			fprintf(f, "reactive=%02x%02x%02x\n",
+				cfg->reactive_color.r, cfg->reactive_color.g,
+				cfg->reactive_color.b);
+		else
+			fprintf(f, "reactive=off\n");
+	}
+	if (drv->caps & ALLOY_CAP_FX_STARTUP)
+		fprintf(f, "startup_fx=%u\n", cfg->startup_fx);
 	fprintf(f, "brightness=%u\n", cfg->brightness);
 	for (i = 0; i < drv->num_buttons; i++)
 		fprintf(f, "button%u=%s:%u\n", i,
