@@ -52,6 +52,30 @@ void tui_apply_all(struct tui *t)
 	tui_apply(t, ops->apply_buttons, "buttons");
 }
 
+int tui_center_idx_brightness(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_BRIGHTNESS))
+		return -1;
+	return t->drv->num_zones;
+}
+
+int tui_center_idx_reactive(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_FX_REACTIVE))
+		return -1;
+	return t->drv->num_zones +
+	       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0);
+}
+
+int tui_center_idx_startup(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_FX_STARTUP))
+		return -1;
+	return t->drv->num_zones +
+	       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0);
+}
+
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 {
 	switch (pane) {
@@ -59,9 +83,11 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
-		/* one color button per LED zone plus brightness */
+		/* zone color buttons, brightness, reactive, startup */
 		return t->drv->num_zones +
-		       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0);
+		       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
+		       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
+		       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
 	case PANE_SENSITIVITY:
 		/* CPI 1 slider, CPI 2 slider */
 		return 2;

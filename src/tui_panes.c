@@ -198,11 +198,11 @@ static void draw_center_pane(struct tui *t)
 		}
 	}
 
-	y = r->y + ALLOY_MAX(1, (r->h - 5 - art_lines) / 2);
+	y = r->y + ALLOY_MAX(1, (r->h - 6 - art_lines) / 2);
 	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
 
 	move(y, x);
-	for (p = art; *p && y < r->y + r->h - 5; p++) {
+	for (p = art; *p && y < r->y + r->h - 6; p++) {
 		if (*p == '\n') {
 			y++;
 			move(y, x);
@@ -213,7 +213,7 @@ static void draw_center_pane(struct tui *t)
 
 	/* zone color buttons, side by side above the pane bottom */
 	x = r->x + 3;
-	y = r->y + r->h - 4;
+	y = r->y + r->h - 5;
 	for (i = 0; i < t->drv->num_zones; i++) {
 		int pair = COLORS >= 256 ? CLR_ZONE_BASE + i : CLR_ACCENT;
 
@@ -225,24 +225,66 @@ static void draw_center_pane(struct tui *t)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 		attroff(COLOR_PAIR(CLR_BUTTON));
 
-		attron(COLOR_PAIR(pair) | A_BOLD);
-		mvprintw(y + 1, x, "#%02X%02X%02X", t->cfg.zone_color[i].r,
-			 t->cfg.zone_color[i].g, t->cfg.zone_color[i].b);
-		attroff(COLOR_PAIR(pair) | A_BOLD);
+		if (t->cfg.zone_mode[i] == ALLOY_LED_RAINBOW) {
+			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			mvprintw(y + 1, x, "RAINBOW");
+			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		} else {
+			attron(COLOR_PAIR(pair) | A_BOLD);
+			mvprintw(y + 1, x, "#%02X%02X%02X",
+				 t->cfg.zone_color[i].r, t->cfg.zone_color[i].g,
+				 t->cfg.zone_color[i].b);
+			attroff(COLOR_PAIR(pair) | A_BOLD);
+		}
 
 		x += ALLOY_MAX((int)strlen(t->drv->zones[i].name) + 2, 8) + 2;
 	}
 
 	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS) {
-		int bsel = focused && sel == t->drv->num_zones;
+		int bsel = focused && sel == tui_center_idx_brightness(t);
 
-		y = r->y + r->h - 2;
+		y = r->y + r->h - 3;
 		if (bsel)
 			attron(COLOR_PAIR(CLR_SELECTED));
 		mvprintw(y, r->x + 3, "BRIGHTNESS");
 		if (bsel)
 			attroff(COLOR_PAIR(CLR_SELECTED));
 		mvprintw(y, r->x + 14, "< %3u%% >", t->cfg.brightness);
+	}
+
+	y = r->y + r->h - 2;
+	x = r->x + 3;
+	if (t->drv->caps & ALLOY_CAP_FX_REACTIVE) {
+		int rsel = focused && sel == tui_center_idx_reactive(t);
+
+		if (rsel)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x, "REACTIVE");
+		if (rsel)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		if (t->cfg.reactive_enabled)
+			mvprintw(y, x + 9, "[#%02X%02X%02X]",
+				 t->cfg.reactive_color.r,
+				 t->cfg.reactive_color.g,
+				 t->cfg.reactive_color.b);
+		else
+			mvprintw(y, x + 9, "[OFF]");
+		x += 20;
+	}
+	if (t->drv->caps & ALLOY_CAP_FX_STARTUP) {
+		static const char *startup_names[] = { "OFF", "REACTIVE",
+						       "RAINBOW",
+						       "REACT+RBOW" };
+		int ssel = focused && sel == tui_center_idx_startup(t);
+
+		if (ssel)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x, "STARTUP");
+		if (ssel)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x + 8, "< %s >",
+			 startup_names[t->cfg.startup_fx &
+				       ALLOY_STARTUP_REACTIVE_RAINBOW]);
 	}
 }
 

@@ -98,15 +98,36 @@ static void footer_activate(struct tui *t)
 	}
 }
 
+static void apply_lighting(struct tui *t)
+{
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_colors, "lighting");
+}
+
 static void pane_adjust(struct tui *t, int dir, int big)
 {
 	int sel = t->cursor[t->focus];
 
 	switch (t->focus) {
 	case PANE_CENTER:
-		if ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) &&
-		    sel == t->drv->num_zones)
+		if (sel == tui_center_idx_brightness(t)) {
 			adjust_brightness(t, dir * (big ? 20 : 5));
+		} else if (sel == tui_center_idx_reactive(t)) {
+			t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
+			apply_lighting(t);
+		} else if (sel == tui_center_idx_startup(t)) {
+			t->cfg.startup_fx =
+				(uint8_t)((t->cfg.startup_fx + 4 + dir) % 4);
+			apply_lighting(t);
+		} else if (sel < t->drv->num_zones &&
+			   (t->drv->caps & ALLOY_CAP_FX_RAINBOW)) {
+			t->cfg.zone_mode[sel] =
+				t->cfg.zone_mode[sel] == ALLOY_LED_STATIC ?
+					ALLOY_LED_RAINBOW :
+					ALLOY_LED_STATIC;
+			apply_lighting(t);
+		}
 		break;
 	case PANE_SENSITIVITY:
 		adjust_dpi(t, sel, dir * (big ? 10 : 1) * t->drv->dpi.step);
@@ -136,7 +157,9 @@ static void pane_activate(struct tui *t)
 		break;
 	case PANE_CENTER:
 		if (sel < t->drv->num_zones)
-			tui_modal_message("COLOR EDITOR", "TBA");
+			tui_modal_color_zone(t, sel);
+		else if (sel == tui_center_idx_reactive(t))
+			tui_modal_color_reactive(t);
 		break;
 	case PANE_FOOTER:
 		footer_activate(t);
