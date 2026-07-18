@@ -20,7 +20,7 @@ ifdef SANITIZE
 CFLAGS += -fsanitize=$(SANITIZE) -fno-omit-frame-pointer -fno-sanitize-recover=all
 endif
 
-SRCS := $(wildcard src/*.c) $(wildcard drivers/*.c)
+SRCS := $(wildcard src/*.c) $(wildcard drivers/*/*.c)
 OBJS := $(patsubst %.c,build/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -46,7 +46,7 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
 	     $(wildcard tests/drivers/*.c) src/driver.c src/state.c \
-	     $(wildcard drivers/*.c)
+	     $(wildcard drivers/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared

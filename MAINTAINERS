@@ -79,14 +79,14 @@ STEELSERIES RIVAL 3 GEN 1 DRIVER
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    Documentation/protocol/steelseries-rival3.rst
-F:    drivers/steelseries_rival3.c
+F:    drivers/steelseries_rival3/
 F:    tests/drivers/steelseries_rival3.c
 
 STEELSERIES RIVAL 3 GEN 2 DRIVER
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
 F:    Documentation/protocol/steelseries-rival3-gen2.rst
-F:    drivers/steelseries_rival3_gen2.c
+F:    drivers/steelseries_rival3_gen2/
 F:    tests/drivers/steelseries_rival3_gen2.c
 
 THE REST
