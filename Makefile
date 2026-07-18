@@ -31,7 +31,18 @@ all: $(BIN)
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
-build/%.o: %.c build/default_art.h
+ART_TXTS := $(wildcard drivers/*/*_art.txt)
+ART_DRIVERS := $(patsubst %_art.txt,%,$(notdir $(ART_TXTS)))
+ART_HDRS := $(patsubst %,build/art_%.h,$(ART_DRIVERS))
+
+define ART_RULE
+build/art_$(1).h: drivers/$(1)/$(1)_art.txt tools/txt2c.sh
+	@mkdir -p build
+	sh tools/txt2c.sh alloy_art_$(1) < $$< > $$@
+endef
+$(foreach d,$(ART_DRIVERS),$(eval $(call ART_RULE,$(d))))
+
+build/%.o: %.c build/default_art.h $(ART_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
@@ -39,6 +50,8 @@ build/%.o: %.c build/default_art.h
 build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 	@mkdir -p build
 	sh tools/txt2c.sh alloy_default_mouse_art < $< > $@
+
+
 
 # Unit tests build without ncurses and with mocked HID transport.
 # Cases live one file per mouse under tests/drivers/ plus driver-independent cases under tests/core/;
@@ -51,7 +64,7 @@ TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
 # harness (test.h) and mock transport (mock_hid.h) that live in tests/
-build/test/%.o: %.c build/default_art.h
+build/test/%.o: %.c build/default_art.h $(ART_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) -Itests $(CFLAGS) -c -o $@ $<
 

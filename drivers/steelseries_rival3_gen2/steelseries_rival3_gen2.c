@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "driver.h"
+#include "art_steelseries_rival3_gen2.h"
 
 #define R3G2_CMD_SAVE 0x11
 #define R3G2_CMD_ZONE_COLORS 0x21
@@ -354,28 +355,6 @@ static const struct alloy_button r3g2_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
-/* clang-format off */
-/* $N markers paint the rails in the live zone colors (see driver.h) */
-static const char r3g2_art[] =
-	"              _.-------._\n"
-	"           ,-'     |     '-.\n"
-	"         ,'   .----'----.   ',\n"
-	"        /    |     |     |    \\\n"
-	"       /     |    | |    |     \\\n"
-	"      ;      |    |_|    |      ;\n"
-	" B4 --|      |     |     |      |\n"
-	"      |       '----'----'       |\n"
-	" B5 --|            O -- B6      |\n"
-	"      |                         |\n"
-	"  $1Z$11 $1=$1|                         $1|$1= $1Z$11\n"
-	"      ;                         ;\n"
-	"  $2Z$22 $2=$2\\                        $2/$2= $2Z$22\n"
-	"        \\                     /\n"
-	"  $3Z$33 $3=$3=$3='.                  ,'$3=$3=$3= $3Z$33\n"
-	"           '-.           ,-'\n"
-	"              '-._____.-'\n";
-/* clang-format on */
-
 static const struct alloy_driver_ops r3g2_ops = {
 	.apply_dpi = r3g2_apply_dpi,
 	.apply_polling = r3g2_apply_polling,
@@ -408,7 +387,7 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 		ALLOY_CAP_FX_STARTUP,
 	.fx_names = r3g2_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(r3g2_fx_names),
-	.ascii_art = r3g2_art,
+	.ascii_art = alloy_art_steelseries_rival3_gen2,
 	.ops = &r3g2_ops,
 	.config_defaults = alloy_config_generic_defaults,
 };
