@@ -53,13 +53,16 @@ struct alloy_led_zone {
 #define ALLOY_CAP_FX_RAINBOW (1u << 5) /* per-zone rainbow cycle */
 #define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
 #define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
-#define ALLOY_CAP_FX_GLOBAL (1u << 8) /* driver-defined effect list */
+#define ALLOY_CAP_FX_GLOBAL (1u << 8) /* one effect device-wide only */
 
-/* Per-zone lighting mode */
-enum alloy_led_mode {
-	ALLOY_LED_STATIC,
-	ALLOY_LED_RAINBOW,
-};
+/*
+ * Per-zone effect rate knobs.
+ * Frequency is how many cycles one period packs, speed is the tempo the
+ * animation runs at; both are unitless steps the driver maps best-effort.
+ */
+#define ALLOY_FX_RATE_MIN 1
+#define ALLOY_FX_RATE_MAX 10
+#define ALLOY_FX_RATE_DEF 5
 
 /* Power-up lighting (ALLOY_CAP_FX_STARTUP) */
 enum alloy_startup_fx {
@@ -82,7 +85,17 @@ struct alloy_config {
 	uint16_t polling_hz;
 
 	struct alloy_rgb zone_color[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_mode[ALLOY_MAX_LED_ZONES]; /* enum alloy_led_mode */
+
+	/*
+	 * Per-zone lighting effect as index into the driver's fx_names list;
+	 * index 0 is by convention the static "steady" mode.
+	 * Hardware that only runs one effect device-wide (ALLOY_CAP_FX_GLOBAL)
+	 * is driven best-effort from the first zone not running steady.
+	 */
+	uint8_t zone_fx[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_fx_freq[ALLOY_MAX_LED_ZONES]; /* ALLOY_FX_RATE_* */
+	uint8_t zone_fx_speed[ALLOY_MAX_LED_ZONES]; /* ALLOY_FX_RATE_* */
+
 	uint8_t brightness; /* 0-100 */
 
 	/* only meaningful with ALLOY_CAP_FX_REACTIVE */
@@ -91,13 +104,6 @@ struct alloy_config {
 
 	/* only meaningful with ALLOY_CAP_FX_STARTUP */
 	uint8_t startup_fx; /* enum alloy_startup_fx */
-
-	/*
-	 * only meaningful with ALLOY_CAP_FX_GLOBAL:
-	 * index into the driver's fx_names list.
-	 * Index 0 is by convention the static "steady" mode
-	 */
-	uint8_t fx_index;
 
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
@@ -159,9 +165,11 @@ struct alloy_driver {
 	uint32_t caps; /* ALLOY_CAP_* bits */
 
 	/*
-	 * Global lighting effects (ALLOY_CAP_FX_GLOBAL):
-	 * display names in wire order, index 0 being the static/steady mode.
-	 * Driver maps the index to its wire encoding.
+	 * Lighting effects selectable per zone:
+	 * display names, index 0 being the static/steady mode.
+	 * Driver maps the index to its wire encoding; hardware running one
+	 * effect device-wide (ALLOY_CAP_FX_GLOBAL) applies the selection
+	 * best-effort.
 	 */
 	const char *const *fx_names;
 	uint8_t num_fx;

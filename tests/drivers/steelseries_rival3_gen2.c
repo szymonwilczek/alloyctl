@@ -40,6 +40,7 @@ ALLOY_TEST(test_registry)
 	ASSERT_EQ(drv->dpi.max, 8500);
 	ASSERT_EQ(drv->num_zones, 3);
 	ASSERT_EQ(drv->num_buttons, 8);
+	ASSERT_EQ(drv->num_fx, 2); /* steady + rainbow, per zone */
 	ASSERT_TRUE(alloy_driver_find(0x1038, 0xbaad) == NULL);
 }
 
@@ -129,14 +130,14 @@ ALLOY_TEST(test_colors_packet)
 
 	/* rainbow on the middle zone drops it from the static mask
 	 * but keeps the RGB triplets positional */
-	cfg.zone_mode[1] = ALLOY_LED_RAINBOW;
+	cfg.zone_fx[1] = 1;
 	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 11);
 	ASSERT_EQ(buf[1], 0x05);
 	ASSERT_EQ(buf[8], 0x77); /* zone 3 still in triplet 3 */
 
 	/* all zones on the rainbow: nothing static to send */
-	cfg.zone_mode[0] = ALLOY_LED_RAINBOW;
-	cfg.zone_mode[2] = ALLOY_LED_RAINBOW;
+	cfg.zone_fx[0] = 1;
+	cfg.zone_fx[2] = 1;
 	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 0);
 }
 
@@ -150,8 +151,8 @@ ALLOY_TEST(test_rainbow_packet)
 	/* defaults are all static: no rainbow packet */
 	ASSERT_EQ(r3g2_build_rainbow(&cfg, buf), 0);
 
-	cfg.zone_mode[0] = ALLOY_LED_RAINBOW;
-	cfg.zone_mode[2] = ALLOY_LED_RAINBOW;
+	cfg.zone_fx[0] = 1;
+	cfg.zone_fx[2] = 1;
 	ASSERT_EQ(r3g2_build_rainbow(&cfg, buf), 2);
 	ASSERT_EQ(buf[0], 0x22);
 	ASSERT_EQ(buf[1], 0x05);
