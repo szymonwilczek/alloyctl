@@ -14,6 +14,7 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #include "tui_internal.h"
 #include "default_art.h"
@@ -62,6 +63,122 @@ static int illum_item_count(const struct tui *t)
 	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
 	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
 	       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
+}
+
+static long illum_now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/* Fully saturated hue (0-359) to RGB, one 60 degree segment at a time */
+static struct alloy_rgb hue_to_rgb(int hue)
+{
+	uint8_t rise = (uint8_t)((hue % 60) * 255 / 60);
+	uint8_t fall = (uint8_t)(255 - rise);
+
+	switch ((hue / 60) % 6) {
+	case 0:
+		return (struct alloy_rgb){ 255, rise, 0 };
+	case 1:
+		return (struct alloy_rgb){ fall, 255, 0 };
+	case 2:
+		return (struct alloy_rgb){ 0, 255, rise };
+	case 3:
+		return (struct alloy_rgb){ 0, fall, 255 };
+	case 4:
+		return (struct alloy_rgb){ rise, 0, 255 };
+	default:
+		return (struct alloy_rgb){ 255, 0, fall };
+	}
+}
+
+static struct alloy_rgb scale_rgb(struct alloy_rgb c, int num, int den)
+{
+	c.r = (uint8_t)((int)c.r * num / den);
+	c.g = (uint8_t)((int)c.g * num / den);
+	c.b = (uint8_t)((int)c.b * num / den);
+	return c;
+}
+
+/*
+ * What color a zone shows at the given moment.
+ *
+ * Effect class is derived from the driver's display name -
+ * the same convention tui_fx_ignores_color() uses - so any driver whose
+ * names mention BREATH, RAINBOW or DISCO gets faithful animation without
+ * core code knowing its wire format.
+ * Per-zone speed knob scales time, the frequency knob packs more cycles
+ * into a period, and SLOW/FAST name variants bake their own tempo on top.
+ */
+static struct alloy_rgb zone_preview_color(const struct tui *t, int zone,
+					   long ms)
+{
+	const struct alloy_config *cfg = &t->cfg;
+	uint8_t fx = cfg->zone_fx[zone];
+	struct alloy_rgb c = cfg->zone_color[zone];
+	long tms = ms * cfg->zone_fx_speed[zone] / ALLOY_FX_RATE_DEF;
+	int freq = ALLOY_CLAMP(cfg->zone_fx_freq[zone], ALLOY_FX_RATE_MIN,
+			       ALLOY_FX_RATE_MAX);
+	int breath = 0;
+	int rainbow = 0;
+	int disco = 0;
+
+	if (fx && fx < t->drv->num_fx) {
+		const char *name = t->drv->fx_names[fx];
+
+		breath = strstr(name, "BREATH") != NULL;
+		rainbow = strstr(name, "RAINBOW") != NULL;
+		disco = strstr(name, "DISCO") != NULL;
+		if (strstr(name, "SLOW"))
+			tms /= 2;
+		if (strstr(name, "FAST"))
+			tms *= 2;
+	}
+
+	if (disco) {
+		/* hop distant hues on a beat */
+		long bucket = tms / ALLOY_MAX(1000 / freq, 50);
+
+		c = hue_to_rgb((int)((bucket * 137) % 360));
+	} else if (rainbow) {
+		/* hue wheel; zones are phase shifted so the cycle
+		 * visibly travels across the mouse */
+		int hue = (int)((tms / 20 + (long)zone * freq * 30) % 360);
+
+		c = hue_to_rgb(hue);
+	}
+
+	if (breath) {
+		/* triangle wave between dark and full */
+		long period = 3000;
+		long phase = (tms * freq / ALLOY_FX_RATE_DEF) % period;
+		long level = phase < period / 2 ? phase * 510 / period :
+						  510 - phase * 510 / period;
+
+		c = scale_rgb(c, (int)level, 255);
+	}
+
+	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
+		c = scale_rgb(c, ALLOY_MIN(cfg->brightness, 100), 100);
+	return c;
+}
+
+/* Refresh the per-zone color pairs from the animation clock */
+static void illum_zone_pairs(const struct tui *t, long ms)
+{
+	uint8_t i;
+
+	if (COLORS < 256)
+		return;
+
+	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
+		struct alloy_rgb c = zone_preview_color(t, i, ms);
+
+		init_pair((short)(CLR_ZONE_BASE + i), tui_rgb_to_cube(&c), -1);
+	}
 }
 
 void tui_illum_enter(struct tui *t)
@@ -578,7 +695,7 @@ void tui_illum_draw(struct tui *t)
 	int right_w = COLS - left_w;
 
 	erase();
-	tui_zone_color_pairs(t);
+	illum_zone_pairs(t, illum_now_ms());
 
 	draw_effects_pane(t, 0, 0, main_h, left_w);
 	tui_draw_pane_box(0, left_w, main_h, right_w, t->drv->name,
