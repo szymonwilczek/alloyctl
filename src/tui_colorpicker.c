@@ -48,7 +48,8 @@ struct picker {
 	int color_rows_disabled;
 };
 
-static const struct alloy_rgb palette[] = {
+/* Shared with the inline COLORS section of the illumination view */
+const struct alloy_rgb tui_palette[TUI_PALETTE_SIZE] = {
 	{ 0xFF, 0xFF, 0xFF }, { 0xFF, 0x00, 0x00 }, { 0xFF, 0x66, 0x00 },
 	{ 0xFF, 0xCC, 0x00 }, { 0x00, 0xFF, 0x00 }, { 0x00, 0xFF, 0x99 },
 	{ 0x00, 0xFF, 0xFF }, { 0x00, 0x99, 0xFF }, { 0x00, 0x00, 0xFF },
@@ -57,7 +58,7 @@ static const struct alloy_rgb palette[] = {
 	{ 0x00, 0x00, 0x00 },
 };
 
-static short rgb_to_cube(const struct alloy_rgb *c)
+short tui_rgb_to_cube(const struct alloy_rgb *c)
 {
 	return (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) + (c->b / 51));
 }
@@ -69,10 +70,10 @@ static void picker_pairs(const struct picker *p)
 	if (COLORS < 256)
 		return;
 
-	init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK, rgb_to_cube(p->rgb));
-	for (i = 0; i < ALLOY_ARRAY_SIZE(palette); i++)
+	init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK, tui_rgb_to_cube(p->rgb));
+	for (i = 0; i < TUI_PALETTE_SIZE; i++)
 		init_pair((short)(CLR_PICKER_SWATCH + i),
-			  rgb_to_cube(&palette[i]), -1);
+			  tui_rgb_to_cube(&tui_palette[i]), -1);
 }
 
 static void draw_channel(int y, int x, const char *name, uint8_t val,
@@ -132,7 +133,7 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 	mvprintw(y + 8, x + 3, "Palette");
 	if (row == ROW_PALETTE)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	for (i = 0; i < ALLOY_ARRAY_SIZE(palette); i++) {
+	for (i = 0; i < TUI_PALETTE_SIZE; i++) {
 		int sx = x + 12 + (int)i * 2 - (int)(i / 8) * 16;
 		int sy = y + 8 + (int)(i / 8);
 
@@ -182,7 +183,7 @@ static void picker_changed(struct tui *t)
 	tui_lighting_changed(t);
 }
 
-static int hex_digit(int ch)
+int tui_hex_digit(int ch)
 {
 	if (ch >= '0' && ch <= '9')
 		return ch - '0';
@@ -202,7 +203,6 @@ static void picker_hex_input(struct tui *t, const struct picker *p)
 {
 	char buf[7] = "";
 	size_t len = 0;
-	unsigned rgb;
 	int ch;
 
 	for (;;) {
@@ -217,14 +217,29 @@ static void picker_hex_input(struct tui *t, const struct picker *p)
 		}
 		if (ch == '\n' || ch == KEY_ENTER)
 			break;
-		if (len < 6 && hex_digit(ch) >= 0) {
+		if (len < 6 && tui_hex_digit(ch) >= 0) {
 			buf[len++] = (char)ch;
 			buf[len] = '\0';
 		}
 	}
 
+	if (tui_parse_hex_color(buf, len, p->rgb)) {
+		tui_status(t, "invalid hex color");
+		return;
+	}
+	picker_changed(t);
+}
+
+/*
+ * Parse an RRGGBB buffer into rgb;
+ * three-digit shorthand expands CSS-style (F80 -> FF8800).
+ * Returns -1 when the buffer is not a valid color.
+ */
+int tui_parse_hex_color(char *buf, size_t len, struct alloy_rgb *rgb)
+{
+	unsigned val;
+
 	if (len == 3) {
-		/* expand shorthand: F80 -> FF8800 */
 		char full[7];
 
 		full[0] = full[1] = buf[0];
@@ -234,15 +249,13 @@ static void picker_hex_input(struct tui *t, const struct picker *p)
 		memcpy(buf, full, sizeof(full));
 		len = 6;
 	}
-	if (len != 6 || sscanf(buf, "%6x", &rgb) != 1) {
-		tui_status(t, "invalid hex color");
-		return;
-	}
+	if (len != 6 || sscanf(buf, "%6x", &val) != 1)
+		return -1;
 
-	p->rgb->r = (rgb >> 16) & 0xFF;
-	p->rgb->g = (rgb >> 8) & 0xFF;
-	p->rgb->b = rgb & 0xFF;
-	picker_changed(t);
+	rgb->r = (val >> 16) & 0xFF;
+	rgb->g = (val >> 8) & 0xFF;
+	rgb->b = val & 0xFF;
+	return 0;
 }
 
 static void picker_adjust_channel(struct tui *t, const struct picker *p,
@@ -320,7 +333,7 @@ static void picker_run(struct tui *t, struct picker *p)
 				picker_adjust_channel(t, p, row,
 						      dir * (big ? 16 : 1));
 			} else if (row == ROW_PALETTE) {
-				int count = (int)ALLOY_ARRAY_SIZE(palette);
+				int count = (int)TUI_PALETTE_SIZE;
 
 				swatch = (swatch + count + dir) % count;
 			}
@@ -329,7 +342,7 @@ static void picker_run(struct tui *t, struct picker *p)
 		case '\n':
 		case KEY_ENTER:
 			if (row == ROW_PALETTE) {
-				*p->rgb = palette[swatch];
+				*p->rgb = tui_palette[swatch];
 				picker_changed(t);
 			} else if (row == ROW_HEX) {
 				picker_hex_input(t, p);
