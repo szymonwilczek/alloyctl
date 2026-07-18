@@ -41,10 +41,15 @@ ALLOY_TEST(test_state_roundtrip)
 	/* nothing stored yet: defaults, return 1 */
 	ASSERT_EQ(alloy_state_load(drv, &out), 1);
 	ASSERT_EQ(out.dpi[0][0], 800);
+	ASSERT_EQ(out.dpi_count, 1); /* single preset out of the box */
+	ASSERT_EQ(out.dpi_active, 0);
 
 	drv->config_defaults(drv, &in);
+	in.dpi_count = 2;
 	in.dpi[0][0] = 2300;
 	in.dpi[0][1] = 2300;
+	in.dpi[1][0] = 1600;
+	in.dpi[1][1] = 1600;
 	in.dpi_active = 1;
 	in.polling_hz = 250;
 	in.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
@@ -62,6 +67,7 @@ ALLOY_TEST(test_state_roundtrip)
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
 
 	ASSERT_EQ(out.dpi[0][0], 2300);
+	ASSERT_EQ(out.dpi_count, 2);
 	ASSERT_EQ(out.dpi_active, 1);
 	ASSERT_EQ(out.polling_hz, 250);
 	ASSERT_EQ(out.zone_color[2].r, 0xAB);
@@ -117,12 +123,17 @@ ALLOY_TEST(test_state_legacy_fx_keys)
 	fprintf(f, "fx=1\n");
 	fprintf(f, "zone_fx1=rainbow\n");
 	fprintf(f, "zone_fx2=static\n");
+	/* active preset pointing past the count clamps on load */
+	fprintf(f, "dpi_count=1\n");
+	fprintf(f, "dpi_active=3\n");
 	fclose(f);
 
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
 	ASSERT_EQ(out.zone_fx[0], 1);
 	ASSERT_EQ(out.zone_fx[1], 1);
 	ASSERT_EQ(out.zone_fx[2], 0);
+	ASSERT_EQ(out.dpi_count, 1);
+	ASSERT_EQ(out.dpi_active, 0);
 }
 
 ALLOY_TEST(test_ops_use_mock)

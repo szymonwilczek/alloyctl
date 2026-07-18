@@ -212,6 +212,10 @@ int alloy_state_load(const struct alloy_driver *drv, struct alloy_config *cfg)
 		parse_line(cfg, line, eq + 1);
 	}
 	fclose(f);
+
+	/* edited file may point the active preset past the count */
+	if (cfg->dpi_active >= cfg->dpi_count)
+		cfg->dpi_active = (uint8_t)(cfg->dpi_count - 1);
 	return 0;
 }
 

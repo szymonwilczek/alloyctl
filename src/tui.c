@@ -74,6 +74,15 @@ int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx)
 	return strstr(name, "RAINBOW") != NULL || strstr(name, "DISCO") != NULL;
 }
 
+/*
+ * How many DPI presets this device can hold:
+ * whatever the driver advertises, capped by the static config storage.
+ */
+int tui_dpi_preset_limit(const struct tui *t)
+{
+	return ALLOY_MIN(t->drv->dpi.max_presets, ALLOY_MAX_DPI_PRESETS);
+}
+
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 {
 	switch (pane) {
@@ -84,8 +93,9 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* ILLUMINATION button is all the pane offers */
 		return 1;
 	case PANE_SENSITIVITY:
-		/* CPI 1 slider, CPI 2 slider */
-		return 2;
+		/* one item per preset plus CREATE below the limit */
+		return t->cfg.dpi_count +
+		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
 	case PANE_TUNING:
 		/* acceleration, deceleration, angle snapping, polling */
 		return 4;

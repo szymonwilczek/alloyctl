@@ -84,13 +84,14 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 
 	memset(cfg, 0, sizeof(*cfg));
 
-	cfg->dpi_count = ALLOY_MIN(2, drv->dpi.max_presets);
+	/*
+	 * One preset out of the box;
+	 * More are created on demand in the SENSITIVITY pane.
+	 * Persisted baseline always overrides this.
+	 */
+	cfg->dpi_count = 1;
 	cfg->dpi[0][0] = 800;
 	cfg->dpi[0][1] = 800;
-	if (cfg->dpi_count > 1) {
-		cfg->dpi[1][0] = 1600;
-		cfg->dpi[1][1] = 1600;
-	}
 	cfg->dpi_active = 0;
 
 	cfg->polling_hz = drv->num_polling_rates ? drv->polling_rates[0] : 1000;
