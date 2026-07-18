@@ -106,6 +106,7 @@ void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
 
 /* tui_modal.c */
 void tui_modal_message(const char *title, const char *text);
+void tui_modal_confirm_quit(struct tui *t);
 void tui_modal_remap(struct tui *t, int button);
 void tui_modal_frame(int h, int w, int *py, int *px, const char *title);
 

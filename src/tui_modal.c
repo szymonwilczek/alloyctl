@@ -52,6 +52,69 @@ void tui_modal_message(const char *title, const char *text)
 	getch();
 }
 
+/*
+ * Quit guard shown when unsaved changes exist:
+ * save first, throw them away, or stay.
+ * Failed save (no device ACK) keeps the program running
+ * so nothing is silently lost.
+ */
+void tui_modal_confirm_quit(struct tui *t)
+{
+	static const char *const choices[] = {
+		"Save and quit",
+		"Quit without saving",
+		"Cancel",
+	};
+	const int count = (int)ALLOY_ARRAY_SIZE(choices);
+	int sel = 0;
+	int y;
+	int x;
+	int i;
+	int ch;
+
+	for (;;) {
+		tui_draw(t);
+		tui_modal_frame(count + 4, 30, &y, &x, "UNSAVED CHANGES");
+
+		for (i = 0; i < count; i++) {
+			if (i == sel)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y + 2 + i, x + 3, "%-24s", choices[i]);
+			if (i == sel)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+		}
+		attron(COLOR_PAIR(CLR_DISABLED));
+		mvprintw(y + count + 3, x + 2, " enter: pick  esc: stay ");
+		attroff(COLOR_PAIR(CLR_DISABLED));
+		refresh();
+
+		ch = getch();
+		switch (ch) {
+		case KEY_UP:
+		case 'k':
+			sel = (sel + count - 1) % count;
+			break;
+		case KEY_DOWN:
+		case 'j':
+			sel = (sel + 1) % count;
+			break;
+		case 27:
+			return;
+		case '\n':
+		case KEY_ENTER:
+			if (sel == 0) {
+				if (tui_save(t) == 0)
+					t->quit = 1;
+			} else if (sel == 1) {
+				t->quit = 1;
+			}
+			return;
+		default:
+			break;
+		}
+	}
+}
+
 /* selectable actions offered by remap modal */
 struct remap_choice {
 	const char *label;

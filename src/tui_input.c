@@ -175,7 +175,10 @@ void tui_handle_key(struct tui *t, int ch)
 
 	switch (ch) {
 	case 'q':
-		t->quit = 1;
+		if (t->dirty)
+			tui_modal_confirm_quit(t);
+		else
+			t->quit = 1;
 		return;
 	case 's':
 		tui_save(t);
