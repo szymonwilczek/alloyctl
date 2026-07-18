@@ -52,38 +52,26 @@ void tui_apply_all(struct tui *t)
 	tui_apply(t, ops->apply_buttons, "buttons");
 }
 
-int tui_center_idx_brightness(const struct tui *t)
+/* Every lighting edit funnels through here: dirty tracking + live push */
+void tui_lighting_changed(struct tui *t)
 {
-	if (!(t->drv->caps & ALLOY_CAP_BRIGHTNESS))
-		return -1;
-	return t->drv->num_zones;
+	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_colors, "lighting");
 }
 
-int tui_center_idx_fx(const struct tui *t)
+/*
+ * Effects that cycle their own hues ignore the configured zone color;
+ * classified by display-name convention shared across the drivers.
+ */
+int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx)
 {
-	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL))
-		return -1;
-	return t->drv->num_zones +
-	       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0);
-}
+	const char *name;
 
-int tui_center_idx_reactive(const struct tui *t)
-{
-	if (!(t->drv->caps & ALLOY_CAP_FX_REACTIVE))
-		return -1;
-	return t->drv->num_zones +
-	       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-	       ((t->drv->caps & ALLOY_CAP_FX_GLOBAL) ? 1 : 0);
-}
-
-int tui_center_idx_startup(const struct tui *t)
-{
-	if (!(t->drv->caps & ALLOY_CAP_FX_STARTUP))
-		return -1;
-	return t->drv->num_zones +
-	       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-	       ((t->drv->caps & ALLOY_CAP_FX_GLOBAL) ? 1 : 0) +
-	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0);
+	if (!fx || fx >= drv->num_fx)
+		return 0;
+	name = drv->fx_names[fx];
+	return strstr(name, "RAINBOW") != NULL || strstr(name, "DISCO") != NULL;
 }
 
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
@@ -93,12 +81,8 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
-		/* zone buttons, brightness, effect, reactive, startup */
-		return t->drv->num_zones +
-		       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-		       ((t->drv->caps & ALLOY_CAP_FX_GLOBAL) ? 1 : 0) +
-		       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
-		       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
+		/* ILLUMINATION button is all the pane offers */
+		return 1;
 	case PANE_SENSITIVITY:
 		/* CPI 1 slider, CPI 2 slider */
 		return 2;
@@ -168,10 +152,23 @@ int alloy_tui_run(struct alloy_device *dev)
 			       "no saved baseline - using driver defaults" :
 			       "baseline loaded from disk");
 
+	/*
+	 * illumination view animates its preview, so its getch runs
+	 * on timeout and ERR ticks just trigger redraw
+	 */
 	while (!t.quit) {
-		tui_draw(&t);
-		ch = getch();
-		tui_handle_key(&t, ch);
+		if (t.view == VIEW_ILLUM) {
+			timeout(TUI_ILLUM_FRAME_MS);
+			tui_illum_draw(&t);
+			ch = getch();
+			if (ch != ERR)
+				tui_illum_handle_key(&t, ch);
+		} else {
+			timeout(-1);
+			tui_draw(&t);
+			ch = getch();
+			tui_handle_key(&t, ch);
+		}
 	}
 
 	endwin();

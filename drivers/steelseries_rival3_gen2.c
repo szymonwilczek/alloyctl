@@ -123,7 +123,7 @@ size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->zone_mode[i] == ALLOY_LED_STATIC)
+		if (!cfg->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -151,7 +151,7 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->zone_mode[i] == ALLOY_LED_RAINBOW)
+		if (cfg->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -331,6 +331,12 @@ static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
 
 static const uint16_t r3g2_polling_rates[] = { 1000, 500, 250, 125 };
 
+/*
+ * Per-zone effect list;
+ * index 1 maps to the 0x22 rainbow mask, everything else is steady.
+ */
+static const char *const r3g2_fx_names[] = { "STEADY", "RAINBOW" };
+
 static const struct alloy_led_zone r3g2_zones[] = {
 	{ .name = "TOP", .def_color = { 0xFF, 0x00, 0x00 } },
 	{ .name = "MIDDLE", .def_color = { 0x00, 0xFF, 0x00 } },
@@ -399,6 +405,8 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
 		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
 		ALLOY_CAP_FX_STARTUP,
+	.fx_names = r3g2_fx_names,
+	.num_fx = ALLOY_ARRAY_SIZE(r3g2_fx_names),
 	.ascii_art = r3g2_art,
 	.ops = &r3g2_ops,
 	.config_defaults = alloy_config_generic_defaults,

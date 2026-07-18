@@ -50,16 +50,6 @@ static void adjust_polling(struct tui *t, int dir)
 		tui_apply(t, drv->ops->apply_polling, "polling");
 }
 
-static void adjust_brightness(struct tui *t, int delta)
-{
-	int val = t->cfg.brightness + delta;
-
-	t->cfg.brightness = (uint8_t)ALLOY_CLAMP(val, 0, 100);
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_brightness, "brightness");
-}
-
 static void footer_activate(struct tui *t)
 {
 	switch (t->cursor[PANE_FOOTER]) {
@@ -98,42 +88,11 @@ static void footer_activate(struct tui *t)
 	}
 }
 
-static void apply_lighting(struct tui *t)
-{
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_colors, "lighting");
-}
-
 static void pane_adjust(struct tui *t, int dir, int big)
 {
 	int sel = t->cursor[t->focus];
 
 	switch (t->focus) {
-	case PANE_CENTER:
-		if (sel == tui_center_idx_brightness(t)) {
-			adjust_brightness(t, dir * (big ? 20 : 5));
-		} else if (sel == tui_center_idx_fx(t)) {
-			t->cfg.fx_index = (uint8_t)((t->cfg.fx_index +
-						     t->drv->num_fx + dir) %
-						    t->drv->num_fx);
-			apply_lighting(t);
-		} else if (sel == tui_center_idx_reactive(t)) {
-			t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
-			apply_lighting(t);
-		} else if (sel == tui_center_idx_startup(t)) {
-			t->cfg.startup_fx =
-				(uint8_t)((t->cfg.startup_fx + 4 + dir) % 4);
-			apply_lighting(t);
-		} else if (sel < t->drv->num_zones &&
-			   (t->drv->caps & ALLOY_CAP_FX_RAINBOW)) {
-			t->cfg.zone_mode[sel] =
-				t->cfg.zone_mode[sel] == ALLOY_LED_STATIC ?
-					ALLOY_LED_RAINBOW :
-					ALLOY_LED_STATIC;
-			apply_lighting(t);
-		}
-		break;
 	case PANE_SENSITIVITY:
 		adjust_dpi(t, sel, dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
@@ -161,10 +120,7 @@ static void pane_activate(struct tui *t)
 			tui_modal_message("MACRO EDITOR", "TBA");
 		break;
 	case PANE_CENTER:
-		if (sel < t->drv->num_zones)
-			tui_modal_color_zone(t, sel);
-		else if (sel == tui_center_idx_reactive(t))
-			tui_modal_color_reactive(t);
+		tui_illum_enter(t);
 		break;
 	case PANE_FOOTER:
 		footer_activate(t);

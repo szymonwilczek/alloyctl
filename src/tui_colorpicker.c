@@ -34,20 +34,22 @@ struct picker {
 
 	/* Mode row;
 	 * labels == NULL hides the row entirely */
-	const char **mode_labels;
+	const char *const *mode_labels;
 	int num_modes;
 	uint8_t *mode;
 
 	/*
-	 * Mode value that greys out the R/G/B rows (rainbow zone, reactive off),
-	 * -1 for never.
+	 * Returns nonzero for mode values that grey out the R/G/B rows
+	 * (color-cycling zone effect, reactive off);
+	 * NULL for never.
 	 * Rows stay editable via the palette/hex so color can be prepared in advance
 	 */
-	int grey_on_mode;
+	int (*mode_greys)(const struct tui *t, uint8_t mode);
 	int color_rows_disabled;
 };
 
-static const struct alloy_rgb palette[] = {
+/* Shared with the inline COLORS section of the illumination view */
+const struct alloy_rgb tui_palette[TUI_PALETTE_SIZE] = {
 	{ 0xFF, 0xFF, 0xFF }, { 0xFF, 0x00, 0x00 }, { 0xFF, 0x66, 0x00 },
 	{ 0xFF, 0xCC, 0x00 }, { 0x00, 0xFF, 0x00 }, { 0x00, 0xFF, 0x99 },
 	{ 0x00, 0xFF, 0xFF }, { 0x00, 0x99, 0xFF }, { 0x00, 0x00, 0xFF },
@@ -56,7 +58,7 @@ static const struct alloy_rgb palette[] = {
 	{ 0x00, 0x00, 0x00 },
 };
 
-static short rgb_to_cube(const struct alloy_rgb *c)
+short tui_rgb_to_cube(const struct alloy_rgb *c)
 {
 	return (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) + (c->b / 51));
 }
@@ -68,10 +70,10 @@ static void picker_pairs(const struct picker *p)
 	if (COLORS < 256)
 		return;
 
-	init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK, rgb_to_cube(p->rgb));
-	for (i = 0; i < ALLOY_ARRAY_SIZE(palette); i++)
+	init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK, tui_rgb_to_cube(p->rgb));
+	for (i = 0; i < TUI_PALETTE_SIZE; i++)
 		init_pair((short)(CLR_PICKER_SWATCH + i),
-			  rgb_to_cube(&palette[i]), -1);
+			  tui_rgb_to_cube(&tui_palette[i]), -1);
 }
 
 static void draw_channel(int y, int x, const char *name, uint8_t val,
@@ -104,7 +106,11 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 	int x;
 	size_t i;
 
-	tui_draw(t);
+	/* modal floats over whichever view invoked it */
+	if (t->view == VIEW_ILLUM)
+		tui_illum_draw(t);
+	else
+		tui_draw(t);
 	picker_pairs(p);
 	tui_modal_frame(ROW_COUNT + 8, PICKER_W, &y, &x, p->title);
 
@@ -131,7 +137,7 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 	mvprintw(y + 8, x + 3, "Palette");
 	if (row == ROW_PALETTE)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	for (i = 0; i < ALLOY_ARRAY_SIZE(palette); i++) {
+	for (i = 0; i < TUI_PALETTE_SIZE; i++) {
 		int sx = x + 12 + (int)i * 2 - (int)(i / 8) * 16;
 		int sy = y + 8 + (int)(i / 8);
 
@@ -178,12 +184,10 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 
 static void picker_changed(struct tui *t)
 {
-	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_colors, "lighting");
+	tui_lighting_changed(t);
 }
 
-static int hex_digit(int ch)
+int tui_hex_digit(int ch)
 {
 	if (ch >= '0' && ch <= '9')
 		return ch - '0';
@@ -203,7 +207,6 @@ static void picker_hex_input(struct tui *t, const struct picker *p)
 {
 	char buf[7] = "";
 	size_t len = 0;
-	unsigned rgb;
 	int ch;
 
 	for (;;) {
@@ -218,14 +221,29 @@ static void picker_hex_input(struct tui *t, const struct picker *p)
 		}
 		if (ch == '\n' || ch == KEY_ENTER)
 			break;
-		if (len < 6 && hex_digit(ch) >= 0) {
+		if (len < 6 && tui_hex_digit(ch) >= 0) {
 			buf[len++] = (char)ch;
 			buf[len] = '\0';
 		}
 	}
 
+	if (tui_parse_hex_color(buf, len, p->rgb)) {
+		tui_status(t, "invalid hex color");
+		return;
+	}
+	picker_changed(t);
+}
+
+/*
+ * Parse an RRGGBB buffer into rgb;
+ * three-digit shorthand expands CSS-style (F80 -> FF8800).
+ * Returns -1 when the buffer is not a valid color.
+ */
+int tui_parse_hex_color(char *buf, size_t len, struct alloy_rgb *rgb)
+{
+	unsigned val;
+
 	if (len == 3) {
-		/* expand shorthand: F80 -> FF8800 */
 		char full[7];
 
 		full[0] = full[1] = buf[0];
@@ -235,15 +253,13 @@ static void picker_hex_input(struct tui *t, const struct picker *p)
 		memcpy(buf, full, sizeof(full));
 		len = 6;
 	}
-	if (len != 6 || sscanf(buf, "%6x", &rgb) != 1) {
-		tui_status(t, "invalid hex color");
-		return;
-	}
+	if (len != 6 || sscanf(buf, "%6x", &val) != 1)
+		return -1;
 
-	p->rgb->r = (rgb >> 16) & 0xFF;
-	p->rgb->g = (rgb >> 8) & 0xFF;
-	p->rgb->b = rgb & 0xFF;
-	picker_changed(t);
+	rgb->r = (val >> 16) & 0xFF;
+	rgb->g = (val >> 8) & 0xFF;
+	rgb->b = val & 0xFF;
+	return 0;
 }
 
 static void picker_adjust_channel(struct tui *t, const struct picker *p,
@@ -313,15 +329,15 @@ static void picker_run(struct tui *t, struct picker *p)
 						      dir) %
 						     p->num_modes);
 				p->color_rows_disabled =
-					p->grey_on_mode >= 0 &&
-					*p->mode == p->grey_on_mode;
+					p->mode_greys &&
+					p->mode_greys(t, *p->mode);
 				picker_changed(t);
 			} else if (row >= ROW_R && row <= ROW_B &&
 				   !p->color_rows_disabled) {
 				picker_adjust_channel(t, p, row,
 						      dir * (big ? 16 : 1));
 			} else if (row == ROW_PALETTE) {
-				int count = (int)ALLOY_ARRAY_SIZE(palette);
+				int count = (int)TUI_PALETTE_SIZE;
 
 				swatch = (swatch + count + dir) % count;
 			}
@@ -330,7 +346,7 @@ static void picker_run(struct tui *t, struct picker *p)
 		case '\n':
 		case KEY_ENTER:
 			if (row == ROW_PALETTE) {
-				*p->rgb = palette[swatch];
+				*p->rgb = tui_palette[swatch];
 				picker_changed(t);
 			} else if (row == ROW_HEX) {
 				picker_hex_input(t, p);
@@ -346,31 +362,15 @@ static void picker_run(struct tui *t, struct picker *p)
 	}
 }
 
-void tui_modal_color_zone(struct tui *t, int zone)
+static int reactive_mode_greys(const struct tui *t, uint8_t mode)
 {
-	static const char *zone_modes[] = { "STATIC", "RAINBOW" };
-	char title[48];
-	struct picker p;
-
-	memset(&p, 0, sizeof(p));
-	snprintf(title, sizeof(title), "ZONE: %s", t->drv->zones[zone].name);
-	p.title = title;
-	p.rgb = &t->cfg.zone_color[zone];
-
-	p.grey_on_mode = -1;
-	if (t->drv->caps & ALLOY_CAP_FX_RAINBOW) {
-		p.mode_labels = zone_modes;
-		p.num_modes = 2;
-		p.mode = &t->cfg.zone_mode[zone];
-		p.grey_on_mode = ALLOY_LED_RAINBOW;
-		p.color_rows_disabled = *p.mode == ALLOY_LED_RAINBOW;
-	}
-	picker_run(t, &p);
+	(void)t;
+	return !mode; /* color rows greyed while OFF */
 }
 
 void tui_modal_color_reactive(struct tui *t)
 {
-	static const char *reactive_modes[] = { "OFF", "ON" };
+	static const char *const reactive_modes[] = { "OFF", "ON" };
 	struct picker p;
 
 	memset(&p, 0, sizeof(p));
@@ -379,7 +379,7 @@ void tui_modal_color_reactive(struct tui *t)
 	p.mode_labels = reactive_modes;
 	p.num_modes = 2;
 	p.mode = &t->cfg.reactive_enabled;
-	p.grey_on_mode = 0; /* color rows greyed while OFF */
+	p.mode_greys = reactive_mode_greys;
 	p.color_rows_disabled = !t->cfg.reactive_enabled;
 	picker_run(t, &p);
 }

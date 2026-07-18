@@ -8,8 +8,8 @@
  *   | ACTIONS  |                | SENS 1     | ACCEL /    |
  *   |          |   mouse art    | SENS 2     | DECEL      |
  *   | (3/4 h)  |                |            | ANGLE SNAP |
- *   +----------+  zone buttons  |            | POLLING    |
- *   | MACRO    |  brightness    |            |            |
+ *   +----------+                |            | POLLING    |
+ *   | MACRO    |  ILLUMINATION  |            |            |
  *   +----------+----------------+------------+------------+
  *   |  LIVE PREVIEW [ON]            REVERT  SAVE  (footer)|
  *   |  status line                                        |
@@ -66,7 +66,8 @@ void tui_zone_color_pairs(const struct tui *t)
 	}
 }
 
-static void draw_box(const struct rect *r, const char *title, int focused)
+void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
+		       int focused)
 {
 	int attr = COLOR_PAIR(focused ? CLR_FRAME_FOCUS : CLR_FRAME);
 	int i;
@@ -74,25 +75,30 @@ static void draw_box(const struct rect *r, const char *title, int focused)
 	if (focused)
 		attr |= A_BOLD;
 	attron(attr);
-	mvaddch(r->y, r->x, ACS_ULCORNER);
-	mvaddch(r->y, r->x + r->w - 1, ACS_URCORNER);
-	mvaddch(r->y + r->h - 1, r->x, ACS_LLCORNER);
-	mvaddch(r->y + r->h - 1, r->x + r->w - 1, ACS_LRCORNER);
-	mvhline(r->y, r->x + 1, ACS_HLINE, r->w - 2);
-	mvhline(r->y + r->h - 1, r->x + 1, ACS_HLINE, r->w - 2);
-	mvvline(r->y + 1, r->x, ACS_VLINE, r->h - 2);
-	mvvline(r->y + 1, r->x + r->w - 1, ACS_VLINE, r->h - 2);
+	mvaddch(y, x, ACS_ULCORNER);
+	mvaddch(y, x + w - 1, ACS_URCORNER);
+	mvaddch(y + h - 1, x, ACS_LLCORNER);
+	mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+	mvhline(y, x + 1, ACS_HLINE, w - 2);
+	mvhline(y + h - 1, x + 1, ACS_HLINE, w - 2);
+	mvvline(y + 1, x, ACS_VLINE, h - 2);
+	mvvline(y + 1, x + w - 1, ACS_VLINE, h - 2);
 	attroff(attr);
 
 	/* clear the interior so stale content never bleeds through */
-	for (i = 1; i < r->h - 1; i++)
-		mvhline(r->y + i, r->x + 1, ' ', r->w - 2);
+	for (i = 1; i < h - 1; i++)
+		mvhline(y + i, x + 1, ' ', w - 2);
 
 	if (title) {
 		attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
-		mvprintw(r->y, r->x + 2, " %s ", title);
+		mvprintw(y, x + 2, " %s ", title);
 		attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
 	}
+}
+
+static void draw_box(const struct rect *r, const char *title, int focused)
+{
+	tui_draw_pane_box(r->y, r->x, r->h, r->w, title, focused);
 }
 
 static const char *action_label(const struct alloy_action *act, char *buf,
@@ -171,6 +177,10 @@ static void draw_actions_pane(struct tui *t)
 	attroff(COLOR_PAIR(CLR_BUTTON));
 }
 
+/*
+ * Every lighting control lives in the illumination view;
+ * center pane is just the mouse portrait and the way in.
+ */
 static void draw_center_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_CENTER];
@@ -178,13 +188,11 @@ static void draw_center_pane(struct tui *t)
 					      alloy_default_mouse_art;
 	const char *p = art;
 	int focused = t->focus == PANE_CENTER;
-	int sel = t->cursor[PANE_CENTER];
 	int art_lines = 0;
 	int art_width = 0;
 	int cur = 0;
 	int y;
 	int x;
-	int i;
 
 	draw_box(r, t->drv->name, focused);
 
@@ -198,11 +206,11 @@ static void draw_center_pane(struct tui *t)
 		}
 	}
 
-	y = r->y + ALLOY_MAX(1, (r->h - 6 - art_lines) / 2);
+	y = r->y + ALLOY_MAX(1, (r->h - 4 - art_lines) / 2);
 	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
 
 	move(y, x);
-	for (p = art; *p && y < r->y + r->h - 6; p++) {
+	for (p = art; *p && y < r->y + r->h - 4; p++) {
 		if (*p == '\n') {
 			y++;
 			move(y, x);
@@ -211,97 +219,16 @@ static void draw_center_pane(struct tui *t)
 		}
 	}
 
-	/* zone color buttons, side by side above the pane bottom */
-	x = r->x + 3;
-	y = r->y + r->h - 5;
-	for (i = 0; i < t->drv->num_zones; i++) {
-		int pair = COLORS >= 256 ? CLR_ZONE_BASE + i : CLR_ACCENT;
-
-		if (focused && sel == i)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		else
-			attron(COLOR_PAIR(CLR_BUTTON));
-		mvprintw(y, x, " %s ", t->drv->zones[i].name);
-		attroff(COLOR_PAIR(CLR_SELECTED));
-		attroff(COLOR_PAIR(CLR_BUTTON));
-
-		if (t->cfg.zone_mode[i] == ALLOY_LED_RAINBOW) {
-			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			mvprintw(y + 1, x, "RAINBOW");
-			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		} else {
-			attron(COLOR_PAIR(pair) | A_BOLD);
-			mvprintw(y + 1, x, "#%02X%02X%02X",
-				 t->cfg.zone_color[i].r, t->cfg.zone_color[i].g,
-				 t->cfg.zone_color[i].b);
-			attroff(COLOR_PAIR(pair) | A_BOLD);
-		}
-
-		x += ALLOY_MAX((int)strlen(t->drv->zones[i].name) + 2, 8) + 2;
-	}
-
-	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS) {
-		int bsel = focused && sel == tui_center_idx_brightness(t);
-
-		y = r->y + r->h - 3;
-		if (bsel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 3, "BRIGHTNESS");
-		if (bsel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 14, "< %3u%% >", t->cfg.brightness);
-	}
-
-	y = r->y + r->h - 2;
-	x = r->x + 3;
-	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
-		int fsel = focused && sel == tui_center_idx_fx(t);
-		const char *fx_name =
-			t->drv->fx_names[t->cfg.fx_index %
-					 ALLOY_MAX(t->drv->num_fx, 1)];
-
-		if (fsel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x, "EFFECT");
-		if (fsel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		mvprintw(y, x + 7, "< %s >", fx_name);
-		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		x += 12 + (int)strlen(fx_name);
-	}
-	if (t->drv->caps & ALLOY_CAP_FX_REACTIVE) {
-		int rsel = focused && sel == tui_center_idx_reactive(t);
-
-		if (rsel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x, "REACTIVE");
-		if (rsel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		if (t->cfg.reactive_enabled)
-			mvprintw(y, x + 9, "[#%02X%02X%02X]",
-				 t->cfg.reactive_color.r,
-				 t->cfg.reactive_color.g,
-				 t->cfg.reactive_color.b);
-		else
-			mvprintw(y, x + 9, "[OFF]");
-		x += 20;
-	}
-	if (t->drv->caps & ALLOY_CAP_FX_STARTUP) {
-		static const char *startup_names[] = { "OFF", "REACTIVE",
-						       "RAINBOW",
-						       "REACT+RBOW" };
-		int ssel = focused && sel == tui_center_idx_startup(t);
-
-		if (ssel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x, "STARTUP");
-		if (ssel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x + 8, "< %s >",
-			 startup_names[t->cfg.startup_fx &
-				       ALLOY_STARTUP_REACTIVE_RAINBOW]);
-	}
+	/* gateway to the illumination view, centered under the art */
+	y = r->y + r->h - 3;
+	x = r->x + (r->w - 16) / 2;
+	if (focused)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	else
+		attron(COLOR_PAIR(CLR_BUTTON));
+	mvprintw(y, x, "  ILLUMINATION  ");
+	attroff(COLOR_PAIR(CLR_SELECTED));
+	attroff(COLOR_PAIR(CLR_BUTTON));
 }
 
 static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
