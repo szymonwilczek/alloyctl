@@ -168,6 +168,8 @@ static void pane_activate(struct tui *t)
 			tui_modal_color_zone(t, sel);
 		else if (sel == tui_center_idx_reactive(t))
 			tui_modal_color_reactive(t);
+		else if (sel == tui_center_idx_illum(t))
+			tui_illum_enter(t);
 		break;
 	case PANE_FOOTER:
 		footer_activate(t);

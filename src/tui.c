@@ -100,6 +100,16 @@ int tui_center_idx_startup(const struct tui *t)
 	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0);
 }
 
+/* ILLUMINATION button sits after every capability-gated item */
+int tui_center_idx_illum(const struct tui *t)
+{
+	return t->drv->num_zones +
+	       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_GLOBAL) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
+}
+
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 {
 	switch (pane) {
@@ -107,12 +117,8 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
-		/* zone buttons, brightness, effect, reactive, startup */
-		return t->drv->num_zones +
-		       ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-		       ((t->drv->caps & ALLOY_CAP_FX_GLOBAL) ? 1 : 0) +
-		       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
-		       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
+		/* zones, brightness, effect, reactive, startup, ILLUMINATION */
+		return tui_center_idx_illum(t) + 1;
 	case PANE_SENSITIVITY:
 		/* CPI 1 slider, CPI 2 slider */
 		return 2;
@@ -183,9 +189,15 @@ int alloy_tui_run(struct alloy_device *dev)
 			       "baseline loaded from disk");
 
 	while (!t.quit) {
-		tui_draw(&t);
-		ch = getch();
-		tui_handle_key(&t, ch);
+		if (t.view == VIEW_ILLUM) {
+			tui_illum_draw(&t);
+			ch = getch();
+			tui_illum_handle_key(&t, ch);
+		} else {
+			tui_draw(&t);
+			ch = getch();
+			tui_handle_key(&t, ch);
+		}
 	}
 
 	endwin();

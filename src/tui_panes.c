@@ -66,7 +66,8 @@ void tui_zone_color_pairs(const struct tui *t)
 	}
 }
 
-static void draw_box(const struct rect *r, const char *title, int focused)
+void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
+		       int focused)
 {
 	int attr = COLOR_PAIR(focused ? CLR_FRAME_FOCUS : CLR_FRAME);
 	int i;
@@ -74,25 +75,30 @@ static void draw_box(const struct rect *r, const char *title, int focused)
 	if (focused)
 		attr |= A_BOLD;
 	attron(attr);
-	mvaddch(r->y, r->x, ACS_ULCORNER);
-	mvaddch(r->y, r->x + r->w - 1, ACS_URCORNER);
-	mvaddch(r->y + r->h - 1, r->x, ACS_LLCORNER);
-	mvaddch(r->y + r->h - 1, r->x + r->w - 1, ACS_LRCORNER);
-	mvhline(r->y, r->x + 1, ACS_HLINE, r->w - 2);
-	mvhline(r->y + r->h - 1, r->x + 1, ACS_HLINE, r->w - 2);
-	mvvline(r->y + 1, r->x, ACS_VLINE, r->h - 2);
-	mvvline(r->y + 1, r->x + r->w - 1, ACS_VLINE, r->h - 2);
+	mvaddch(y, x, ACS_ULCORNER);
+	mvaddch(y, x + w - 1, ACS_URCORNER);
+	mvaddch(y + h - 1, x, ACS_LLCORNER);
+	mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+	mvhline(y, x + 1, ACS_HLINE, w - 2);
+	mvhline(y + h - 1, x + 1, ACS_HLINE, w - 2);
+	mvvline(y + 1, x, ACS_VLINE, h - 2);
+	mvvline(y + 1, x + w - 1, ACS_VLINE, h - 2);
 	attroff(attr);
 
 	/* clear the interior so stale content never bleeds through */
-	for (i = 1; i < r->h - 1; i++)
-		mvhline(r->y + i, r->x + 1, ' ', r->w - 2);
+	for (i = 1; i < h - 1; i++)
+		mvhline(y + i, x + 1, ' ', w - 2);
 
 	if (title) {
 		attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
-		mvprintw(r->y, r->x + 2, " %s ", title);
+		mvprintw(y, x + 2, " %s ", title);
 		attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
 	}
+}
+
+static void draw_box(const struct rect *r, const char *title, int focused)
+{
+	tui_draw_pane_box(r->y, r->x, r->h, r->w, title, focused);
 }
 
 static const char *action_label(const struct alloy_action *act, char *buf,
@@ -198,17 +204,32 @@ static void draw_center_pane(struct tui *t)
 		}
 	}
 
-	y = r->y + ALLOY_MAX(1, (r->h - 6 - art_lines) / 2);
+	y = r->y + ALLOY_MAX(1, (r->h - 8 - art_lines) / 2);
 	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
 
 	move(y, x);
-	for (p = art; *p && y < r->y + r->h - 6; p++) {
+	for (p = art; *p && y < r->y + r->h - 8; p++) {
 		if (*p == '\n') {
 			y++;
 			move(y, x);
 		} else {
 			addch((chtype)*p);
 		}
+	}
+
+	/* gateway to the illumination view, centered under the art */
+	{
+		int isel = focused && sel == tui_center_idx_illum(t);
+
+		y = r->y + r->h - 7;
+		x = r->x + (r->w - 16) / 2;
+		if (isel)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		else
+			attron(COLOR_PAIR(CLR_BUTTON));
+		mvprintw(y, x, "  ILLUMINATION  ");
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON));
 	}
 
 	/* zone color buttons, side by side above the pane bottom */
