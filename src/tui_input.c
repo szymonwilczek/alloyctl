@@ -112,18 +112,7 @@ static void footer_activate(struct tui *t)
 		tui_status(t, "reverted to session baseline");
 		break;
 	case FOOTER_SAVE:
-		tui_apply_all(t);
-		if (t->drv->ops->save(t->dev)) {
-			tui_status(t, "save failed: no device ACK");
-			break;
-		}
-		t->baseline = t->cfg;
-		if (alloy_state_store(t->drv, &t->cfg))
-			tui_status(t, "saved to mouse; baseline file "
-				      "not writable");
-		else
-			tui_status(t, "saved to mouse flash + baseline");
-		t->dirty = 0;
+		tui_save(t);
 		break;
 	default:
 		break;
@@ -186,7 +175,13 @@ void tui_handle_key(struct tui *t, int ch)
 
 	switch (ch) {
 	case 'q':
-		t->quit = 1;
+		if (t->dirty)
+			tui_modal_confirm_quit(t);
+		else
+			t->quit = 1;
+		return;
+	case 's':
+		tui_save(t);
 		return;
 	case '\t':
 		t->focus = (enum tui_pane)((t->focus + 1) % PANE_COUNT);

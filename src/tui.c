@@ -52,6 +52,27 @@ void tui_apply_all(struct tui *t)
 	tui_apply(t, ops->apply_buttons, "buttons");
 }
 
+/*
+ * Push everything to the mouse, commit to onboard flash and persist the host baseline.
+ * One path for the footer button, the save shortcut and the quit guard.
+ * Returns 0 on success.
+ */
+int tui_save(struct tui *t)
+{
+	tui_apply_all(t);
+	if (t->drv->ops->save(t->dev)) {
+		tui_status(t, "save failed: no device ACK");
+		return -1;
+	}
+	t->baseline = t->cfg;
+	if (alloy_state_store(t->drv, &t->cfg))
+		tui_status(t, "saved to mouse; baseline file not writable");
+	else
+		tui_status(t, "saved to mouse flash + baseline");
+	t->dirty = 0;
+	return 0;
+}
+
 /* Every lighting edit funnels through here: dirty tracking + live push */
 void tui_lighting_changed(struct tui *t)
 {
