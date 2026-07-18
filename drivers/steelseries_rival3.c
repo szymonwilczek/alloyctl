@@ -140,10 +140,21 @@ size_t r3_build_zone_color(const struct alloy_config *cfg, int zone,
 	return 7;
 }
 
+/*
+ * Effect selector is device-wide on this hardware (ALLOY_CAP_FX_GLOBAL):
+ * per-zone selection is applied best-effort from the first zone not running steady.
+ */
 size_t r3_build_effect(const struct alloy_config *cfg, uint8_t *buf)
 {
-	uint8_t idx = cfg->fx_index;
+	uint8_t idx = 0;
+	uint8_t i;
 
+	for (i = 0; i < 4; i++) {
+		if (cfg->zone_fx[i]) {
+			idx = cfg->zone_fx[i];
+			break;
+		}
+	}
 	if (idx >= ALLOY_ARRAY_SIZE(r3_fx_wire))
 		idx = 0;
 

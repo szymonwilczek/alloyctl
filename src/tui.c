@@ -52,6 +52,20 @@ void tui_apply_all(struct tui *t)
 	tui_apply(t, ops->apply_buttons, "buttons");
 }
 
+/*
+ * Effects that cycle their own hues ignore the configured zone color;
+ * classified by display-name convention shared across the drivers.
+ */
+int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx)
+{
+	const char *name;
+
+	if (!fx || fx >= drv->num_fx)
+		return 0;
+	name = drv->fx_names[fx];
+	return strstr(name, "RAINBOW") != NULL || strstr(name, "DISCO") != NULL;
+}
+
 int tui_center_idx_brightness(const struct tui *t)
 {
 	if (!(t->drv->caps & ALLOY_CAP_BRIGHTNESS))

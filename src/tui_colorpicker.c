@@ -34,16 +34,17 @@ struct picker {
 
 	/* Mode row;
 	 * labels == NULL hides the row entirely */
-	const char **mode_labels;
+	const char *const *mode_labels;
 	int num_modes;
 	uint8_t *mode;
 
 	/*
-	 * Mode value that greys out the R/G/B rows (rainbow zone, reactive off),
-	 * -1 for never.
+	 * Returns nonzero for mode values that grey out the R/G/B rows
+	 * (color-cycling zone effect, reactive off);
+	 * NULL for never.
 	 * Rows stay editable via the palette/hex so color can be prepared in advance
 	 */
-	int grey_on_mode;
+	int (*mode_greys)(const struct tui *t, uint8_t mode);
 	int color_rows_disabled;
 };
 
@@ -313,8 +314,8 @@ static void picker_run(struct tui *t, struct picker *p)
 						      dir) %
 						     p->num_modes);
 				p->color_rows_disabled =
-					p->grey_on_mode >= 0 &&
-					*p->mode == p->grey_on_mode;
+					p->mode_greys &&
+					p->mode_greys(t, *p->mode);
 				picker_changed(t);
 			} else if (row >= ROW_R && row <= ROW_B &&
 				   !p->color_rows_disabled) {
@@ -346,9 +347,13 @@ static void picker_run(struct tui *t, struct picker *p)
 	}
 }
 
+static int zone_mode_greys(const struct tui *t, uint8_t mode)
+{
+	return tui_fx_ignores_color(t->drv, mode);
+}
+
 void tui_modal_color_zone(struct tui *t, int zone)
 {
-	static const char *zone_modes[] = { "STATIC", "RAINBOW" };
 	char title[48];
 	struct picker p;
 
@@ -357,20 +362,25 @@ void tui_modal_color_zone(struct tui *t, int zone)
 	p.title = title;
 	p.rgb = &t->cfg.zone_color[zone];
 
-	p.grey_on_mode = -1;
-	if (t->drv->caps & ALLOY_CAP_FX_RAINBOW) {
-		p.mode_labels = zone_modes;
-		p.num_modes = 2;
-		p.mode = &t->cfg.zone_mode[zone];
-		p.grey_on_mode = ALLOY_LED_RAINBOW;
-		p.color_rows_disabled = *p.mode == ALLOY_LED_RAINBOW;
+	if (t->drv->num_fx > 1) {
+		p.mode_labels = t->drv->fx_names;
+		p.num_modes = t->drv->num_fx;
+		p.mode = &t->cfg.zone_fx[zone];
+		p.mode_greys = zone_mode_greys;
+		p.color_rows_disabled = zone_mode_greys(t, *p.mode);
 	}
 	picker_run(t, &p);
 }
 
+static int reactive_mode_greys(const struct tui *t, uint8_t mode)
+{
+	(void)t;
+	return !mode; /* color rows greyed while OFF */
+}
+
 void tui_modal_color_reactive(struct tui *t)
 {
-	static const char *reactive_modes[] = { "OFF", "ON" };
+	static const char *const reactive_modes[] = { "OFF", "ON" };
 	struct picker p;
 
 	memset(&p, 0, sizeof(p));
@@ -379,7 +389,7 @@ void tui_modal_color_reactive(struct tui *t)
 	p.mode_labels = reactive_modes;
 	p.num_modes = 2;
 	p.mode = &t->cfg.reactive_enabled;
-	p.grey_on_mode = 0; /* color rows greyed while OFF */
+	p.mode_greys = reactive_mode_greys;
 	p.color_rows_disabled = !t->cfg.reactive_enabled;
 	picker_run(t, &p);
 }

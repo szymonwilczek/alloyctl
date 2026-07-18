@@ -225,9 +225,11 @@ static void draw_center_pane(struct tui *t)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 		attroff(COLOR_PAIR(CLR_BUTTON));
 
-		if (t->cfg.zone_mode[i] == ALLOY_LED_RAINBOW) {
+		if (t->cfg.zone_fx[i] && t->drv->num_fx) {
 			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			mvprintw(y + 1, x, "RAINBOW");
+			mvprintw(y + 1, x, "%.7s",
+				 t->drv->fx_names[t->cfg.zone_fx[i] %
+						  t->drv->num_fx]);
 			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 		} else {
 			attron(COLOR_PAIR(pair) | A_BOLD);
@@ -257,7 +259,7 @@ static void draw_center_pane(struct tui *t)
 	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
 		int fsel = focused && sel == tui_center_idx_fx(t);
 		const char *fx_name =
-			t->drv->fx_names[t->cfg.fx_index %
+			t->drv->fx_names[t->cfg.zone_fx[0] %
 					 ALLOY_MAX(t->drv->num_fx, 1)];
 
 		if (fsel)

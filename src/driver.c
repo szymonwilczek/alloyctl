@@ -97,7 +97,9 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 
 	for (i = 0; i < drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
 		cfg->zone_color[i] = drv->zones[i].def_color;
-		cfg->zone_mode[i] = ALLOY_LED_STATIC;
+		cfg->zone_fx[i] = 0; /* steady */
+		cfg->zone_fx_freq[i] = ALLOY_FX_RATE_DEF;
+		cfg->zone_fx_speed[i] = ALLOY_FX_RATE_DEF;
 	}
 
 	cfg->brightness = 100;
@@ -108,8 +110,6 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 	cfg->startup_fx = (drv->caps & ALLOY_CAP_FX_RAINBOW) ?
 				  ALLOY_STARTUP_RAINBOW :
 				  ALLOY_STARTUP_OFF;
-
-	cfg->fx_index = 0; /* steady */
 
 	for (i = 0; i < drv->num_buttons && i < ALLOY_MAX_BUTTONS; i++)
 		cfg->buttons[i] = drv->buttons[i].def;

@@ -108,15 +108,20 @@ static void apply_lighting(struct tui *t)
 static void pane_adjust(struct tui *t, int dir, int big)
 {
 	int sel = t->cursor[t->focus];
+	uint8_t fx;
+	uint8_t i;
 
 	switch (t->focus) {
 	case PANE_CENTER:
 		if (sel == tui_center_idx_brightness(t)) {
 			adjust_brightness(t, dir * (big ? 20 : 5));
 		} else if (sel == tui_center_idx_fx(t)) {
-			t->cfg.fx_index = (uint8_t)((t->cfg.fx_index +
-						     t->drv->num_fx + dir) %
-						    t->drv->num_fx);
+			/* device-wide stepper: move every zone together */
+			fx = (uint8_t)((t->cfg.zone_fx[0] + t->drv->num_fx +
+					dir) %
+				       t->drv->num_fx);
+			for (i = 0; i < t->drv->num_zones; i++)
+				t->cfg.zone_fx[i] = fx;
 			apply_lighting(t);
 		} else if (sel == tui_center_idx_reactive(t)) {
 			t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
@@ -125,12 +130,10 @@ static void pane_adjust(struct tui *t, int dir, int big)
 			t->cfg.startup_fx =
 				(uint8_t)((t->cfg.startup_fx + 4 + dir) % 4);
 			apply_lighting(t);
-		} else if (sel < t->drv->num_zones &&
-			   (t->drv->caps & ALLOY_CAP_FX_RAINBOW)) {
-			t->cfg.zone_mode[sel] =
-				t->cfg.zone_mode[sel] == ALLOY_LED_STATIC ?
-					ALLOY_LED_RAINBOW :
-					ALLOY_LED_STATIC;
+		} else if (sel < t->drv->num_zones && t->drv->num_fx > 1) {
+			t->cfg.zone_fx[sel] = (uint8_t)((t->cfg.zone_fx[sel] +
+							 t->drv->num_fx + dir) %
+							t->drv->num_fx);
 			apply_lighting(t);
 		}
 		break;
