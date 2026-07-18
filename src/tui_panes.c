@@ -245,45 +245,49 @@ static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
 	addch(']');
 }
 
+/*
+ * Presets are drawn from the working config, one compact block each,
+ * so the pane holds every preset the mouse supports;
+ * CREATE button follows the last preset until the driver limit is reached.
+ */
 static void draw_sensitivity_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_SENSITIVITY];
 	int focused = t->focus == PANE_SENSITIVITY;
 	int sel = t->cursor[PANE_SENSITIVITY];
+	int y = r->y + 2;
 	int i;
 
 	draw_box(r, "SENSITIVITY", focused);
 
-	for (i = 0; i < 2; i++) {
-		int y = r->y + 2 + i * 6;
-		int active = t->cfg.dpi_active == i;
-
+	for (i = 0; i < t->cfg.dpi_count; i++) {
 		if (focused && sel == i)
 			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 2, "SENSITIVITY %d (CPI %d)", i + 1, i + 1);
+		mvprintw(y, r->x + 2, "SENSITIVITY %d", i + 1);
 		if (focused && sel == i)
 			attroff(COLOR_PAIR(CLR_SELECTED));
 
 		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		mvprintw(y + 2, r->x + (r->w - 16) / 2, "%5u",
-			 t->cfg.dpi[i][0]);
+		mvprintw(y + 1, r->x + 2, "%5u CPI", t->cfg.dpi[i][0]);
 		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		printw(" CPI");
-		if (active) {
-			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			printw("  ACTIVE");
-			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		}
 
-		draw_slider(y + 3, r->x + 2, r->w - 4, t->drv->dpi.min,
+		draw_slider(y + 2, r->x + 2, r->w - 4, t->drv->dpi.min,
 			    t->drv->dpi.max, t->cfg.dpi[i][0]);
-		mvprintw(y + 4, r->x + 2, "%u", t->drv->dpi.min);
-		mvprintw(y + 4, r->x + r->w - 2 - 4, "%u", t->drv->dpi.max);
+		y += 4;
+	}
+
+	if (t->cfg.dpi_count < tui_dpi_preset_limit(t)) {
+		if (focused && sel == t->cfg.dpi_count)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		else
+			attron(COLOR_PAIR(CLR_BUTTON));
+		mvprintw(y + 1, r->x + (r->w - 10) / 2, "  CREATE  ");
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON));
 	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: adjust  H/L: fast");
-	mvprintw(r->y + r->h - 2, r->x + 2, "a: set active preset");
+	mvprintw(r->y + r->h - 2, r->x + 2, "h/l: adjust  H/L: fast");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 

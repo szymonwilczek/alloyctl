@@ -50,6 +50,37 @@ static void adjust_polling(struct tui *t, int dir)
 		tui_apply(t, drv->ops->apply_polling, "polling");
 }
 
+/*
+ * Append preset seeded with double the last one (clamped and snapped),
+ * which reproduces the 800/1600/3200/... ladder the stock software builds,
+ * and leave the cursor on the newcomer.
+ */
+static void create_dpi_preset(struct tui *t)
+{
+	const struct alloy_driver *drv = t->drv;
+	uint8_t n = t->cfg.dpi_count;
+	int dpi;
+
+	if (n >= tui_dpi_preset_limit(t)) {
+		tui_status(t, "this mouse holds at most %d presets",
+			   tui_dpi_preset_limit(t));
+		return;
+	}
+
+	dpi = t->cfg.dpi[n - 1][0] * 2;
+	dpi = ALLOY_CLAMP(dpi, drv->dpi.min, drv->dpi.max);
+	dpi = dpi / drv->dpi.step * drv->dpi.step;
+	t->cfg.dpi[n][0] = (uint16_t)dpi;
+	t->cfg.dpi[n][1] = (uint16_t)dpi;
+	t->cfg.dpi_count = (uint8_t)(n + 1);
+	t->cursor[PANE_SENSITIVITY] = n;
+
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, drv->ops->apply_dpi, "dpi");
+	tui_status(t, "sensitivity %u created", n + 1);
+}
+
 static void footer_activate(struct tui *t)
 {
 	switch (t->cursor[PANE_FOOTER]) {
@@ -94,7 +125,9 @@ static void pane_adjust(struct tui *t, int dir, int big)
 
 	switch (t->focus) {
 	case PANE_SENSITIVITY:
-		adjust_dpi(t, sel, dir * (big ? 10 : 1) * t->drv->dpi.step);
+		if (sel < t->cfg.dpi_count)
+			adjust_dpi(t, sel,
+				   dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
 	case PANE_TUNING:
 		if (sel == 3) {
@@ -121,6 +154,10 @@ static void pane_activate(struct tui *t)
 		break;
 	case PANE_CENTER:
 		tui_illum_enter(t);
+		break;
+	case PANE_SENSITIVITY:
+		if (sel == t->cfg.dpi_count)
+			create_dpi_preset(t);
 		break;
 	case PANE_FOOTER:
 		footer_activate(t);
@@ -177,7 +214,8 @@ void tui_handle_key(struct tui *t, int ch)
 		pane_adjust(t, 1, 1);
 		break;
 	case 'a':
-		if (t->focus == PANE_SENSITIVITY) {
+		if (t->focus == PANE_SENSITIVITY &&
+		    t->cursor[PANE_SENSITIVITY] < t->cfg.dpi_count) {
 			t->cfg.dpi_active =
 				(uint8_t)t->cursor[PANE_SENSITIVITY];
 			t->dirty = 1;

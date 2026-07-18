@@ -93,6 +93,7 @@ void tui_apply(struct tui *t,
 	       const char *what);
 void tui_apply_all(struct tui *t);
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
+int tui_dpi_preset_limit(const struct tui *t);
 int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx);
 void tui_lighting_changed(struct tui *t);
 
