@@ -17,6 +17,14 @@
 #include "tui_internal.h"
 #include "default_art.h"
 
+/* Items of the EFFECTS pane, top to bottom */
+enum illum_item {
+	ILL_EFFECT,
+	ILL_FREQ,
+	ILL_SPEED,
+	ILL_COUNT,
+};
+
 void tui_illum_enter(struct tui *t)
 {
 	t->view = VIEW_ILLUM;
@@ -101,9 +109,41 @@ static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
 	}
 }
 
+static void draw_rate_row(struct tui *t, int y, int x, const char *name,
+			  uint8_t val, int selected)
+{
+	int rate_disabled = !t->cfg.zone_fx[t->illum_zone];
+	int i;
+
+	if (selected)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	else if (rate_disabled)
+		attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, x, "%-10s", name);
+	if (selected)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	else if (rate_disabled)
+		attroff(COLOR_PAIR(CLR_DISABLED));
+
+	if (rate_disabled) {
+		attron(COLOR_PAIR(CLR_DISABLED));
+		mvprintw(y, x + 11, "steady");
+		attroff(COLOR_PAIR(CLR_DISABLED));
+		return;
+	}
+
+	mvprintw(y, x + 11, "< %2u >", val);
+	move(y, x + 18);
+	for (i = ALLOY_FX_RATE_MIN; i <= ALLOY_FX_RATE_MAX; i++)
+		addch(i <= val ? (chtype)(ACS_CKBOARD | A_BOLD) :
+				 (chtype)ACS_BULLET);
+}
+
 static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 {
 	int focused = t->illum_focus == ILLUM_FOCUS_EFFECTS;
+	int sel = t->illum_cursor;
+	const char *fx_name = "STEADY";
 
 	tui_draw_pane_box(y, x, h, w, "EFFECTS", focused);
 
@@ -111,6 +151,119 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	mvprintw(y + 2, x + 2, "ZONE Z%d: %s", t->illum_zone + 1,
 		 t->drv->zones[t->illum_zone].name);
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+
+	if (t->drv->num_fx)
+		fx_name = t->drv->fx_names[t->cfg.zone_fx[t->illum_zone] %
+					   t->drv->num_fx];
+
+	if (focused && sel == ILL_EFFECT)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y + 4, x + 2, "%-10s", "EFFECT");
+	if (focused && sel == ILL_EFFECT)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	mvprintw(y + 4, x + 13, "< %s >", fx_name);
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+
+	draw_rate_row(t, y + 6, x + 2, "FREQUENCY",
+		      t->cfg.zone_fx_freq[t->illum_zone],
+		      focused && sel == ILL_FREQ);
+	draw_rate_row(t, y + 7, x + 2, "SPEED",
+		      t->cfg.zone_fx_speed[t->illum_zone],
+		      focused && sel == ILL_SPEED);
+
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y + h - 2, x + 2, "j/k: item  h/l: adjust");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+}
+
+/* Modal listing the driver's effects for the edited zone */
+static void illum_effect_modal(struct tui *t)
+{
+	const int count = t->drv->num_fx;
+	int sel;
+	int y;
+	int x;
+	int i;
+	int ch;
+
+	if (count < 2) {
+		tui_modal_message("EFFECT", "only STEADY on this device");
+		return;
+	}
+	sel = t->cfg.zone_fx[t->illum_zone] % count;
+
+	for (;;) {
+		tui_illum_draw(t);
+		tui_modal_frame(count + 4, 30, &y, &x,
+				t->drv->zones[t->illum_zone].name);
+
+		for (i = 0; i < count; i++) {
+			if (i == sel)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y + 2 + i, x + 3, "%-24s",
+				 t->drv->fx_names[i]);
+			if (i == sel)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+		}
+		attron(COLOR_PAIR(CLR_DISABLED));
+		mvprintw(y + count + 3, x + 2, " enter: pick  esc: cancel ");
+		attroff(COLOR_PAIR(CLR_DISABLED));
+		refresh();
+
+		ch = getch();
+		switch (ch) {
+		case KEY_UP:
+		case 'k':
+			sel = (sel + count - 1) % count;
+			break;
+		case KEY_DOWN:
+		case 'j':
+			sel = (sel + 1) % count;
+			break;
+		case 27:
+			return;
+		case '\n':
+		case KEY_ENTER:
+			t->cfg.zone_fx[t->illum_zone] = (uint8_t)sel;
+			tui_lighting_changed(t);
+			return;
+		default:
+			break;
+		}
+	}
+}
+
+static void illum_adjust(struct tui *t, int dir)
+{
+	int zone = t->illum_zone;
+	uint8_t *rate;
+	int val;
+
+	switch (t->illum_cursor) {
+	case ILL_EFFECT:
+		if (t->drv->num_fx < 2)
+			return;
+		t->cfg.zone_fx[zone] = (uint8_t)((t->cfg.zone_fx[zone] +
+						  t->drv->num_fx + dir) %
+						 t->drv->num_fx);
+		tui_lighting_changed(t);
+		return;
+	case ILL_FREQ:
+	case ILL_SPEED:
+		if (!t->cfg.zone_fx[zone])
+			return; /* steady has no rate */
+		rate = t->illum_cursor == ILL_FREQ ?
+			       &t->cfg.zone_fx_freq[zone] :
+			       &t->cfg.zone_fx_speed[zone];
+		val = *rate + dir;
+		*rate = (uint8_t)ALLOY_CLAMP(val, ALLOY_FX_RATE_MIN,
+					     ALLOY_FX_RATE_MAX);
+		tui_lighting_changed(t);
+		return;
+	default:
+		return;
+	}
 }
 
 void tui_illum_draw(struct tui *t)
@@ -161,10 +314,35 @@ void tui_illum_handle_key(struct tui *t, int ch)
 		if (t->illum_focus == ILLUM_FOCUS_PREVIEW) {
 			t->illum_zone = t->illum_tab;
 			t->illum_focus = ILLUM_FOCUS_EFFECTS;
+		} else if (t->illum_cursor == ILL_EFFECT) {
+			illum_effect_modal(t);
 		}
 		return;
-	case KEY_RESIZE:
 	default:
+		break;
+	}
+
+	if (t->illum_focus != ILLUM_FOCUS_EFFECTS)
 		return;
+
+	switch (ch) {
+	case KEY_UP:
+	case 'k':
+		t->illum_cursor = (t->illum_cursor + ILL_COUNT - 1) % ILL_COUNT;
+		break;
+	case KEY_DOWN:
+	case 'j':
+		t->illum_cursor = (t->illum_cursor + 1) % ILL_COUNT;
+		break;
+	case KEY_LEFT:
+	case 'h':
+		illum_adjust(t, -1);
+		break;
+	case KEY_RIGHT:
+	case 'l':
+		illum_adjust(t, 1);
+		break;
+	default:
+		break;
 	}
 }
