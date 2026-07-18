@@ -433,7 +433,8 @@ static void draw_footer(struct tui *t)
 	mvhline(LINES - 1, 0, ' ', COLS);
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(LINES - 1, 2, "%s", t->status);
-	mvprintw(LINES - 1, COLS - 34, "tab: pane  enter: select  q: quit");
+	mvprintw(LINES - 1, COLS - 44,
+		 "tab: pane  enter: select  s: save  q: quit");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 

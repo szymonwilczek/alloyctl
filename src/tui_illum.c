@@ -707,8 +707,8 @@ void tui_illum_draw(struct tui *t)
 	mvhline(LINES - 2, 0, ACS_HLINE, COLS);
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(LINES - 1, 2, "%s", t->status);
-	mvprintw(LINES - 1, COLS - 44,
-		 "tab: zone  enter: edit zone  esc: back");
+	mvprintw(LINES - 1, COLS - 52,
+		 "tab: zone  enter: edit zone  s: save  esc: back");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
 	refresh();
@@ -720,6 +720,9 @@ void tui_illum_handle_key(struct tui *t, int ch)
 	case 27:
 	case 'q':
 		t->view = VIEW_MAIN;
+		return;
+	case 's':
+		tui_save(t);
 		return;
 	case '\t':
 		if (t->illum_focus == ILLUM_FOCUS_PREVIEW)
