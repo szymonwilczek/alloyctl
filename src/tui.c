@@ -52,6 +52,14 @@ void tui_apply_all(struct tui *t)
 	tui_apply(t, ops->apply_buttons, "buttons");
 }
 
+/* Every lighting edit funnels through here: dirty tracking + live push */
+void tui_lighting_changed(struct tui *t)
+{
+	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_colors, "lighting");
+}
+
 /*
  * Effects that cycle their own hues ignore the configured zone color;
  * classified by display-name convention shared across the drivers.

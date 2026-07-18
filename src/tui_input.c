@@ -100,9 +100,7 @@ static void footer_activate(struct tui *t)
 
 static void apply_lighting(struct tui *t)
 {
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_colors, "lighting");
+	tui_lighting_changed(t);
 }
 
 static void pane_adjust(struct tui *t, int dir, int big)

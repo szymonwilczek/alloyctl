@@ -179,9 +179,7 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 
 static void picker_changed(struct tui *t)
 {
-	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_colors, "lighting");
+	tui_lighting_changed(t);
 }
 
 static int hex_digit(int ch)
