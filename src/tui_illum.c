@@ -12,6 +12,7 @@
  *	can be edited without extra keystrokes.
  *	ESC leaves the view.
  */
+#include <stdio.h>
 #include <string.h>
 
 #include "tui_internal.h"
@@ -22,6 +23,11 @@ enum illum_item {
 	ILL_EFFECT,
 	ILL_FREQ,
 	ILL_SPEED,
+	ILL_R,
+	ILL_G,
+	ILL_B,
+	ILL_PALETTE,
+	ILL_HEX,
 	ILL_COUNT,
 };
 
@@ -139,6 +145,105 @@ static void draw_rate_row(struct tui *t, int y, int x, const char *name,
 				 (chtype)ACS_BULLET);
 }
 
+static void draw_color_channel(int y, int x, int w, const char *name,
+			       uint8_t val, int selected, int disabled)
+{
+	int span = ALLOY_CLAMP(w - 16, 4, 20);
+	int bar = (int)val * span / 255;
+	int i;
+
+	if (selected)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	else if (disabled)
+		attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, x, "%s < %3u >", name, val);
+	if (selected)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	else if (disabled)
+		attroff(COLOR_PAIR(CLR_DISABLED));
+
+	move(y, x + 12);
+	for (i = 0; i < span; i++)
+		addch(i < bar ? (chtype)(ACS_CKBOARD | A_BOLD) :
+				(chtype)ACS_BULLET);
+}
+
+/*
+ * COLORS section is the old zone picker modal laid flat into the pane:
+ * R/G/B steppers, shared palette and the hex field.
+ * R/G/B grey out while the zone runs a color-cycling effect but
+ * the palette and hex stay editable so color can be prepared in advance.
+ */
+static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
+{
+	struct alloy_rgb *rgb = &t->cfg.zone_color[t->illum_zone];
+	int sel = t->illum_cursor;
+	int greyed =
+		tui_fx_ignores_color(t->drv, t->cfg.zone_fx[t->illum_zone]);
+	char hex[8];
+	size_t i;
+
+	if (COLORS >= 256) {
+		init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK,
+			  tui_rgb_to_cube(rgb));
+		for (i = 0; i < TUI_PALETTE_SIZE; i++)
+			init_pair((short)(CLR_PICKER_SWATCH + i),
+				  tui_rgb_to_cube(&tui_palette[i]), -1);
+	}
+
+	attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+	mvprintw(y, x + 2, "COLORS");
+	attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+
+	draw_color_channel(y + 2, x + 2, w - 4, "R", rgb->r,
+			   focused && sel == ILL_R, greyed);
+	draw_color_channel(y + 3, x + 2, w - 4, "G", rgb->g,
+			   focused && sel == ILL_G, greyed);
+	draw_color_channel(y + 4, x + 2, w - 4, "B", rgb->b,
+			   focused && sel == ILL_B, greyed);
+
+	if (focused && sel == ILL_PALETTE)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y + 6, x + 2, "PALETTE");
+	if (focused && sel == ILL_PALETTE)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	for (i = 0; i < TUI_PALETTE_SIZE; i++) {
+		int sx = x + 12 + (int)i * 2 - (int)(i / 8) * 16;
+		int sy = y + 6 + (int)(i / 8);
+
+		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
+			mvaddch(sy, sx - 1, '[' | A_BOLD);
+		if (COLORS >= 256)
+			attron(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
+		mvaddch(sy, sx, ACS_DIAMOND);
+		if (COLORS >= 256)
+			attroff(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
+		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
+			mvaddch(sy, sx + 1, ']' | A_BOLD);
+	}
+
+	/* hex field: typed buffer while editing, live value otherwise */
+	if (focused && sel == ILL_HEX)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y + 9, x + 2, "HEX");
+	if (focused && sel == ILL_HEX)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	if (t->illum_hexbuf) {
+		attron(A_BOLD);
+		mvprintw(y + 9, x + 12, "#%-6s_", t->illum_hexbuf);
+		attroff(A_BOLD);
+	} else {
+		snprintf(hex, sizeof(hex), "%02X%02X%02X", rgb->r, rgb->g,
+			 rgb->b);
+		mvprintw(y + 9, x + 12, "#%s", hex);
+	}
+	if (COLORS >= 256) {
+		attron(COLOR_PAIR(CLR_PICKER_PREVIEW));
+		mvprintw(y + 9, x + w - 9, "      ");
+		attroff(COLOR_PAIR(CLR_PICKER_PREVIEW));
+	}
+}
+
 static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 {
 	int focused = t->illum_focus == ILLUM_FOCUS_EFFECTS;
@@ -171,6 +276,8 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	draw_rate_row(t, y + 7, x + 2, "SPEED",
 		      t->cfg.zone_fx_speed[t->illum_zone],
 		      focused && sel == ILL_SPEED);
+
+	draw_colors_section(t, y + 9, x, w, focused);
 
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + h - 2, x + 2, "j/k: item  h/l: adjust");
@@ -234,9 +341,10 @@ static void illum_effect_modal(struct tui *t)
 	}
 }
 
-static void illum_adjust(struct tui *t, int dir)
+static void illum_adjust(struct tui *t, int dir, int big)
 {
 	int zone = t->illum_zone;
+	uint8_t *chan = NULL;
 	uint8_t *rate;
 	int val;
 
@@ -260,6 +368,84 @@ static void illum_adjust(struct tui *t, int dir)
 		*rate = (uint8_t)ALLOY_CLAMP(val, ALLOY_FX_RATE_MIN,
 					     ALLOY_FX_RATE_MAX);
 		tui_lighting_changed(t);
+		return;
+	case ILL_R:
+		chan = &t->cfg.zone_color[zone].r;
+		break;
+	case ILL_G:
+		chan = &t->cfg.zone_color[zone].g;
+		break;
+	case ILL_B:
+		chan = &t->cfg.zone_color[zone].b;
+		break;
+	case ILL_PALETTE:
+		t->illum_swatch = (t->illum_swatch + TUI_PALETTE_SIZE + dir) %
+				  TUI_PALETTE_SIZE;
+		return;
+	default:
+		return;
+	}
+
+	if (tui_fx_ignores_color(t->drv, t->cfg.zone_fx[zone]))
+		return;
+	val = *chan + dir * (big ? 16 : 1);
+	*chan = (uint8_t)ALLOY_CLAMP(val, 0, 255);
+	tui_lighting_changed(t);
+}
+
+/*
+ * Hex entry loop:
+ * type up to six digits, enter commits (three-digit shorthand expands CSS-style),
+ * esc abandons.
+ * Buffer is exposed through illum_hexbuf so the redraw shows the digits as they are typed.
+ */
+static void illum_hex_input(struct tui *t)
+{
+	char buf[7] = "";
+	size_t len = 0;
+	int ch;
+
+	t->illum_hexbuf = buf;
+	for (;;) {
+		tui_illum_draw(t);
+		ch = getch();
+		if (ch == 27) {
+			t->illum_hexbuf = NULL;
+			return;
+		}
+		if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+			if (len)
+				buf[--len] = '\0';
+			continue;
+		}
+		if (ch == '\n' || ch == KEY_ENTER)
+			break;
+		if (len < 6 && tui_hex_digit(ch) >= 0) {
+			buf[len++] = (char)ch;
+			buf[len] = '\0';
+		}
+	}
+	t->illum_hexbuf = NULL;
+
+	if (tui_parse_hex_color(buf, len, &t->cfg.zone_color[t->illum_zone])) {
+		tui_status(t, "invalid hex color");
+		return;
+	}
+	tui_lighting_changed(t);
+}
+
+static void illum_activate(struct tui *t)
+{
+	switch (t->illum_cursor) {
+	case ILL_EFFECT:
+		illum_effect_modal(t);
+		return;
+	case ILL_PALETTE:
+		t->cfg.zone_color[t->illum_zone] = tui_palette[t->illum_swatch];
+		tui_lighting_changed(t);
+		return;
+	case ILL_HEX:
+		illum_hex_input(t);
 		return;
 	default:
 		return;
@@ -314,8 +500,8 @@ void tui_illum_handle_key(struct tui *t, int ch)
 		if (t->illum_focus == ILLUM_FOCUS_PREVIEW) {
 			t->illum_zone = t->illum_tab;
 			t->illum_focus = ILLUM_FOCUS_EFFECTS;
-		} else if (t->illum_cursor == ILL_EFFECT) {
-			illum_effect_modal(t);
+		} else {
+			illum_activate(t);
 		}
 		return;
 	default:
@@ -336,11 +522,21 @@ void tui_illum_handle_key(struct tui *t, int ch)
 		break;
 	case KEY_LEFT:
 	case 'h':
-		illum_adjust(t, -1);
+		illum_adjust(t, -1, 0);
 		break;
 	case KEY_RIGHT:
 	case 'l':
-		illum_adjust(t, 1);
+		illum_adjust(t, 1, 0);
+		break;
+	case 'H':
+		illum_adjust(t, -1, 1);
+		break;
+	case 'L':
+		illum_adjust(t, 1, 1);
+		break;
+	case 'x':
+		t->illum_cursor = ILL_HEX;
+		illum_hex_input(t);
 		break;
 	default:
 		break;

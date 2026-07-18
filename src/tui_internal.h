@@ -76,6 +76,8 @@ struct tui {
 	int illum_zone; /* zone the EFFECTS pane edits */
 	int illum_tab; /* zone tab cursor in the preview pane */
 	int illum_cursor; /* selected item in the EFFECTS pane */
+	int illum_swatch; /* palette cursor in the COLORS section */
+	const char *illum_hexbuf; /* non-NULL while typing a hex color */
 
 	char status[128];
 	char firmware[48];
@@ -116,6 +118,11 @@ void tui_modal_remap(struct tui *t, int button);
 void tui_modal_frame(int h, int w, int *py, int *px, const char *title);
 
 /* tui_colorpicker.c */
+#define TUI_PALETTE_SIZE 16
+extern const struct alloy_rgb tui_palette[TUI_PALETTE_SIZE];
+short tui_rgb_to_cube(const struct alloy_rgb *c);
+int tui_hex_digit(int ch);
+int tui_parse_hex_color(char *buf, size_t len, struct alloy_rgb *rgb);
 void tui_modal_color_zone(struct tui *t, int zone);
 void tui_modal_color_reactive(struct tui *t);
 
