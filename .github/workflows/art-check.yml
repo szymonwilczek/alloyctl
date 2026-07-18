@@ -1,0 +1,59 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: Driver art check
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    paths:
+      - 'drivers/*/*.c'
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  check-art:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Suggest missing driver art
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+
+          gh api --paginate "repos/$REPO/pulls/$PR/files" \
+            --jq '.[].filename' > changed.txt
+
+          missing=""
+          for f in $(grep -E '^drivers/[^/]+/[^/]+\.c$' changed.txt || true); do
+            driver_dir=$(dirname "$f")
+            driver_name=$(basename "$driver_dir")
+            art_file="$driver_dir/${driver_name}_art.txt"
+
+            if [[ ! -f "$art_file" ]] && ! grep -qFx "$art_file" changed.txt; then
+              missing+="- \`$f\` is missing \`$art_file\`
+          "
+            fi
+          done
+
+          if [[ -n "$missing" ]]; then
+            body="Hi! I noticed you are adding or modifying driver(s) without a dedicated ASCII art text file:
+
+          $missing
+          It is **not required** to provide custom mouse art, and your pull request won't be blocked. However, having a custom ASCII graphic (with dynamic LED zones) greatly improves the TUI experience for users of your device!
+
+          If you'd like to add it, create the text file alongside your driver, use \`\$1\`...\`\$8\` markers for LED zones, and it will be picked up automatically. See \`Documentation/contributor/adding-a-driver.rst\` for details.
+
+          *(If the driver intentionally relies on the generic fallback art, you can safely ignore this message.)*"
+
+            if ! gh api "repos/$REPO/issues/$PR/comments" --jq '.[].body' | grep -q "without a dedicated ASCII art text file"; then
+              gh pr comment "$PR" --body "$body"
+            fi
+          fi
