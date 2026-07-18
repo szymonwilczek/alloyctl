@@ -23,6 +23,18 @@ enum tui_pane {
 	PANE_COUNT,
 };
 
+/* Top-level screens; ILLUMINATION button switches between them */
+enum tui_view {
+	VIEW_MAIN,
+	VIEW_ILLUM,
+};
+
+/* Panes of the illumination view: EFFECTS (1/3) and the preview (2/3) */
+enum tui_illum_focus {
+	ILLUM_FOCUS_EFFECTS,
+	ILLUM_FOCUS_PREVIEW,
+};
+
 /* Items in the footer pane, left to right */
 enum tui_footer_item {
 	FOOTER_LIVE_PREVIEW,
@@ -59,6 +71,12 @@ struct tui {
 	enum tui_pane focus;
 	int cursor[PANE_COUNT]; /* per-pane selected item */
 
+	enum tui_view view;
+	enum tui_illum_focus illum_focus;
+	int illum_zone; /* zone the EFFECTS pane edits */
+	int illum_tab; /* zone tab cursor in the preview pane */
+	int illum_cursor; /* selected item in the EFFECTS pane */
+
 	char status[128];
 	char firmware[48];
 
@@ -83,10 +101,13 @@ int tui_center_idx_brightness(const struct tui *t);
 int tui_center_idx_fx(const struct tui *t);
 int tui_center_idx_reactive(const struct tui *t);
 int tui_center_idx_startup(const struct tui *t);
+int tui_center_idx_illum(const struct tui *t);
 
 /* tui_panes.c */
 void tui_draw(struct tui *t);
 void tui_zone_color_pairs(const struct tui *t);
+void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
+		       int focused);
 
 /* tui_modal.c */
 void tui_modal_message(const char *title, const char *text);
@@ -99,5 +120,10 @@ void tui_modal_color_reactive(struct tui *t);
 
 /* tui_input.c */
 void tui_handle_key(struct tui *t, int ch);
+
+/* tui_illum.c */
+void tui_illum_draw(struct tui *t);
+void tui_illum_handle_key(struct tui *t, int ch);
+void tui_illum_enter(struct tui *t);
 
 #endif /* ALLOY_TUI_INTERNAL_H */
