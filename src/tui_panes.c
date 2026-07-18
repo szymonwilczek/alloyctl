@@ -261,15 +261,29 @@ static void draw_sensitivity_pane(struct tui *t)
 	draw_box(r, "SENSITIVITY", focused);
 
 	for (i = 0; i < t->cfg.dpi_count; i++) {
+		int active = t->cfg.dpi_active == i;
+
+		/*
+		 * Cursor keeps its usual highlight;
+		 * active preset stands out in the hot green even while
+		 * the cursor sits elsewhere
+		 */
 		if (focused && sel == i)
 			attron(COLOR_PAIR(CLR_SELECTED));
+		else if (active)
+			attron(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
 		mvprintw(y, r->x + 2, "SENSITIVITY %d", i + 1);
-		if (focused && sel == i)
-			attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
 
 		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 		mvprintw(y + 1, r->x + 2, "%5u CPI", t->cfg.dpi[i][0]);
 		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		if (active) {
+			attron(COLOR_PAIR(CLR_BUTTON_HOT));
+			mvprintw(y + 1, r->x + 12, " ACTIVE ");
+			attroff(COLOR_PAIR(CLR_BUTTON_HOT));
+		}
 
 		draw_slider(y + 2, r->x + 2, r->w - 4, t->drv->dpi.min,
 			    t->drv->dpi.max, t->cfg.dpi[i][0]);
@@ -287,7 +301,8 @@ static void draw_sensitivity_pane(struct tui *t)
 	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(r->y + r->h - 2, r->x + 2, "h/l: adjust  H/L: fast");
+	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: adjust  H/L: fast");
+	mvprintw(r->y + r->h - 2, r->x + 2, "enter: set active");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 

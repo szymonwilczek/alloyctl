@@ -50,6 +50,17 @@ static void adjust_polling(struct tui *t, int dir)
 		tui_apply(t, drv->ops->apply_polling, "polling");
 }
 
+static void set_active_dpi_preset(struct tui *t, int preset)
+{
+	if (preset >= t->cfg.dpi_count)
+		return;
+	t->cfg.dpi_active = (uint8_t)preset;
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_dpi, "dpi");
+	tui_status(t, "sensitivity %d active", preset + 1);
+}
+
 /*
  * Append preset seeded with double the last one (clamped and snapped),
  * which reproduces the 800/1600/3200/... ladder the stock software builds,
@@ -156,7 +167,9 @@ static void pane_activate(struct tui *t)
 		tui_illum_enter(t);
 		break;
 	case PANE_SENSITIVITY:
-		if (sel == t->cfg.dpi_count)
+		if (sel < t->cfg.dpi_count)
+			set_active_dpi_preset(t, sel);
+		else
 			create_dpi_preset(t);
 		break;
 	case PANE_FOOTER:
@@ -214,14 +227,8 @@ void tui_handle_key(struct tui *t, int ch)
 		pane_adjust(t, 1, 1);
 		break;
 	case 'a':
-		if (t->focus == PANE_SENSITIVITY &&
-		    t->cursor[PANE_SENSITIVITY] < t->cfg.dpi_count) {
-			t->cfg.dpi_active =
-				(uint8_t)t->cursor[PANE_SENSITIVITY];
-			t->dirty = 1;
-			if (t->live_preview)
-				tui_apply(t, t->drv->ops->apply_dpi, "dpi");
-		}
+		if (t->focus == PANE_SENSITIVITY)
+			set_active_dpi_preset(t, t->cursor[PANE_SENSITIVITY]);
 		break;
 	case '\n':
 	case KEY_ENTER:
