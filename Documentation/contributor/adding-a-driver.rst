@@ -5,10 +5,11 @@
 Adding support for a new mouse
 ==============================
 
-One mouse is one file under ``drivers/``.
+One mouse is one driver, and each driver lives in its own directory under ``drivers/``.
+For example, the Rival 3 driver is located at ``drivers/steelseries_rival3/steelseries_rival3.c``.
 
-Nothing else in the tree needs to change: the build picks the file up
-automatically and ``ALLOY_DRIVER_REGISTER()`` adds it to the runtime registry
+Nothing else in the tree needs to change: the build picks the C files up
+automatically via wildcard and ``ALLOY_DRIVER_REGISTER()`` adds the driver to the runtime registry
 through a dedicated ELF section.
 
 Before you write code
@@ -37,11 +38,12 @@ Before you write code
    which makes careful probing safe-ish. Never send writes you do not
    understand to ``0x11``-style flash save commands while experimenting.
 
-Driver file
-===============
+Driver directory
+================
 
-Copy the skeleton below to ``drivers/<vendor>_<model>.c`` and fill it in.
-:ghsrc:`drivers/steelseries_rival3_gen2.c` is the reference implementation to
+Create a new directory ``drivers/<vendor>_<model>/`` and place your driver C file inside it as ``drivers/<vendor>_<model>/<vendor>_<model>.c``.
+Copy the skeleton below and fill it in.
+:ghsrc:`drivers/steelseries_rival3/steelseries_rival3.c` is the reference implementation to
 imitate.
 
 .. code-block:: c
@@ -91,16 +93,24 @@ imitate.
 
    /*
     * Optional:
-    * ASCII art of your mouse, max 40 rendered columns wide.
+    * ASCII art of your mouse is read from a text file, not embedded here.
+    * Create a file named `<vendor>_<model>_art.txt` in your driver's directory.
+    *
     * Mark the LED zones (Z1, Z2, ...) and the side buttons (B4, B5, ...)
-    * like the Rival 3 Gen 2 driver does. Prefix a character with "$N"
+    * like the Rival 3 drivers do. Prefix a character with "$N"
     * (N = 1..8) to paint it in the live color of zone N; "$$" renders
     * a literal dollar and the markers take no column. Painted
     * characters follow the user's colors in the main view and animate
     * in the illumination preview.
-    * Set to NULL to use the generic art from defaults/mouse.txt.
+    *
+    * At build time, the Makefile generates a header `build/art_<vendor>_<model>.h`
+    * which exposes `alloy_art_<vendor>_<model>`.
+    * Include that header at the top of your driver file and set
+    * `.ascii_art = alloy_art_<vendor>_<model>` below.
+    *
+    * To use the generic fallback art from `defaults/mouse.txt`, simply don't create
+    * the text file, include `build/default_art.h`, and set `.ascii_art = alloy_default_mouse_art`.
     */
-   static const char mymouse_art[] = "...";
 
    static const struct alloy_driver_ops mymouse_ops = {
            .apply_dpi = mymouse_apply_dpi,
@@ -125,7 +135,7 @@ imitate.
            .buttons = mymouse_buttons,
            .num_buttons = ALLOY_ARRAY_SIZE(mymouse_buttons),
            .caps = 0,
-           .ascii_art = mymouse_art,
+           .ascii_art = alloy_art_mymouse, // from the generated header
            .ops = &mymouse_ops,
            .config_defaults = alloy_config_generic_defaults,
    };
