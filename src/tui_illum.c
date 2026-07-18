@@ -171,13 +171,13 @@ static void illum_zone_pairs(const struct tui *t, long ms)
 {
 	uint8_t i;
 
-	if (COLORS < 256)
+	if (COLORS < 8)
 		return;
 
 	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
 		struct alloy_rgb c = zone_preview_color(t, i, ms);
 
-		init_pair((short)(CLR_ZONE_BASE + i), tui_rgb_to_cube(&c), -1);
+		init_pair((short)(CLR_ZONE_BASE + i), tui_rgb_to_color(&c), -1);
 	}
 }
 
@@ -254,8 +254,8 @@ static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
 			move(y, x);
 		} else {
 			int zone = line * zones / ALLOY_MAX(art_lines, 1);
-			int pair = COLORS >= 256 ? CLR_ZONE_BASE + zone :
-						   CLR_FRAME;
+			int pair = COLORS >= 8 ? CLR_ZONE_BASE + zone :
+						 CLR_FRAME;
 
 			if (zone == t->illum_zone)
 				addch((chtype)*p | COLOR_PAIR(pair) | A_BOLD);
@@ -333,12 +333,12 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 	char hex[8];
 	size_t i;
 
-	if (COLORS >= 256) {
+	if (COLORS >= 8) {
 		init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK,
-			  tui_rgb_to_cube(rgb));
+			  tui_rgb_to_color(rgb));
 		for (i = 0; i < TUI_PALETTE_SIZE; i++)
 			init_pair((short)(CLR_PICKER_SWATCH + i),
-				  tui_rgb_to_cube(&tui_palette[i]), -1);
+				  tui_rgb_to_color(&tui_palette[i]), -1);
 	}
 
 	attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
@@ -363,10 +363,10 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 
 		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
 			mvaddch(sy, sx - 1, '[' | A_BOLD);
-		if (COLORS >= 256)
+		if (COLORS >= 8)
 			attron(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
 		mvaddch(sy, sx, ACS_DIAMOND);
-		if (COLORS >= 256)
+		if (COLORS >= 8)
 			attroff(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
 		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
 			mvaddch(sy, sx + 1, ']' | A_BOLD);
@@ -387,7 +387,7 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 			 rgb->b);
 		mvprintw(y + 9, x + 12, "#%s", hex);
 	}
-	if (COLORS >= 256) {
+	if (COLORS >= 8) {
 		attron(COLOR_PAIR(CLR_PICKER_PREVIEW));
 		mvprintw(y + 9, x + w - 9, "      ");
 		attroff(COLOR_PAIR(CLR_PICKER_PREVIEW));

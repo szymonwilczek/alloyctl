@@ -54,16 +54,12 @@ void tui_zone_color_pairs(const struct tui *t)
 {
 	uint8_t i;
 
-	if (COLORS < 256)
+	if (COLORS < 8)
 		return;
 
-	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		const struct alloy_rgb *c = &t->cfg.zone_color[i];
-		short cube = (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) +
-				     (c->b / 51));
-
-		init_pair((short)(CLR_ZONE_BASE + i), cube, -1);
-	}
+	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++)
+		init_pair((short)(CLR_ZONE_BASE + i),
+			  tui_rgb_to_color(&t->cfg.zone_color[i]), -1);
 }
 
 void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
