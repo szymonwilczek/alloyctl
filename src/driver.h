@@ -177,7 +177,12 @@ struct alloy_driver {
 	/*
 	 * Optional ASCII art of the mouse, drawn in the center pane.
 	 * NULL selects the built-in generic art.
-	 * Keep every line at most 40 columns wide, please.
+	 * Keep every line at most 40 rendered columns wide, please.
+	 *
+	 * Prefix a character with "$N" (N = 1..8) to paint it in the
+	 * live color of zone N-1; "$$" renders a literal dollar.
+	 * Markers take no column.
+	 * Marker naming zone the device lacks renders its character unpainted.
 	 */
 	const char *ascii_art;
 

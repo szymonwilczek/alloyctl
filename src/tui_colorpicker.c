@@ -58,22 +58,39 @@ const struct alloy_rgb tui_palette[TUI_PALETTE_SIZE] = {
 	{ 0x00, 0x00, 0x00 },
 };
 
-short tui_rgb_to_cube(const struct alloy_rgb *c)
+/*
+ * Map RGB color onto whatever palette the terminal offers:
+ * 6x6x6 cube on 256-color terminals,
+ * 16 ANSI colors with the bright bit where available,
+ * or the base 8 as a last resort.
+ */
+short tui_rgb_to_color(const struct alloy_rgb *c)
 {
-	return (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) + (c->b / 51));
+	short idx;
+
+	if (COLORS >= 256)
+		return (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) +
+			       (c->b / 51));
+
+	idx = (short)((c->r > 0x60 ? COLOR_RED : 0) |
+		      (c->g > 0x60 ? COLOR_GREEN : 0) |
+		      (c->b > 0x60 ? COLOR_BLUE : 0));
+	if (COLORS >= 16 && (c->r > 0xC0 || c->g > 0xC0 || c->b > 0xC0))
+		idx += 8;
+	return idx;
 }
 
 static void picker_pairs(const struct picker *p)
 {
 	size_t i;
 
-	if (COLORS < 256)
+	if (COLORS < 8)
 		return;
 
-	init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK, tui_rgb_to_cube(p->rgb));
+	init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK, tui_rgb_to_color(p->rgb));
 	for (i = 0; i < TUI_PALETTE_SIZE; i++)
 		init_pair((short)(CLR_PICKER_SWATCH + i),
-			  tui_rgb_to_cube(&tui_palette[i]), -1);
+			  tui_rgb_to_color(&tui_palette[i]), -1);
 }
 
 static void draw_channel(int y, int x, const char *name, uint8_t val,

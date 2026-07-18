@@ -171,13 +171,13 @@ static void illum_zone_pairs(const struct tui *t, long ms)
 {
 	uint8_t i;
 
-	if (COLORS < 256)
+	if (COLORS < 8)
 		return;
 
 	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
 		struct alloy_rgb c = zone_preview_color(t, i, ms);
 
-		init_pair((short)(CLR_ZONE_BASE + i), tui_rgb_to_cube(&c), -1);
+		init_pair((short)(CLR_ZONE_BASE + i), tui_rgb_to_color(&c), -1);
 	}
 }
 
@@ -216,46 +216,28 @@ static void draw_zone_tabs(struct tui *t, int y, int x, int w)
 }
 
 /*
- * Art carries no zone coordinates, so the preview tints it in horizontal bands:
+ * Fallback for art without zone markup: tint it in horizontal bands,
  * line N of the art belongs to zone N * num_zones / art_lines,
  * matching the top-to-bottom zone order every supported mouse uses.
+ * Marked-up art paints exactly its marked characters instead.
  */
-static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
+static void draw_banded_art(struct tui *t, const char *art, int y, int x,
+			    int max_y, int art_lines)
 {
-	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
-					      alloy_default_mouse_art;
 	const char *p;
-	int art_lines = 0;
-	int art_width = 0;
-	int cur = 0;
-	int line = 0;
 	int zones = ALLOY_MAX(t->drv->num_zones, 1);
-	int y;
-	int x;
-
-	for (p = art; *p; p++) {
-		if (*p == '\n') {
-			art_lines++;
-			art_width = ALLOY_MAX(art_width, cur);
-			cur = 0;
-		} else {
-			cur++;
-		}
-	}
-
-	y = py + ALLOY_MAX(1, (ph - art_lines) / 2);
-	x = px + ALLOY_MAX(1, (pw - art_width) / 2);
+	int line = 0;
 
 	move(y, x);
-	for (p = art; *p && y < py + ph; p++) {
+	for (p = art; *p && y < max_y; p++) {
 		if (*p == '\n') {
 			line++;
 			y++;
 			move(y, x);
 		} else {
 			int zone = line * zones / ALLOY_MAX(art_lines, 1);
-			int pair = COLORS >= 256 ? CLR_ZONE_BASE + zone :
-						   CLR_FRAME;
+			int pair = COLORS >= 8 ? CLR_ZONE_BASE + zone :
+						 CLR_FRAME;
 
 			if (zone == t->illum_zone)
 				addch((chtype)*p | COLOR_PAIR(pair) | A_BOLD);
@@ -263,6 +245,25 @@ static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
 				addch((chtype)*p | COLOR_PAIR(pair));
 		}
 	}
+}
+
+static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
+{
+	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
+					      alloy_default_mouse_art;
+	int art_lines;
+	int art_width;
+	int y;
+	int x;
+
+	tui_art_measure(art, &art_lines, &art_width);
+	y = py + ALLOY_MAX(1, (ph - art_lines) / 2);
+	x = px + ALLOY_MAX(1, (pw - art_width) / 2);
+
+	if (tui_art_has_markup(art))
+		tui_art_draw(t, art, y, x, py + ph, t->illum_zone);
+	else
+		draw_banded_art(t, art, y, x, py + ph, art_lines);
 }
 
 static void draw_rate_row(struct tui *t, int y, int x, const char *name,
@@ -333,12 +334,12 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 	char hex[8];
 	size_t i;
 
-	if (COLORS >= 256) {
+	if (COLORS >= 8) {
 		init_pair(CLR_PICKER_PREVIEW, COLOR_BLACK,
-			  tui_rgb_to_cube(rgb));
+			  tui_rgb_to_color(rgb));
 		for (i = 0; i < TUI_PALETTE_SIZE; i++)
 			init_pair((short)(CLR_PICKER_SWATCH + i),
-				  tui_rgb_to_cube(&tui_palette[i]), -1);
+				  tui_rgb_to_color(&tui_palette[i]), -1);
 	}
 
 	attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
@@ -363,10 +364,10 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 
 		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
 			mvaddch(sy, sx - 1, '[' | A_BOLD);
-		if (COLORS >= 256)
+		if (COLORS >= 8)
 			attron(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
 		mvaddch(sy, sx, ACS_DIAMOND);
-		if (COLORS >= 256)
+		if (COLORS >= 8)
 			attroff(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
 		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
 			mvaddch(sy, sx + 1, ']' | A_BOLD);
@@ -387,7 +388,7 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 			 rgb->b);
 		mvprintw(y + 9, x + 12, "#%s", hex);
 	}
-	if (COLORS >= 256) {
+	if (COLORS >= 8) {
 		attron(COLOR_PAIR(CLR_PICKER_PREVIEW));
 		mvprintw(y + 9, x + w - 9, "      ");
 		attroff(COLOR_PAIR(CLR_PICKER_PREVIEW));

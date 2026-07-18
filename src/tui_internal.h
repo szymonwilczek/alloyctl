@@ -111,13 +111,19 @@ void tui_modal_frame(int h, int w, int *py, int *px, const char *title);
 /* tui_colorpicker.c */
 #define TUI_PALETTE_SIZE 16
 extern const struct alloy_rgb tui_palette[TUI_PALETTE_SIZE];
-short tui_rgb_to_cube(const struct alloy_rgb *c);
+short tui_rgb_to_color(const struct alloy_rgb *c);
 int tui_hex_digit(int ch);
 int tui_parse_hex_color(char *buf, size_t len, struct alloy_rgb *rgb);
 void tui_modal_color_reactive(struct tui *t);
 
 /* tui_input.c */
 void tui_handle_key(struct tui *t, int ch);
+
+/* tui_art.c */
+int tui_art_has_markup(const char *art);
+void tui_art_measure(const char *art, int *lines, int *width);
+void tui_art_draw(const struct tui *t, const char *art, int y, int x, int max_y,
+		  int hl_zone);
 
 /* tui_illum.c */
 #define TUI_ILLUM_FRAME_MS 100 /* preview animation tick */

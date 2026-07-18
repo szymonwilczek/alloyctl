@@ -54,16 +54,12 @@ void tui_zone_color_pairs(const struct tui *t)
 {
 	uint8_t i;
 
-	if (COLORS < 256)
+	if (COLORS < 8)
 		return;
 
-	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		const struct alloy_rgb *c = &t->cfg.zone_color[i];
-		short cube = (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) +
-				     (c->b / 51));
-
-		init_pair((short)(CLR_ZONE_BASE + i), cube, -1);
-	}
+	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++)
+		init_pair((short)(CLR_ZONE_BASE + i),
+			  tui_rgb_to_color(&t->cfg.zone_color[i]), -1);
 }
 
 void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
@@ -180,44 +176,26 @@ static void draw_actions_pane(struct tui *t)
 /*
  * Every lighting control lives in the illumination view;
  * center pane is just the mouse portrait and the way in.
+ * Portrait renders through the zone markup, so its marked
+ * characters track the configured zone colors live.
  */
 static void draw_center_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_CENTER];
 	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
 					      alloy_default_mouse_art;
-	const char *p = art;
 	int focused = t->focus == PANE_CENTER;
-	int art_lines = 0;
-	int art_width = 0;
-	int cur = 0;
+	int art_lines;
+	int art_width;
 	int y;
 	int x;
 
 	draw_box(r, t->drv->name, focused);
 
-	for (p = art; *p; p++) {
-		if (*p == '\n') {
-			art_lines++;
-			art_width = ALLOY_MAX(art_width, cur);
-			cur = 0;
-		} else {
-			cur++;
-		}
-	}
-
+	tui_art_measure(art, &art_lines, &art_width);
 	y = r->y + ALLOY_MAX(1, (r->h - 4 - art_lines) / 2);
 	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
-
-	move(y, x);
-	for (p = art; *p && y < r->y + r->h - 4; p++) {
-		if (*p == '\n') {
-			y++;
-			move(y, x);
-		} else {
-			addch((chtype)*p);
-		}
-	}
+	tui_art_draw(t, art, y, x, r->y + r->h - 4, -1);
 
 	/* gateway to the illumination view, centered under the art */
 	y = r->y + r->h - 3;
