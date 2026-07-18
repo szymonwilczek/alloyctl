@@ -355,6 +355,7 @@ static const struct alloy_button r3g2_buttons[] = {
 };
 
 /* clang-format off */
+/* $N markers paint the rails in the live zone colors (see driver.h) */
 static const char r3g2_art[] =
 	"              _.-------._\n"
 	"           ,-'     |     '-.\n"
@@ -366,11 +367,11 @@ static const char r3g2_art[] =
 	"      |       '----'----'       |\n"
 	" B5 --|            O -- B6      |\n"
 	"      |                         |\n"
-	"  Z1 =|                         |= Z1\n"
+	"  $1Z$11 $1=$1|                         $1|$1= $1Z$11\n"
 	"      ;                         ;\n"
-	"  Z2 =\\                        /= Z2\n"
+	"  $2Z$22 $2=$2\\                        $2/$2= $2Z$22\n"
 	"        \\                     /\n"
-	"  Z3 ==='.                  ,'=== Z3\n"
+	"  $3Z$33 $3=$3=$3='.                  ,'$3=$3=$3= $3Z$33\n"
 	"           '-.           ,-'\n"
 	"              '-._____.-'\n";
 /* clang-format on */

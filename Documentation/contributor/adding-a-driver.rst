@@ -91,9 +91,13 @@ imitate.
 
    /*
     * Optional:
-    * ASCII art of your mouse, max 40 columns wide.
+    * ASCII art of your mouse, max 40 rendered columns wide.
     * Mark the LED zones (Z1, Z2, ...) and the side buttons (B4, B5, ...)
-    * like the Rival 3 Gen 2 driver does.
+    * like the Rival 3 Gen 2 driver does. Prefix a character with "$N"
+    * (N = 1..8) to paint it in the live color of zone N; "$$" renders
+    * a literal dollar and the markers take no column. Painted
+    * characters follow the user's colors in the main view and animate
+    * in the illumination preview.
     * Set to NULL to use the generic art from defaults/mouse.txt.
     */
    static const char mymouse_art[] = "...";
