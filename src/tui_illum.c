@@ -216,38 +216,20 @@ static void draw_zone_tabs(struct tui *t, int y, int x, int w)
 }
 
 /*
- * Art carries no zone coordinates, so the preview tints it in horizontal bands:
+ * Fallback for art without zone markup: tint it in horizontal bands,
  * line N of the art belongs to zone N * num_zones / art_lines,
  * matching the top-to-bottom zone order every supported mouse uses.
+ * Marked-up art paints exactly its marked characters instead.
  */
-static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
+static void draw_banded_art(struct tui *t, const char *art, int y, int x,
+			    int max_y, int art_lines)
 {
-	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
-					      alloy_default_mouse_art;
 	const char *p;
-	int art_lines = 0;
-	int art_width = 0;
-	int cur = 0;
-	int line = 0;
 	int zones = ALLOY_MAX(t->drv->num_zones, 1);
-	int y;
-	int x;
-
-	for (p = art; *p; p++) {
-		if (*p == '\n') {
-			art_lines++;
-			art_width = ALLOY_MAX(art_width, cur);
-			cur = 0;
-		} else {
-			cur++;
-		}
-	}
-
-	y = py + ALLOY_MAX(1, (ph - art_lines) / 2);
-	x = px + ALLOY_MAX(1, (pw - art_width) / 2);
+	int line = 0;
 
 	move(y, x);
-	for (p = art; *p && y < py + ph; p++) {
+	for (p = art; *p && y < max_y; p++) {
 		if (*p == '\n') {
 			line++;
 			y++;
@@ -263,6 +245,25 @@ static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
 				addch((chtype)*p | COLOR_PAIR(pair));
 		}
 	}
+}
+
+static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
+{
+	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
+					      alloy_default_mouse_art;
+	int art_lines;
+	int art_width;
+	int y;
+	int x;
+
+	tui_art_measure(art, &art_lines, &art_width);
+	y = py + ALLOY_MAX(1, (ph - art_lines) / 2);
+	x = px + ALLOY_MAX(1, (pw - art_width) / 2);
+
+	if (tui_art_has_markup(art))
+		tui_art_draw(t, art, y, x, py + ph, t->illum_zone);
+	else
+		draw_banded_art(t, art, y, x, py + ph, art_lines);
 }
 
 static void draw_rate_row(struct tui *t, int y, int x, const char *name,

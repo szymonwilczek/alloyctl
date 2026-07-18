@@ -176,44 +176,26 @@ static void draw_actions_pane(struct tui *t)
 /*
  * Every lighting control lives in the illumination view;
  * center pane is just the mouse portrait and the way in.
+ * Portrait renders through the zone markup, so its marked
+ * characters track the configured zone colors live.
  */
 static void draw_center_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_CENTER];
 	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
 					      alloy_default_mouse_art;
-	const char *p = art;
 	int focused = t->focus == PANE_CENTER;
-	int art_lines = 0;
-	int art_width = 0;
-	int cur = 0;
+	int art_lines;
+	int art_width;
 	int y;
 	int x;
 
 	draw_box(r, t->drv->name, focused);
 
-	for (p = art; *p; p++) {
-		if (*p == '\n') {
-			art_lines++;
-			art_width = ALLOY_MAX(art_width, cur);
-			cur = 0;
-		} else {
-			cur++;
-		}
-	}
-
+	tui_art_measure(art, &art_lines, &art_width);
 	y = r->y + ALLOY_MAX(1, (r->h - 4 - art_lines) / 2);
 	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
-
-	move(y, x);
-	for (p = art; *p && y < r->y + r->h - 4; p++) {
-		if (*p == '\n') {
-			y++;
-			move(y, x);
-		} else {
-			addch((chtype)*p);
-		}
-	}
+	tui_art_draw(t, art, y, x, r->y + r->h - 4, -1);
 
 	/* gateway to the illumination view, centered under the art */
 	y = r->y + r->h - 3;

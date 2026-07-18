@@ -119,6 +119,12 @@ void tui_modal_color_reactive(struct tui *t);
 /* tui_input.c */
 void tui_handle_key(struct tui *t, int ch);
 
+/* tui_art.c */
+int tui_art_has_markup(const char *art);
+void tui_art_measure(const char *art, int *lines, int *width);
+void tui_art_draw(const struct tui *t, const char *art, int y, int x, int max_y,
+		  int hl_zone);
+
 /* tui_illum.c */
 #define TUI_ILLUM_FRAME_MS 100 /* preview animation tick */
 void tui_illum_draw(struct tui *t);
