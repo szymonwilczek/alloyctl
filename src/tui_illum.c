@@ -18,7 +18,7 @@
 #include "tui_internal.h"
 #include "default_art.h"
 
-/* Items of the EFFECTS pane, top to bottom */
+/* Fixed items of the EFFECTS pane, top to bottom */
 enum illum_item {
 	ILL_EFFECT,
 	ILL_FREQ,
@@ -30,6 +30,39 @@ enum illum_item {
 	ILL_HEX,
 	ILL_COUNT,
 };
+
+/*
+ * Device-wide rows of the DEVICE section follow the fixed items;
+ * -1 for rows the hardware lacks the capability for.
+ */
+static int illum_idx_brightness(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_BRIGHTNESS))
+		return -1;
+	return ILL_COUNT;
+}
+
+static int illum_idx_reactive(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_FX_REACTIVE))
+		return -1;
+	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0);
+}
+
+static int illum_idx_startup(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_FX_STARTUP))
+		return -1;
+	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0);
+}
+
+static int illum_item_count(const struct tui *t)
+{
+	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
+	       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
+}
 
 void tui_illum_enter(struct tui *t)
 {
@@ -244,6 +277,65 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 	}
 }
 
+/* Device-wide lighting that used to live in the main center pane */
+static void draw_device_section(struct tui *t, int y, int x, int focused)
+{
+	static const char *const startup_names[] = { "OFF", "REACTIVE",
+						     "RAINBOW", "REACT+RBOW" };
+	int sel = t->illum_cursor;
+	int row;
+
+	if (illum_idx_brightness(t) < 0 && illum_idx_reactive(t) < 0 &&
+	    illum_idx_startup(t) < 0)
+		return;
+
+	attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+	mvprintw(y, x + 2, "DEVICE");
+	attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+	y++;
+
+	row = illum_idx_brightness(t);
+	if (row >= 0) {
+		y++;
+		if (focused && sel == row)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x + 2, "%-10s", "BRIGHTNESS");
+		if (focused && sel == row)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x + 13, "< %3u%% >", t->cfg.brightness);
+	}
+
+	row = illum_idx_reactive(t);
+	if (row >= 0) {
+		y++;
+		if (focused && sel == row)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x + 2, "%-10s", "REACTIVE");
+		if (focused && sel == row)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		if (t->cfg.reactive_enabled)
+			mvprintw(y, x + 13, "[#%02X%02X%02X]",
+				 t->cfg.reactive_color.r,
+				 t->cfg.reactive_color.g,
+				 t->cfg.reactive_color.b);
+		else
+			mvprintw(y, x + 13, "[OFF]");
+	}
+
+	row = illum_idx_startup(t);
+	if (row >= 0) {
+		y++;
+		if (focused && sel == row)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x + 2, "%-10s", "STARTUP");
+		if (focused && sel == row)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, x + 13, "< %s >",
+			 startup_names[t->cfg.startup_fx &
+				       ALLOY_STARTUP_REACTIVE_RAINBOW]);
+	}
+}
+
 static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 {
 	int focused = t->illum_focus == ILLUM_FOCUS_EFFECTS;
@@ -278,6 +370,7 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 		      focused && sel == ILL_SPEED);
 
 	draw_colors_section(t, y + 9, x, w, focused);
+	draw_device_section(t, y + 20, x, focused);
 
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + h - 2, x + 2, "j/k: item  h/l: adjust");
@@ -347,6 +440,27 @@ static void illum_adjust(struct tui *t, int dir, int big)
 	uint8_t *chan = NULL;
 	uint8_t *rate;
 	int val;
+
+	if (t->illum_cursor == illum_idx_brightness(t)) {
+		val = t->cfg.brightness + dir * (big ? 20 : 5);
+		t->cfg.brightness = (uint8_t)ALLOY_CLAMP(val, 0, 100);
+		t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+		if (t->live_preview)
+			tui_apply(t, t->drv->ops->apply_brightness,
+				  "brightness");
+		return;
+	}
+	if (t->illum_cursor == illum_idx_reactive(t)) {
+		t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
+		tui_lighting_changed(t);
+		return;
+	}
+	if (t->illum_cursor == illum_idx_startup(t)) {
+		t->cfg.startup_fx =
+			(uint8_t)((t->cfg.startup_fx + 4 + dir) % 4);
+		tui_lighting_changed(t);
+		return;
+	}
 
 	switch (t->illum_cursor) {
 	case ILL_EFFECT:
@@ -436,6 +550,11 @@ static void illum_hex_input(struct tui *t)
 
 static void illum_activate(struct tui *t)
 {
+	if (t->illum_cursor == illum_idx_reactive(t)) {
+		tui_modal_color_reactive(t);
+		return;
+	}
+
 	switch (t->illum_cursor) {
 	case ILL_EFFECT:
 		illum_effect_modal(t);
@@ -514,11 +633,12 @@ void tui_illum_handle_key(struct tui *t, int ch)
 	switch (ch) {
 	case KEY_UP:
 	case 'k':
-		t->illum_cursor = (t->illum_cursor + ILL_COUNT - 1) % ILL_COUNT;
+		t->illum_cursor = (t->illum_cursor + illum_item_count(t) - 1) %
+				  illum_item_count(t);
 		break;
 	case KEY_DOWN:
 	case 'j':
-		t->illum_cursor = (t->illum_cursor + 1) % ILL_COUNT;
+		t->illum_cursor = (t->illum_cursor + 1) % illum_item_count(t);
 		break;
 	case KEY_LEFT:
 	case 'h':

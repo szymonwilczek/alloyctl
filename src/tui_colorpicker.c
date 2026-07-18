@@ -106,7 +106,11 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 	int x;
 	size_t i;
 
-	tui_draw(t);
+	/* modal floats over whichever view invoked it */
+	if (t->view == VIEW_ILLUM)
+		tui_illum_draw(t);
+	else
+		tui_draw(t);
 	picker_pairs(p);
 	tui_modal_frame(ROW_COUNT + 8, PICKER_W, &y, &x, p->title);
 
@@ -356,31 +360,6 @@ static void picker_run(struct tui *t, struct picker *p)
 			break;
 		}
 	}
-}
-
-static int zone_mode_greys(const struct tui *t, uint8_t mode)
-{
-	return tui_fx_ignores_color(t->drv, mode);
-}
-
-void tui_modal_color_zone(struct tui *t, int zone)
-{
-	char title[48];
-	struct picker p;
-
-	memset(&p, 0, sizeof(p));
-	snprintf(title, sizeof(title), "ZONE: %s", t->drv->zones[zone].name);
-	p.title = title;
-	p.rgb = &t->cfg.zone_color[zone];
-
-	if (t->drv->num_fx > 1) {
-		p.mode_labels = t->drv->fx_names;
-		p.num_modes = t->drv->num_fx;
-		p.mode = &t->cfg.zone_fx[zone];
-		p.mode_greys = zone_mode_greys;
-		p.color_rows_disabled = zone_mode_greys(t, *p.mode);
-	}
-	picker_run(t, &p);
 }
 
 static int reactive_mode_greys(const struct tui *t, uint8_t mode)
