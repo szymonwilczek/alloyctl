@@ -144,6 +144,102 @@ static void tui_init_colors(struct tui *t)
 	tui_zone_color_pairs(t);
 }
 
+/*
+ * Standalone chooser shown before the main interface when more than one
+ * supported mouse is plugged in.
+ * Runs its own curses session because no device is bound yet.
+ */
+int alloy_tui_select_device(const struct alloy_driver *const *drivers,
+			    int count)
+{
+	const char *const hint = "enter: select   esc/q: quit";
+	int sel = 0;
+	int w;
+	int h;
+	int y;
+	int x;
+	int i;
+	int ch;
+	int chosen = -1;
+
+	w = (int)strlen(hint);
+	for (i = 0; i < count; i++) {
+		int len = (int)strlen(drivers[i]->name) +
+			  13; /* + "  ffff:ffff" */
+
+		if (len > w)
+			w = len;
+	}
+	w += 6;
+	h = count + 5;
+
+	setlocale(LC_ALL, "");
+	initscr();
+	cbreak();
+	noecho();
+	curs_set(0);
+	keypad(stdscr, TRUE);
+	if (has_colors()) {
+		start_color();
+		use_default_colors();
+		init_pair(CLR_FRAME_FOCUS, COLOR_YELLOW, -1);
+		init_pair(CLR_TITLE, COLOR_CYAN, -1);
+		init_pair(CLR_SELECTED, COLOR_BLACK, COLOR_YELLOW);
+		init_pair(CLR_DISABLED, COLOR_BLUE, -1);
+	}
+
+	for (;;) {
+		erase();
+		y = (LINES - h) / 2;
+		x = (COLS - w) / 2;
+
+		attron(COLOR_PAIR(CLR_FRAME_FOCUS) | A_BOLD);
+		mvaddch(y, x, ACS_ULCORNER);
+		mvaddch(y, x + w - 1, ACS_URCORNER);
+		mvaddch(y + h - 1, x, ACS_LLCORNER);
+		mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+		mvhline(y, x + 1, ACS_HLINE, w - 2);
+		mvhline(y + h - 1, x + 1, ACS_HLINE, w - 2);
+		mvvline(y + 1, x, ACS_VLINE, h - 2);
+		mvvline(y + 1, x + w - 1, ACS_VLINE, h - 2);
+		attroff(COLOR_PAIR(CLR_FRAME_FOCUS) | A_BOLD);
+
+		attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+		mvprintw(y, x + 2, " SELECT DEVICE ");
+		attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+
+		for (i = 0; i < count; i++) {
+			if (i == sel)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y + 2 + i, x + 3, "%-*s  %04x:%04x", w - 16,
+				 drivers[i]->name, drivers[i]->vendor_id,
+				 drivers[i]->product_id);
+			if (i == sel)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+		}
+
+		attron(COLOR_PAIR(CLR_DISABLED));
+		mvprintw(y + h - 2, x + 3, "%s", hint);
+		attroff(COLOR_PAIR(CLR_DISABLED));
+		refresh();
+
+		ch = getch();
+		if (ch == KEY_UP || ch == 'k') {
+			sel = (sel + count - 1) % count;
+		} else if (ch == KEY_DOWN || ch == 'j') {
+			sel = (sel + 1) % count;
+		} else if (ch == 27 || ch == 'q') {
+			break;
+		} else if (ch == '\n' || ch == KEY_ENTER) {
+			chosen = sel;
+			break;
+		}
+	}
+
+	endwin();
+	return chosen;
+}
+
 int alloy_tui_run(struct alloy_device *dev)
 {
 	struct tui t;
