@@ -108,6 +108,9 @@ void tui_modal_confirm_quit(struct tui *t)
 				if (tui_save(t) == 0)
 					t->quit = 1;
 			} else if (sel == 1) {
+				/* undo live-previewed changes on the mouse before leaving,
+				 * back to the startup state */
+				tui_revert(t);
 				t->quit = 1;
 			}
 			return;
