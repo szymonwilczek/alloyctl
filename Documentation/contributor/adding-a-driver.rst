@@ -58,6 +58,7 @@ imitate.
    #include <string.h>
 
    #include "driver.h"
+   #include "art_mymouse.h" // generated from mymouse_art.txt; see the art note below
 
    /*
     * Keep packet builders pure (config in, bytes out) and separate from the ops
@@ -103,13 +104,13 @@ imitate.
     * characters follow the user's colors in the main view and animate
     * in the illumination preview.
     *
-    * At build time, the Makefile generates a header `build/art_<vendor>_<model>.h`
-    * which exposes `alloy_art_<vendor>_<model>`.
-    * Include that header at the top of your driver file and set
-    * `.ascii_art = alloy_art_<vendor>_<model>` below.
+    * At build time, the Makefile generates `build/art_<vendor>_<model>.h`
+    * (build/ is on the include path), which exposes `alloy_art_<vendor>_<model>`.
+    * Include it as `#include "art_<vendor>_<model>.h"` at the top of your
+    * driver file and set `.ascii_art = alloy_art_<vendor>_<model>` below.
     *
     * To use the generic fallback art from `defaults/mouse.txt`, simply don't create
-    * the text file, include `build/default_art.h`, and set `.ascii_art = alloy_default_mouse_art`.
+    * the text file, `#include "default_art.h"`, and set `.ascii_art = alloy_default_mouse_art`.
     */
 
    static const struct alloy_driver_ops mymouse_ops = {
