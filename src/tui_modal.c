@@ -49,7 +49,9 @@ void tui_modal_message(const char *title, const char *text)
 	mvprintw(y + 4, x + 2, " any key ");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 	refresh();
-	getch();
+	/* getch runs on the animation timeout: wait for a real key, not a tick */
+	while (getch() == ERR)
+		;
 }
 
 /*
@@ -179,7 +181,9 @@ static int capture_keyboard_key(struct tui *t, struct alloy_action *out)
 	mvprintw(y + 2, x + 3, "press the key to bind (esc: back)");
 	refresh();
 
-	ch = getch();
+	/* ignore animation-timeout ticks; wait for an actual keypress */
+	while ((ch = getch()) == ERR)
+		;
 	if (ch == 27)
 		return -1;
 	usage = ascii_to_hid(ch);
