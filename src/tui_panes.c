@@ -282,17 +282,41 @@ static void draw_sensitivity_pane(struct tui *t)
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
-static void draw_wave(int y, int x, int w, uint16_t hz)
+/*
+ * Square wave of the polling rate, drawn with real edges:
+ * top-row plateaus for the high level, bottom-row plateaus for the low level,
+ * vertical lines joining them.
+ * Faster rate shortens the period, so the pulses pack tighter and more full
+ * cycles fit across the width the closer we get to the driver's fastest rate.
+ */
+static void draw_poll_wave(int y, int x, int w, int h, uint16_t hz,
+			   uint16_t max_hz)
 {
-	/* square wave; higher polling rate = denser pulses */
-	int period = hz >= 1000 ? 2 : hz >= 500 ? 3 : hz >= 250 ? 5 : 8;
-	int i;
+	int half = (hz && max_hz) ? ALLOY_MAX(2, 2 * (int)max_hz / (int)hz) : 2;
+	int period = half * 2;
+	int i, row;
 
 	for (i = 0; i < w; i++) {
-		int in_high = (i % period) < (period + 1) / 2;
+		int phase = i % period;
+		int col = x + i;
 
-		mvaddch(y, x + i, in_high ? ACS_S1 : ' ');
-		mvaddch(y + 1, x + i, in_high ? ' ' : ACS_S9);
+		if (phase == 0 && i > 0) {
+			/* rising edge: low plateau (left) up to high (right) */
+			mvaddch(y, col, ACS_ULCORNER);
+			for (row = 1; row < h - 1; row++)
+				mvaddch(y + row, col, ACS_VLINE);
+			mvaddch(y + h - 1, col, ACS_LRCORNER);
+		} else if (phase == half) {
+			/* falling edge: high plateau (left) down to low (right) */
+			mvaddch(y, col, ACS_URCORNER);
+			for (row = 1; row < h - 1; row++)
+				mvaddch(y + row, col, ACS_VLINE);
+			mvaddch(y + h - 1, col, ACS_LLCORNER);
+		} else if (phase < half) {
+			mvaddch(y, col, ACS_HLINE); /* high plateau */
+		} else {
+			mvaddch(y + h - 1, col, ACS_HLINE); /* low plateau */
+		}
 	}
 }
 
@@ -380,15 +404,31 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "POLLING RATE");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
-	draw_wave(y, r->x + 3, r->w - 6, t->cfg.polling_hz);
+	draw_poll_wave(y, r->x + 3, r->w - 6, 3, t->cfg.polling_hz,
+		       t->drv->num_polling_rates ? t->drv->polling_rates[0] :
+						   t->cfg.polling_hz);
 	attroff(COLOR_PAIR(CLR_ACCENT));
-	y += 2;
+	y += 4; /* chart height + blank line before the stepper */
+
+	/*
+	 * stepper mirrors the sensitivity presets:
+	 * highlighted label, bold accent value and slider over the ladder;
+	 * h/l steps, H/L jumps
+	 */
 	if (focused && sel == 3)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Rate");
 	if (focused && sel == 3)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	mvprintw(y, r->x + 16, "< %4u Hz >", t->cfg.polling_hz);
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	mvprintw(y, r->x + 16, "%4u Hz", t->cfg.polling_hz);
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	y++;
+	if (t->drv->num_polling_rates > 1)
+		draw_slider(
+			y, r->x + 2, r->w - 4,
+			t->drv->polling_rates[t->drv->num_polling_rates - 1],
+			t->drv->polling_rates[0], t->cfg.polling_hz);
 }
 
 static void draw_footer(struct tui *t)
