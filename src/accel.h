@@ -34,6 +34,14 @@ struct alloy_config;
 #define ALLOY_ACCEL_GAIN_MIN (ALLOY_ACCEL_FP / 4) /* 0.25x */
 #define ALLOY_ACCEL_GAIN_MAX (ALLOY_ACCEL_FP * 4) /* 4.0x */
 
+/*
+ * Squared reference speed, in (counts/event)^2, at which the gain ramp
+ * saturates.
+ * ~20 counts/event is a brisk flick at 1000 Hz.
+ * Shared with the TUI so the tuning graph plots the exact curve the daemon applies.
+ */
+#define ALLOY_ACCEL_SREF2 400
+
 /* Transform parameters derived from the working config */
 struct alloy_accel_params {
 	int accel; /* 0..100: gain rises with speed */

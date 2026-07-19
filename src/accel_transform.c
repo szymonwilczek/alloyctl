@@ -12,12 +12,7 @@
 
 #define FP ALLOY_ACCEL_FP
 
-/*
- * Squared reference speed, in (counts/event)^2, at which the full acceleration
- * slope applies.
- * ~20 counts/event is brisk flick at 1000 Hz.
- */
-#define SREF2 400
+#define SREF2 ALLOY_ACCEL_SREF2
 
 /* tan(deg) * FP for deg 0..45, so angle snapping needs no trig at runtime */
 static const int32_t TAN_FP[ALLOY_SNAP_MAX + 1] = {

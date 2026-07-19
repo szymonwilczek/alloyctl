@@ -344,13 +344,30 @@ static void draw_snap_wave(int y, int x, int w, uint8_t snap)
 	}
 }
 
+/*
+ * Map a fixed-point gain onto a graph row.
+ * Visible range is exactly what the transform can reach at the reference speed:
+ * 0.25x (bottom row) through 1.00x (middle) to 1.75x (top row).
+ */
+static int gain_to_row(int32_t g, int graph_h)
+{
+	const int32_t top = ALLOY_ACCEL_FP * 7 / 4;
+	const int32_t span = ALLOY_ACCEL_FP * 3 / 2;
+	int row = (int)(((int64_t)(top - g) * (graph_h - 1) + span / 2) / span);
+
+	return ALLOY_CLAMP(row, 0, graph_h - 1);
+}
+
 static void draw_tuning_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_TUNING];
+	struct alloy_accel_params ap;
 	int focused = t->focus == PANE_TUNING;
 	int sel = t->cursor[PANE_TUNING];
 	int graph_h = 5;
-	int mid;
+	int gx = r->x + 9;
+	int gw = r->w - 14;
+	int prev = -1;
 	int y = r->y + 2;
 	int i;
 
@@ -359,18 +376,30 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "ACCELERATION / DECELERATION");
 	y++;
 
-	/* cursor-speed gain vs hand speed; gain ticks on the Y axis */
+	/*
+	 * Y-axis title:
+	 * curses cannot rotate glyphs and the graph is too short for one letter per row,
+	 * so it sits right-aligned above the curve
+	 */
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, gx + gw - (int)strlen("SENSITIVITY"), "SENSITIVITY");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y, r->x + 8, ACS_UARROW);
+	y++;
+
+	/* gain ticks on the Y axis */
 	for (i = 0; i < graph_h; i++)
-		mvaddch(y + i, r->x + 8, i == 0 ? ACS_UARROW : ACS_VLINE);
+		mvaddch(y + i, r->x + 8, ACS_VLINE);
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y, r->x + 2, "1.75x");
 	mvprintw(y + graph_h / 2, r->x + 2, "1.00x");
 	mvprintw(y + graph_h - 1, r->x + 2, "0.25x");
 	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y, r->x + 8, ACS_RTEE);
 	mvaddch(y + graph_h / 2, r->x + 8, ACS_RTEE);
 	mvaddch(y + graph_h - 1, r->x + 8, ACS_RTEE);
 	mvaddch(y + graph_h, r->x + 8, ACS_LLCORNER);
-	mvhline(y + graph_h, r->x + 9, ACS_HLINE, r->w - 14);
+	mvhline(y + graph_h, gx, ACS_HLINE, gw);
 	mvaddch(y + graph_h, r->x + r->w - 5, ACS_RARROW);
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + graph_h + 1, r->x + 4, "%.*s", r->w - 6,
@@ -378,15 +407,36 @@ static void draw_tuning_pane(struct tui *t)
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
 	/*
-	 * Gain the transform reaches at the reference speed:
-	 * 1.0x + (accel - decel) * 0.75x / 100,
-	 * so full accel sits on the 1.75x tick
-	 * and full decel on the 0.25x tick
+	 * Curve is the exact speed-to-gain response the daemon applies (alloy_accel_gain_fp):
+	 * flat 1.0x when neutral, ramping up with acceleration or down with
+	 * deceleration until the ramp saturates.
+	 * Hand speed sweeps 0..30 counts/event across the axis,
+	 * so saturation (20 counts/event) lands two thirds of the way along.
+	 * Row steps are joined with corner and vertical glyphs to keep the line continuous.
 	 */
-	mid = graph_h / 2 - t->cfg.acceleration / 34 + t->cfg.deceleration / 34;
+	alloy_accel_from_config(&t->cfg, &ap);
 	attron(COLOR_PAIR(CLR_ACCENT));
-	mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 9, ACS_HLINE,
-		r->w - 14);
+	for (i = 0; i < gw; i++) {
+		int s = i * 30 / (gw - 1);
+		int row = gain_to_row(alloy_accel_gain_fp(&ap, (int64_t)s * s),
+				      graph_h);
+		int rr;
+
+		if (prev < 0 || row == prev) {
+			mvaddch(y + row, gx + i, ACS_HLINE);
+		} else if (row < prev) { /* gain rising: turn upward */
+			mvaddch(y + prev, gx + i, ACS_LRCORNER);
+			for (rr = row + 1; rr < prev; rr++)
+				mvaddch(y + rr, gx + i, ACS_VLINE);
+			mvaddch(y + row, gx + i, ACS_ULCORNER);
+		} else { /* gain falling: turn downward */
+			mvaddch(y + prev, gx + i, ACS_URCORNER);
+			for (rr = prev + 1; rr < row; rr++)
+				mvaddch(y + rr, gx + i, ACS_VLINE);
+			mvaddch(y + row, gx + i, ACS_LLCORNER);
+		}
+		prev = row;
+	}
 	attroff(COLOR_PAIR(CLR_ACCENT));
 
 	y += graph_h + 2;
@@ -404,7 +454,6 @@ static void draw_tuning_pane(struct tui *t)
 		y++;
 	}
 
-	y++;
 	mvprintw(y, r->x + 2, "ANGLE SNAPPING");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
@@ -443,8 +492,6 @@ static void draw_tuning_pane(struct tui *t)
 	 * highlighted label, bold accent value and slider over the ladder;
 	 * h/l steps, H/L jumps
 	 */
-	if (focused && sel == 3)
-		y += 2;
 	if (focused && sel == 4)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Rate");
