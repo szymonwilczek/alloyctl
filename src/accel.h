@@ -86,4 +86,18 @@ int alloy_accel_reload(uint16_t vid, uint16_t pid);
  */
 int alloy_accel_stop(uint16_t vid, uint16_t pid);
 
+/*
+ * Spawn a detached daemon for the device (double-fork + exec of this binary).
+ * No-op if one is already running.
+ * Returns 0 once the daemon is confirmed up.
+ */
+int alloy_accel_spawn(uint16_t vid, uint16_t pid);
+
+/*
+ * Install (enable=1) or remove (enable=0) the per-device XDG autostart entry
+ * that restarts the daemon at the next login.
+ * Returns 0 on success.
+ */
+int alloy_accel_autostart_set(uint16_t vid, uint16_t pid, int enable);
+
 #endif /* ALLOY_ACCEL_H */

@@ -5,11 +5,34 @@
  */
 #include <string.h>
 
+#include "accel.h"
 #include "tui_internal.h"
 
 static void mark_dirty(struct tui *t)
 {
 	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+}
+
+/* host-side transform steppers: edit the value and live-preview via the daemon */
+static void adjust_accel(struct tui *t, int delta)
+{
+	t->cfg.acceleration = (int8_t)ALLOY_CLAMP(
+		t->cfg.acceleration + delta, ALLOY_ACCEL_MIN, ALLOY_ACCEL_MAX);
+	tui_accel_changed(t);
+}
+
+static void adjust_decel(struct tui *t, int delta)
+{
+	t->cfg.deceleration = (int8_t)ALLOY_CLAMP(
+		t->cfg.deceleration + delta, ALLOY_DECEL_MIN, ALLOY_DECEL_MAX);
+	tui_accel_changed(t);
+}
+
+static void adjust_snap(struct tui *t, int delta)
+{
+	t->cfg.angle_snapping = (uint8_t)ALLOY_CLAMP(
+		t->cfg.angle_snapping + delta, ALLOY_SNAP_MIN, ALLOY_SNAP_MAX);
+	tui_accel_changed(t);
 }
 
 static void adjust_dpi(struct tui *t, int preset, int delta)
@@ -132,10 +155,27 @@ static void pane_adjust(struct tui *t, int dir, int big)
 				   dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
 	case PANE_TUNING:
-		if (sel == 3) {
+		switch (sel) {
+		case 0:
+			adjust_accel(t, dir * (big ? ALLOY_ACCEL_STEP * 10 :
+						     ALLOY_ACCEL_STEP));
+			break;
+		case 1:
+			adjust_decel(t, dir * (big ? ALLOY_DECEL_STEP * 10 :
+						     ALLOY_DECEL_STEP));
+			break;
+		case 2:
+			adjust_snap(t, dir * (big ? ALLOY_SNAP_STEP * 5 :
+						    ALLOY_SNAP_STEP));
+			break;
+		case 3:
+			tui_status(t, "enter: toggle the OS accel engine");
+			break;
+		case 4:
 			adjust_polling(t, dir, big);
-		} else {
-			tui_status(t, "not supported by this device");
+			break;
+		default:
+			break;
 		}
 		break;
 	default:
@@ -156,6 +196,10 @@ static void pane_activate(struct tui *t)
 		break;
 	case PANE_CENTER:
 		tui_illum_enter(t);
+		break;
+	case PANE_TUNING:
+		if (sel == 3)
+			tui_accel_set_enabled(t, !t->accel_running);
 		break;
 	case PANE_SENSITIVITY:
 		if (sel < t->cfg.dpi_count)

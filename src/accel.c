@@ -21,6 +21,7 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -29,6 +30,7 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <linux/input.h>
 #include <linux/uinput.h>
 
@@ -120,6 +122,105 @@ int alloy_accel_reload(uint16_t vid, uint16_t pid)
 int alloy_accel_stop(uint16_t vid, uint16_t pid)
 {
 	return accel_signal(vid, pid, SIGTERM);
+}
+
+int alloy_accel_spawn(uint16_t vid, uint16_t pid)
+{
+	char arg[16];
+	pid_t child;
+	int i;
+
+	if (alloy_accel_is_running(vid, pid))
+		return 0;
+	snprintf(arg, sizeof(arg), "%04x:%04x", vid, pid);
+
+	child = fork();
+	if (child < 0)
+		return -1;
+	if (child == 0) {
+		pid_t grandchild;
+		int null;
+
+		setsid(); /* detach from the TUI's session/terminal */
+		grandchild = fork();
+		if (grandchild < 0)
+			_exit(127);
+		if (grandchild > 0)
+			_exit(0);
+		null = open("/dev/null", O_RDWR | O_CLOEXEC);
+		if (null >= 0) {
+			dup2(null, 0);
+			dup2(null, 1);
+			dup2(null, 2);
+		}
+		execl("/proc/self/exe", "alloyctl", "--accel-daemon", arg,
+		      (char *)NULL);
+		_exit(127);
+	}
+	waitpid(child, NULL, 0); /* reap the intermediate fork */
+
+	/* wait briefly for the daemon to come up and write its pidfile */
+	for (i = 0; i < 50 && !alloy_accel_is_running(vid, pid); i++)
+		usleep(10000);
+	return alloy_accel_is_running(vid, pid) ? 0 : -1;
+}
+
+static int autostart_path(uint16_t vid, uint16_t pid, char *dir, size_t dlen,
+			  char *file, size_t flen)
+{
+	const char *xdg = getenv("XDG_CONFIG_HOME");
+	const char *home = getenv("HOME");
+	int n;
+
+	if (xdg && *xdg)
+		n = snprintf(dir, dlen, "%s/autostart", xdg);
+	else if (home && *home)
+		n = snprintf(dir, dlen, "%s/.config/autostart", home);
+	else
+		return -1;
+	if (n < 0 || (size_t)n >= dlen)
+		return -1;
+	n = snprintf(file, flen, "%s/alloyctl-accel-%04x-%04x.desktop", dir,
+		     vid, pid);
+	return (n < 0 || (size_t)n >= flen) ? -1 : 0;
+}
+
+int alloy_accel_autostart_set(uint16_t vid, uint16_t pid, int enable)
+{
+	char dir[PATH_MAX];
+	char file[PATH_MAX];
+	char exe[PATH_MAX];
+	ssize_t n;
+	FILE *f;
+
+	if (autostart_path(vid, pid, dir, sizeof(dir), file, sizeof(file)))
+		return -1;
+	if (!enable) {
+		unlink(file);
+		return 0;
+	}
+
+	n = readlink("/proc/self/exe", exe, sizeof(exe) - 1);
+	if (n < 0)
+		return -1;
+	exe[n] = '\0';
+
+	if (mkdir(dir, 0755) && errno != EEXIST)
+		return -1;
+	f = fopen(file, "we");
+	if (!f)
+		return -1;
+	fprintf(f,
+		"[Desktop Entry]\n"
+		"Type=Application\n"
+		"Name=alloyctl pointer transform (%04x:%04x)\n"
+		"Comment=Host-side acceleration/deceleration/angle snapping\n"
+		"Exec=%s --accel-daemon %04x:%04x\n"
+		"X-GNOME-Autostart-enabled=true\n"
+		"NoDisplay=true\n",
+		vid, pid, exe, vid, pid);
+	fclose(f);
+	return 0;
 }
 
 static int accel_write_pidfile(uint16_t vid, uint16_t pid)

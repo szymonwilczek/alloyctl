@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "accel.h"
 #include "tui_internal.h"
 
 void tui_status(struct tui *t, const char *fmt, ...)
@@ -69,6 +70,8 @@ int tui_save(struct tui *t)
 		tui_status(t, "saved to mouse; baseline file not writable");
 	else
 		tui_status(t, "saved to mouse flash + baseline");
+	if (t->accel_running)
+		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
 	t->dirty = 0;
 	return 0;
 }
@@ -83,7 +86,59 @@ void tui_revert(struct tui *t)
 {
 	t->cfg = t->baseline;
 	tui_apply_all(t);
+	if (t->accel_running) {
+		alloy_state_store(t->drv, &t->cfg);
+		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
+	}
 	t->dirty = 0;
+}
+
+/*
+ * Pointer-transform value changed (acceleration/deceleration/angle snapping).
+ * Push it to running daemon for live preview by rewriting the config it watches
+ * and poking it to re-read.
+ * Engine is enabled/disabled separately via tui_accel_set_enabled().
+ */
+void tui_accel_changed(struct tui *t)
+{
+	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+	if (t->live_preview && t->accel_running) {
+		alloy_state_store(t->drv, &t->cfg);
+		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
+	}
+}
+
+/*
+ * Turn the host-side transform engine on or off.
+ * This is immediate, committed action (like the LIVE PREVIEW toggle),
+ * not part of the dirty/SAVE flow:
+ * it spawns or stops the daemon, persists the intent and installs
+ * or removes the autostart entry so the choice survives a reboot.
+ */
+void tui_accel_set_enabled(struct tui *t, int on)
+{
+	uint16_t vid = t->drv->vendor_id;
+	uint16_t pid = t->drv->product_id;
+
+	t->cfg.accel_enabled = on ? 1 : 0;
+	t->baseline.accel_enabled = t->cfg.accel_enabled;
+	alloy_state_store(t->drv, &t->cfg);
+
+	if (on) {
+		alloy_accel_spawn(vid, pid);
+		alloy_accel_autostart_set(vid, pid, 1);
+		t->accel_running = alloy_accel_is_running(vid, pid);
+		tui_status(t, t->accel_running ?
+				      "accel engine on" :
+				      "accel engine: could not start "
+				      "(is /dev/uinput accessible?)");
+	} else {
+		alloy_accel_stop(vid, pid);
+		alloy_accel_autostart_set(vid, pid, 0);
+		t->accel_running = 0;
+		tui_status(t, "accel engine off - motion back to normal");
+	}
+	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
 }
 
 /* Every lighting edit funnels through here: dirty tracking + live push */
@@ -131,8 +186,8 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		return t->cfg.dpi_count +
 		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
 	case PANE_TUNING:
-		/* acceleration, deceleration, angle snapping, polling */
-		return 4;
+		/* acceleration, deceleration, angle snapping, engine, polling */
+		return 5;
 	case PANE_FOOTER:
 		return FOOTER_COUNT;
 	default:
@@ -267,6 +322,9 @@ int alloy_tui_run(struct alloy_device *dev)
 
 	used_defaults = alloy_state_load(t.drv, &t.baseline);
 	t.cfg = t.baseline;
+
+	t.accel_running =
+		alloy_accel_is_running(t.drv->vendor_id, t.drv->product_id);
 
 	if (t.drv->ops->firmware_version &&
 	    (t.drv->caps & ALLOY_CAP_FIRMWARE_VERSION)) {

@@ -325,10 +325,8 @@ static void draw_tuning_pane(struct tui *t)
 	const struct rect *r = &layout[PANE_TUNING];
 	int focused = t->focus == PANE_TUNING;
 	int sel = t->cursor[PANE_TUNING];
-	int has_accel = t->drv->caps & ALLOY_CAP_ACCELERATION;
-	int has_decel = t->drv->caps & ALLOY_CAP_DECELERATION;
-	int has_snap = t->drv->caps & ALLOY_CAP_ANGLE_SNAPPING;
 	int graph_h = 6;
+	int mid;
 	int y = r->y + 2;
 	int i;
 
@@ -347,26 +345,17 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y + graph_h + 1, r->x + 4, "SPEED OF HAND MOVEMENT");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
-	if (has_accel || has_decel) {
-		/* curve bends up with accel, down with decel */
-		int mid = graph_h / 2 - t->cfg.acceleration / 4 +
-			  t->cfg.deceleration / 4;
-
-		attron(COLOR_PAIR(CLR_ACCENT));
-		mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 4,
-			ACS_HLINE, r->w - 9);
-		attroff(COLOR_PAIR(CLR_ACCENT));
-	} else {
-		attron(COLOR_PAIR(CLR_ACCENT));
-		mvhline(y + graph_h / 2, r->x + 4, ACS_HLINE, r->w - 9);
-		attroff(COLOR_PAIR(CLR_ACCENT));
-	}
+	/* curve bends up with accel, down with decel */
+	mid = graph_h / 2 - t->cfg.acceleration / 34 + t->cfg.deceleration / 34;
+	attron(COLOR_PAIR(CLR_ACCENT));
+	mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 4, ACS_HLINE,
+		r->w - 9);
+	attroff(COLOR_PAIR(CLR_ACCENT));
 
 	y += graph_h + 2;
 
 	for (i = 0; i < 2; i++) {
 		const char *name = i == 0 ? "Acceleration" : "Deceleration";
-		int supported = i == 0 ? has_accel : has_decel;
 		int8_t val = i == 0 ? t->cfg.acceleration : t->cfg.deceleration;
 
 		if (focused && sel == i)
@@ -374,13 +363,7 @@ static void draw_tuning_pane(struct tui *t)
 		mvprintw(y, r->x + 2, "%-13s", name);
 		if (focused && sel == i)
 			attroff(COLOR_PAIR(CLR_SELECTED));
-		if (supported) {
-			mvprintw(y, r->x + 16, "< %3d >", val);
-		} else {
-			attron(COLOR_PAIR(CLR_DISABLED));
-			mvprintw(y, r->x + 16, "N/A (device)");
-			attroff(COLOR_PAIR(CLR_DISABLED));
-		}
+		mvprintw(y, r->x + 16, "< %3d >", val);
 		y++;
 	}
 
@@ -392,13 +375,21 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "%-13s", "Snapping");
 	if (focused && sel == 2)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	if (has_snap) {
-		mvprintw(y, r->x + 16, "< %3u >", t->cfg.angle_snapping);
-	} else {
-		attron(COLOR_PAIR(CLR_DISABLED));
-		mvprintw(y, r->x + 16, "N/A (device)");
-		attroff(COLOR_PAIR(CLR_DISABLED));
-	}
+	mvprintw(y, r->x + 16, "< %3u deg >", t->cfg.angle_snapping);
+	y++;
+
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, r->x + 2, "applied by the OS engine, not the mouse");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	y++;
+	if (focused && sel == 3)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, r->x + 2, "%-13s", "Engine");
+	if (focused && sel == 3)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	attron(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
+	mvprintw(y, r->x + 16, " %s ", t->accel_running ? "ON " : "OFF");
+	attroff(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
 	y += 2;
 
 	mvprintw(y, r->x + 2, "POLLING RATE");
@@ -416,9 +407,11 @@ static void draw_tuning_pane(struct tui *t)
 	 * h/l steps, H/L jumps
 	 */
 	if (focused && sel == 3)
+		y += 2;
+	if (focused && sel == 4)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Rate");
-	if (focused && sel == 3)
+	if (focused && sel == 4)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 	mvprintw(y, r->x + 16, "%4u Hz", t->cfg.polling_hz);
