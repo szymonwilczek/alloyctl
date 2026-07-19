@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "accel.h"
 #include "tui_internal.h"
 #include "default_art.h"
 
@@ -320,12 +321,35 @@ static void draw_poll_wave(int y, int x, int w, int h, uint16_t hz,
 	}
 }
 
+/*
+ * Dotted pointer trajectory:
+ * wobbly hand motion that straightens out as the snapping cone widens.
+ * Three rows tall; diamonds are the start and end of the stroke.
+ */
+static void draw_snap_wave(int y, int x, int w, uint8_t snap)
+{
+	/* one period of sin() scaled to +-100, 16 samples */
+	static const int8_t sine[16] = { 0, 38,	 71,  92,  100,	 92,  71,  38,
+					 0, -38, -71, -92, -100, -92, -71, -38 };
+	int amp = 100 - (int)snap * 100 / ALLOY_SNAP_MAX;
+	int i;
+
+	mvaddch(y + 1, x, ACS_DIAMOND);
+	mvaddch(y + 1, x + w - 1, ACS_DIAMOND);
+	for (i = 1; i < w - 1; i++) {
+		int v = sine[(i * 32 / w) % 16] * amp / 100;
+		int row = v > 50 ? 0 : v < -50 ? 2 : 1;
+
+		mvaddch(y + row, x + i, ACS_BULLET);
+	}
+}
+
 static void draw_tuning_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_TUNING];
 	int focused = t->focus == PANE_TUNING;
 	int sel = t->cursor[PANE_TUNING];
-	int graph_h = 6;
+	int graph_h = 5;
 	int mid;
 	int y = r->y + 2;
 	int i;
@@ -335,21 +359,34 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "ACCELERATION / DECELERATION");
 	y++;
 
-	/* SPEED OF HAND MOVEMENT vs SENSITIVITY graph */
+	/* cursor-speed gain vs hand speed; gain ticks on the Y axis */
 	for (i = 0; i < graph_h; i++)
-		mvaddch(y + i, r->x + 3, i == 0 ? ACS_UARROW : ACS_VLINE);
-	mvaddch(y + graph_h, r->x + 3, ACS_LLCORNER);
-	mvhline(y + graph_h, r->x + 4, ACS_HLINE, r->w - 9);
+		mvaddch(y + i, r->x + 8, i == 0 ? ACS_UARROW : ACS_VLINE);
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, r->x + 2, "1.75x");
+	mvprintw(y + graph_h / 2, r->x + 2, "1.00x");
+	mvprintw(y + graph_h - 1, r->x + 2, "0.25x");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y + graph_h / 2, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h - 1, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h, r->x + 8, ACS_LLCORNER);
+	mvhline(y + graph_h, r->x + 9, ACS_HLINE, r->w - 14);
 	mvaddch(y + graph_h, r->x + r->w - 5, ACS_RARROW);
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(y + graph_h + 1, r->x + 4, "SPEED OF HAND MOVEMENT");
+	mvprintw(y + graph_h + 1, r->x + 4, "%.*s", r->w - 6,
+		 "SPEED OF HAND MOVEMENT");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
-	/* curve bends up with accel, down with decel */
+	/*
+	 * Gain the transform reaches at the reference speed:
+	 * 1.0x + (accel - decel) * 0.75x / 100,
+	 * so full accel sits on the 1.75x tick
+	 * and full decel on the 0.25x tick
+	 */
 	mid = graph_h / 2 - t->cfg.acceleration / 34 + t->cfg.deceleration / 34;
 	attron(COLOR_PAIR(CLR_ACCENT));
-	mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 4, ACS_HLINE,
-		r->w - 9);
+	mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 9, ACS_HLINE,
+		r->w - 14);
 	attroff(COLOR_PAIR(CLR_ACCENT));
 
 	y += graph_h + 2;
@@ -370,6 +407,10 @@ static void draw_tuning_pane(struct tui *t)
 	y++;
 	mvprintw(y, r->x + 2, "ANGLE SNAPPING");
 	y++;
+	attron(COLOR_PAIR(CLR_ACCENT));
+	draw_snap_wave(y, r->x + 3, r->w - 6, t->cfg.angle_snapping);
+	attroff(COLOR_PAIR(CLR_ACCENT));
+	y += 3;
 	if (focused && sel == 2)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Snapping");
@@ -378,10 +419,6 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 16, "< %3u deg >", t->cfg.angle_snapping);
 	y++;
 
-	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(y, r->x + 2, "applied by the OS engine, not the mouse");
-	attroff(COLOR_PAIR(CLR_DISABLED));
-	y++;
 	if (focused && sel == 3)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Engine");
