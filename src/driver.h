@@ -216,6 +216,15 @@ const struct alloy_driver *const *alloy_driver_last(void);
 const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 					     uint16_t product_id);
 
+/*
+ * Scan the registry against connected hardware and collect every supported
+ * device currently plugged in.
+ * Fills out[] with up to max driver pointers (in registry order) and returns
+ * the total number found, which may exceed max.
+ * Pass out=NULL to only count.
+ */
+int alloy_device_enumerate(const struct alloy_driver **out, int max);
+
 /* Scan the registry against connected hardware and open device */
 int alloy_device_open(struct alloy_device *dev);
 /* Open a specific device by USB id (e.g. from --device) */
