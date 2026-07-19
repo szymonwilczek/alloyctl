@@ -61,10 +61,12 @@ Lifecycle and permissions
 * **Live edits:** the TUI writes the config the daemon watches and sends
   ``SIGHUP``; the daemon re-reads it.
 * **Permissions (rootless):** the daemon needs ``/dev/uinput`` (root-only by
-  default) and the mouse's ``/dev/input`` node. ``make install`` ships
-  ``70-alloyctl-uinput.rules`` granting ``/dev/uinput`` to the active seat
-  (``uaccess``) and the ``input`` group; ``/dev/input`` is already accessible to
-  the logged-in seat, or via ``input``-group membership.
+  default) and the mouse's ``/dev/input`` motion node (``root:input`` by
+  default - *not* seat-accessible out of the box). ``make install`` ships
+  ``70-alloyctl-uinput.rules`` granting both to the active seat (``uaccess``):
+  ``/dev/uinput`` directly and the evdev nodes of SteelSeries (VID ``1038``)
+  devices. On non-logind systems, ``input``-group membership is the fallback
+  (takes effect at the next login).
 
 Interaction with the compositor
 ===============================
