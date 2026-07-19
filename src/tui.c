@@ -280,21 +280,23 @@ int alloy_tui_run(struct alloy_device *dev)
 			       "baseline loaded from disk");
 
 	/*
-	 * illumination view animates its preview, so its getch runs
-	 * on timeout and ERR ticks just trigger redraw
+	 * both views animate the mouse portrait, so getch runs on timeout
+	 * and ERR ticks just trigger redraw that advances the animation
+	 * clock;
+	 * real keys are dispatched to the active view
 	 */
 	while (!t.quit) {
+		timeout(TUI_ILLUM_FRAME_MS);
 		if (t.view == VIEW_ILLUM) {
-			timeout(TUI_ILLUM_FRAME_MS);
 			tui_illum_draw(&t);
 			ch = getch();
 			if (ch != ERR)
 				tui_illum_handle_key(&t, ch);
 		} else {
-			timeout(-1);
 			tui_draw(&t);
 			ch = getch();
-			tui_handle_key(&t, ch);
+			if (ch != ERR)
+				tui_handle_key(&t, ch);
 		}
 	}
 

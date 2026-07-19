@@ -52,14 +52,12 @@ static void compute_layout(void)
 
 void tui_zone_color_pairs(const struct tui *t)
 {
-	uint8_t i;
-
-	if (COLORS < 8)
-		return;
-
-	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++)
-		init_pair((short)(CLR_ZONE_BASE + i),
-			  tui_rgb_to_color(&t->cfg.zone_color[i]), -1);
+	/*
+	 * Same animated preview the illumination view uses, so the center-pane
+	 * portrait breathes, cycles and tracks color live on the main screen
+	 * too - not just frozen snapshot of the base zone colors.
+	 */
+	tui_zone_fx_pairs(t, tui_now_ms());
 }
 
 void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
@@ -176,8 +174,8 @@ static void draw_actions_pane(struct tui *t)
 /*
  * Every lighting control lives in the illumination view;
  * center pane is just the mouse portrait and the way in.
- * Portrait renders through the zone markup, so its marked
- * characters track the configured zone colors live.
+ * Portrait renders through the zone markup, so its marked characters animate
+ * with the configured effect and track color live, matching the preview.
  */
 static void draw_center_pane(struct tui *t)
 {

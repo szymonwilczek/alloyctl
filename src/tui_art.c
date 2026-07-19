@@ -11,8 +11,9 @@
  * one piece of art valid across mouse variants with fewer zones.
  *
  * Zone color pairs (CLR_ZONE_BASE + zone) are maintained by the caller:
- * the main view keeps them at the configured colors, the illumination view animates them,
- * so the same art reacts to both.
+ * both the main view and the illumination view refresh them from the shared
+ * animated preview (tui_zone_fx_pairs), so the same art breathes and cycles
+ * on either screen.
  */
 #include "tui_internal.h"
 
