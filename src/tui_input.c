@@ -26,10 +26,13 @@ static void adjust_dpi(struct tui *t, int preset, int delta)
 		tui_apply(t, drv->ops->apply_dpi, "dpi");
 }
 
-static void adjust_polling(struct tui *t, int dir)
+static void adjust_polling(struct tui *t, int dir, int big)
 {
 	const struct alloy_driver *drv = t->drv;
 	int i;
+
+	if (!drv->num_polling_rates)
+		return;
 
 	for (i = 0; i < drv->num_polling_rates; i++) {
 		if (drv->polling_rates[i] == t->cfg.polling_hz)
@@ -37,12 +40,13 @@ static void adjust_polling(struct tui *t, int dir)
 	}
 	if (i == drv->num_polling_rates)
 		i = 0;
-	/* rates are stored descending:
-	 * previous entry is faster */
+	/* rates are stored descending: lower index is faster
+	 * H/L jump straight to the fastest / slowest rate */
 	else if (dir > 0)
-		i = ALLOY_MAX(i - 1, 0);
+		i = big ? 0 : ALLOY_MAX(i - 1, 0);
 	else
-		i = ALLOY_MIN(i + 1, drv->num_polling_rates - 1);
+		i = big ? drv->num_polling_rates - 1 :
+			  ALLOY_MIN(i + 1, drv->num_polling_rates - 1);
 
 	t->cfg.polling_hz = drv->polling_rates[i];
 	mark_dirty(t);
@@ -129,7 +133,7 @@ static void pane_adjust(struct tui *t, int dir, int big)
 		break;
 	case PANE_TUNING:
 		if (sel == 3) {
-			adjust_polling(t, dir);
+			adjust_polling(t, dir, big);
 		} else {
 			tui_status(t, "not supported by this device");
 		}
