@@ -122,4 +122,8 @@ Not supported by this hardware
 
 Per-zone rainbow masks, reactive click color and the power-up lighting selector
 are Gen 2 features; this firmware has the global effect list instead.
-Acceleration / deceleration / angle snapping: absent, as on the Gen 2.
+
+Acceleration / deceleration / angle snapping are not onboard here either, as on
+the Gen 2: SteelSeries applies them host-side, not in firmware, and alloyctl
+does the same via its pointer-transform daemon (see
+:doc:`../architecture/pointer-transform`).
