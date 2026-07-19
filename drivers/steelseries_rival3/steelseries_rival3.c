@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "driver.h"
+#include "art_steelseries_rival3.h"
 
 #define R3_CMD_POLLING 0x04
 #define R3_CMD_ZONE_COLOR 0x05
@@ -310,29 +311,6 @@ static const struct alloy_button r3_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
-/* clang-format off */
-/* $N markers paint the rails and the logo in the live zone colors
- * (see driver.h); the logo is zone 4 on this family */
-static const char r3_art[] =
-	"              _.-------._\n"
-	"           ,-'     |     '-.\n"
-	"         ,'   .----'----.   ',\n"
-	"        /    |     |     |    \\\n"
-	"       /     |    | |    |     \\\n"
-	"      ;      |    |_|    |      ;\n"
-	" B4 --|      |     |     |      |\n"
-	"      |       '----'----'       |\n"
-	" B5 --|            O -- B6      |\n"
-	"      |                         |\n"
-	"  $1Z$11 $1=$1|        $4.$4-$4'$4'$4'$4-$4.          $1|$1= $1Z$11\n"
-	"      ;       $4($4 $4L$4O$4G$4O$4 $4 $4)         ;\n"
-	"  $2Z$22 $2=$2\\        $4'$4-$4.$4.$4.$4-$4'   $4Z$44    $2/$2= $2Z$22\n"
-	"        \\                     /\n"
-	"  $3Z$33 $3=$3=$3='.                  ,'$3=$3=$3= $3Z$33\n"
-	"           '-.           ,-'\n"
-	"              '-._____.-'\n";
-/* clang-format on */
-
 static const struct alloy_driver_ops r3_ops = {
 	.apply_dpi = r3_apply_dpi,
 	.apply_polling = r3_apply_polling,
@@ -366,7 +344,7 @@ static const struct alloy_driver_ops r3_ops = {
 			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_FX_GLOBAL, \
 		.fx_names = r3_fx_names,                                  \
 		.num_fx = ALLOY_ARRAY_SIZE(r3_fx_names),                  \
-		.ascii_art = r3_art,                                      \
+		.ascii_art = alloy_art_steelseries_rival3,                                      \
 		.ops = &r3_ops,                                           \
 		.config_defaults = alloy_config_generic_defaults,         \
 	}; \

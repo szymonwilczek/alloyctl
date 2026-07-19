@@ -176,7 +176,10 @@ struct alloy_driver {
 
 	/*
 	 * Optional ASCII art of the mouse, drawn in the center pane.
-	 * NULL selects the built-in generic art.
+	 * Art should be provided in `drivers/<driver>/<driver>_art.txt`
+	 * and injected via the auto-generated `build/art_<driver>.h` header.
+	 * If no custom art is provided, include `build/default_art.h` and use
+	 * `alloy_default_mouse_art` as the fallback.
 	 * Keep every line at most 40 rendered columns wide, please.
 	 *
 	 * Prefix a character with "$N" (N = 1..8) to paint it in the

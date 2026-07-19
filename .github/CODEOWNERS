@@ -15,9 +15,9 @@
 /scripts/	@szymonwilczek
 /defaults/	@szymonwilczek
 /Documentation/	@szymonwilczek
-/drivers/steelseries_rival3.c	@szymonwilczek
-/drivers/steelseries_rival3_gen2.c	@szymonwilczek
 /Documentation/protocol/
+/drivers/steelseries_rival3/	@szymonwilczek
+/drivers/steelseries_rival3_gen2/	@szymonwilczek
 /tests/drivers/steelseries_rival3.c	@szymonwilczek
 /tests/drivers/steelseries_rival3_gen2.c	@szymonwilczek
 /Documentation/protocol/steelseries-rival3.rst	@szymonwilczek
