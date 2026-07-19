@@ -263,6 +263,28 @@ static int read_hex_file(const char *path, unsigned *out)
 	return ok ? 0 : -1;
 }
 
+/*
+ * uinput sink mirrors the real device's input_id, so it shows up under
+ * /sys/class/input with the same vendor/product and REL_X/REL_Y.
+ * Never bind to our own virtual pointer (e.g. when re-resolving after an unplug)
+ */
+static int node_is_own_sink(const char *evname)
+{
+	char path[512];
+	char name[80] = "";
+	FILE *f;
+
+	snprintf(path, sizeof(path), "/sys/class/input/%s/device/name", evname);
+	f = fopen(path, "re");
+	if (!f)
+		return 0;
+	if (!fgets(name, sizeof(name), f))
+		name[0] = '\0';
+	fclose(f);
+	return strncmp(name, "alloyctl virtual pointer",
+		       strlen("alloyctl virtual pointer")) == 0;
+}
+
 /* node whose capabilities/rel advertises both REL_X and REL_Y is the pointer */
 static int node_has_rel_xy(const char *evname)
 {
@@ -316,6 +338,8 @@ static int find_event_node(uint16_t vid, uint16_t pid, char *node, size_t len)
 		if (v != vid || p != pid)
 			continue;
 		if (!node_has_rel_xy(ent->d_name))
+			continue;
+		if (node_is_own_sink(ent->d_name))
 			continue;
 		snprintf(node, len, "/dev/input/%s", ent->d_name);
 		found = 0;
