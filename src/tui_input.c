@@ -106,9 +106,7 @@ static void footer_activate(struct tui *t)
 		}
 		break;
 	case FOOTER_REVERT:
-		t->cfg = t->baseline;
-		tui_apply_all(t);
-		t->dirty = 0;
+		tui_revert(t);
 		tui_status(t, "reverted to session baseline");
 		break;
 	case FOOTER_SAVE:

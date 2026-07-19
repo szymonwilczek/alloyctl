@@ -73,6 +73,19 @@ int tui_save(struct tui *t)
 	return 0;
 }
 
+/*
+ * Roll the working config back to the session baseline and push it to
+ * the mouse, undoing every live-previewed change since startup.
+ * Shared by the REVERT button and by quit-without-saving.
+ * Only SAVE ever writes the on-disk baseline; this never does.
+ */
+void tui_revert(struct tui *t)
+{
+	t->cfg = t->baseline;
+	tui_apply_all(t);
+	t->dirty = 0;
+}
+
 /* Every lighting edit funnels through here: dirty tracking + live push */
 void tui_lighting_changed(struct tui *t)
 {
