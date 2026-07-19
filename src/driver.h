@@ -225,8 +225,6 @@ const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
  */
 int alloy_device_enumerate(const struct alloy_driver **out, int max);
 
-/* Scan the registry against connected hardware and open device */
-int alloy_device_open(struct alloy_device *dev);
 /* Open a specific device by USB id (e.g. from --device) */
 int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 			 uint16_t product_id);
