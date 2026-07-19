@@ -59,7 +59,7 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
 	     $(wildcard tests/drivers/*.c) src/driver.c src/state.c \
-	     $(wildcard drivers/*/*.c)
+	     src/accel_transform.c $(wildcard drivers/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
