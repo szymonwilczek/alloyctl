@@ -65,7 +65,7 @@ static int illum_item_count(const struct tui *t)
 	       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
 }
 
-static long illum_now_ms(void)
+long tui_now_ms(void)
 {
 	struct timespec ts;
 
@@ -167,7 +167,7 @@ static struct alloy_rgb zone_preview_color(const struct tui *t, int zone,
 }
 
 /* Refresh the per-zone color pairs from the animation clock */
-static void illum_zone_pairs(const struct tui *t, long ms)
+void tui_zone_fx_pairs(const struct tui *t, long ms)
 {
 	uint8_t i;
 
@@ -696,7 +696,7 @@ void tui_illum_draw(struct tui *t)
 	int right_w = COLS - left_w;
 
 	erase();
-	illum_zone_pairs(t, illum_now_ms());
+	tui_zone_fx_pairs(t, tui_now_ms());
 
 	draw_effects_pane(t, 0, 0, main_h, left_w);
 	tui_draw_pane_box(0, left_w, main_h, right_w, t->drv->name,

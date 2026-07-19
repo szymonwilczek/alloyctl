@@ -129,6 +129,8 @@ void tui_art_draw(const struct tui *t, const char *art, int y, int x, int max_y,
 
 /* tui_illum.c */
 #define TUI_ILLUM_FRAME_MS 100 /* preview animation tick */
+long tui_now_ms(void);
+void tui_zone_fx_pairs(const struct tui *t, long ms);
 void tui_illum_draw(struct tui *t);
 void tui_illum_handle_key(struct tui *t, int ch);
 void tui_illum_enter(struct tui *t);
