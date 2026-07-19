@@ -26,6 +26,13 @@ struct alloy_hid_dev {
 	size_t report_size;
 };
 
+/*
+ * Report whether a device with the given VID/PID/interface is currently
+ * connected, without opening it.
+ * Returns 1 if present, 0 otherwise.
+ */
+int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface);
+
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size);
 void alloy_hid_close(struct alloy_hid_dev *dev);
