@@ -16,13 +16,10 @@ Supported hardware
 
    * - Device
      - USB ID
-     - Status
    * - SteelSeries Rival 3 Gen 2
      - ``1038:1870``
-     - Fully Supported
    * - SteelSeries Rival 3
      - ``1038:1824``, ``1038:184c``
-     - Fully Supported
 
 With several supported mice connected, pick one with
 ``alloyctl --device VID:PID``.
