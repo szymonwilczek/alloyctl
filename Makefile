@@ -26,6 +26,12 @@ DEPS := $(OBJS:.o=.d)
 
 BIN := alloyctl
 
+# Install locations (override on the make command line as needed)
+PREFIX ?= /usr/local
+DESTDIR ?=
+BINDIR ?= $(PREFIX)/bin
+UDEVDIR ?= /usr/lib/udev/rules.d
+
 all: $(BIN)
 
 $(BIN): $(OBJS)
@@ -152,12 +158,31 @@ check-version-tag:
 		echo "check-version-tag: tag $$tag != v$$ver (VERSION)"; exit 1; \
 	fi
 
+# Install the binary and the udev rule that grants the pointer-transform
+# daemon access to /dev/uinput.
+# Autostart entries are created at runtime (per device, when the user enables the engine),
+# so nothing is installed for them here.
+# Reload udev afterwards; the message below says how.
+install: $(BIN)
+	install -Dm755 $(BIN) $(DESTDIR)$(BINDIR)/$(BIN)
+	install -Dm644 dist/udev/70-alloyctl-uinput.rules \
+		$(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
+	@echo
+	@echo "Installed $(BIN) to $(DESTDIR)$(BINDIR) and the uinput udev rule."
+	@echo "Activate the rule:  sudo udevadm control --reload && sudo udevadm trigger"
+	@echo "For /dev/input and /dev/uinput access on non-logind systems, add"
+	@echo "your user to the 'input' group:  sudo usermod -aG input \$$USER"
+
+uninstall:
+	rm -f $(DESTDIR)$(BINDIR)/$(BIN)
+	rm -f $(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
+
 clean:
 	rm -rf build $(BIN)
 	$(MAKE) -C Documentation clean
 
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
-.PHONY: all test test-asan test-ubsan test-tsan test-valgrind \
+.PHONY: all install uninstall test test-asan test-ubsan test-tsan test-valgrind \
 	check-format format htmldocs checkdocs docs-serve check-patch \
 	codeowners check-codeowners check-version-tag clean
