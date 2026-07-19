@@ -34,23 +34,21 @@ const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 	return NULL;
 }
 
-int alloy_device_open(struct alloy_device *dev)
+int alloy_device_enumerate(const struct alloy_driver **out, int max)
 {
 	const struct alloy_driver *const *iter;
-
-	memset(dev, 0, sizeof(*dev));
-	dev->hid.fd = -1;
+	int n = 0;
 
 	alloy_for_each_driver(iter)
 	{
-		if (alloy_hid_open(&dev->hid, (*iter)->vendor_id,
-				   (*iter)->product_id, (*iter)->interface,
-				   (*iter)->report_size) == 0) {
-			dev->drv = *iter;
-			return 0;
-		}
+		if (!alloy_hid_present((*iter)->vendor_id, (*iter)->product_id,
+				       (*iter)->interface))
+			continue;
+		if (out && n < max)
+			out[n] = *iter;
+		n++;
 	}
-	return -1;
+	return n;
 }
 
 int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
