@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "accel.h"
 #include "driver.h"
 #include "tui.h"
 
@@ -74,6 +75,29 @@ int main(int argc, char **argv)
 	if (argc > 1 && !strcmp(argv[1], "--version")) {
 		printf("alloyctl %s\n", ALLOY_VERSION);
 		return 0;
+	}
+
+	/*
+	 * Host-side pointer-transform daemon
+	 * (acceleration / deceleration / angle snapping)
+	 * Normally spawned by the TUI or an autostart entry, not run by hand;
+	 * takes VID:PID because it binds an evdev node,
+	 * not a hidraw one.
+	 */
+	if (argc > 2 && (!strcmp(argv[1], "--accel-daemon") ||
+			 !strcmp(argv[1], "--accel-stop"))) {
+		if (sscanf(argv[2], "%4x:%4x", &vid, &pid) != 2) {
+			fprintf(stderr,
+				"alloyctl: %s expects VID:PID "
+				"(e.g. 1038:184c)\n",
+				argv[1]);
+			return 1;
+		}
+		if (!strcmp(argv[1], "--accel-stop"))
+			return alloy_accel_stop((uint16_t)vid, (uint16_t)pid) ?
+				       1 :
+				       0;
+		return alloy_accel_daemon_run((uint16_t)vid, (uint16_t)pid);
 	}
 
 	if (argc > 2 && !strcmp(argv[1], "--device")) {
