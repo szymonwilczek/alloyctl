@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-2.0-only
+name: Enhancement
+description: Suggest improvement or new feature for alloyctl
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For a bug, use the bug report form; for an unsupported mouse, use the
+        new-mouse request. This form is for improving something that already
+        works or adding a feature. Requesting a driver you are willing to write
+        yourself? See
+        [Adding a driver](https://github.com/szymonwilczek/alloyctl/blob/main/Documentation/contributor/adding-a-driver.rst).
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or motivation
+      description: What is missing or awkward today, and who does it affect?
+      placeholder: |
+        When configuring ..., there is no way to ...
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: What should alloyctl do instead? Sketch the UI or behaviour.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of alloyctl does this touch?
+      options:
+        - TUI / user interface
+        - Device configuration or protocol
+        - Build, packaging or CI
+        - Documentation
+        - Other / not sure
+    validations:
+      required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you weighed, and why they fall short.
+    validations:
+      required: false
+  - type: dropdown
+    id: willing
+    attributes:
+      label: Are you able to work on it?
+      options:
+        - "Yes, I want to implement it"
+        - "I can help test, but not code it"
+        - "No, just suggesting"
+    validations:
+      required: false
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: Mockups, links to similar tools, related issues, etc.
+    validations:
+      required: false
