@@ -120,24 +120,33 @@ void tui_accel_set_enabled(struct tui *t, int on)
 	uint16_t vid = t->drv->vendor_id;
 	uint16_t pid = t->drv->product_id;
 
-	t->cfg.accel_enabled = on ? 1 : 0;
-	t->baseline.accel_enabled = t->cfg.accel_enabled;
-	alloy_state_store(t->drv, &t->cfg);
-
 	if (on) {
-		alloy_accel_spawn(vid, pid);
-		alloy_accel_autostart_set(vid, pid, 1);
-		t->accel_running = alloy_accel_is_running(vid, pid);
-		tui_status(t, t->accel_running ?
-				      "accel engine on" :
-				      "accel engine: could not start "
-				      "(is /dev/uinput accessible?)");
+		t->cfg.accel_enabled = 1;
+		alloy_state_store(t->drv, &t->cfg);
+		if (alloy_accel_spawn(vid, pid) == 0) {
+			t->accel_running = 1;
+			alloy_accel_autostart_set(vid, pid, 1);
+			tui_status(t, "accel engine on");
+		} else {
+			/* do not persist the intent or install autostart for engine
+			 * that could not start */
+			t->accel_running = 0;
+			t->cfg.accel_enabled = 0;
+			alloy_state_store(t->drv, &t->cfg);
+			tui_status(t, "engine failed: no access to /dev/input "
+				      "or /dev/uinput (install the udev rule "
+				      "and replug, or re-login after "
+				      "usermod -aG input)");
+		}
 	} else {
 		alloy_accel_stop(vid, pid);
 		alloy_accel_autostart_set(vid, pid, 0);
 		t->accel_running = 0;
+		t->cfg.accel_enabled = 0;
+		alloy_state_store(t->drv, &t->cfg);
 		tui_status(t, "accel engine off - motion back to normal");
 	}
+	t->baseline.accel_enabled = t->cfg.accel_enabled;
 	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
 }
 
