@@ -21,9 +21,6 @@ Supported hardware
    * - SteelSeries Rival 3
      - ``1038:1824``, ``1038:184c``
 
-With several supported mice connected, pick one with
-``alloyctl --device VID:PID``.
-
 This project is mice only for now (keyboards are maybe in the scope for the future).
 Want yours supported? See
 `Documentation/contributor/adding-a-driver.rst
