@@ -43,6 +43,12 @@ struct alloy_led_zone {
 };
 
 /* Optional feature flags advertised by driver */
+/*
+ * Acceleration / deceleration / angle snapping are host-side features applied
+ * by the accel daemon for every device, so these three bits are no longer
+ * consulted; Kept only so the flag values stay stable.
+ * TODO: Cut it out in the near future
+ */
 #define ALLOY_CAP_ACCELERATION (1u << 0)
 #define ALLOY_CAP_DECELERATION (1u << 1)
 #define ALLOY_CAP_ANGLE_SNAPPING (1u << 2)
@@ -107,10 +113,16 @@ struct alloy_config {
 
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
-	/* only meaningful when the matching ALLOY_CAP_* bit is set */
-	int8_t acceleration;
-	int8_t deceleration;
-	uint8_t angle_snapping;
+	/*
+	 * Host-side pointer transform (acceleration/deceleration/angle snapping)
+	 * applied by the accel daemon, not by the device -
+	 * these are always meaningful, independent of any ALLOY_CAP_* bit.
+	 * accel_enabled is the persisted "engine on" intent.
+	 */
+	int8_t acceleration; /* 0..100 */
+	int8_t deceleration; /* 0..100 */
+	uint8_t angle_snapping; /* 0 = off, else degrees 1..45 */
+	uint8_t accel_enabled;
 };
 
 struct alloy_device;
