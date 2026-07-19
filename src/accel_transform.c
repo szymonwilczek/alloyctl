@@ -34,16 +34,24 @@ void alloy_accel_from_config(const struct alloy_config *cfg,
 			      ALLOY_SNAP_MAX);
 }
 
+/*
+ * Acceleration and deceleration act on opposite ends of the speed range,
+ * so they compose instead of cancelling:
+ * deceleration lowers the gain while the hand moves slowly (precision)
+ * and fades out as the ramp comes in, while acceleration raises it as
+ * the ramp saturates (flicks).
+ * Each contributes up to 0.75x, so both at 100 give the full S-curve from
+ * 0.25x through 1.0x (at half the reference speed squared) to 1.75x.
+ */
 int32_t alloy_accel_gain_fp(const struct alloy_accel_params *p, int64_t s2)
 {
-	int net = p->accel - p->decel; /* -100..100 */
 	int64_t ramp = s2 * FP / SREF2; /* 0..FP, saturating */
 	int32_t g;
 
 	if (ramp > FP)
 		ramp = FP;
-	/* net = 100 contributes up to +0.75x at the reference speed */
-	g = FP + (int32_t)((int64_t)net * ramp / 100 * 3 / 4);
+	g = FP + (int32_t)((int64_t)p->accel * ramp / 100 * 3 / 4) -
+	    (int32_t)((int64_t)p->decel * (FP - ramp) / 100 * 3 / 4);
 	return ALLOY_CLAMP(g, ALLOY_ACCEL_GAIN_MIN, ALLOY_ACCEL_GAIN_MAX);
 }
 

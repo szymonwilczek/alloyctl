@@ -44,8 +44,8 @@ struct alloy_config;
 
 /* Transform parameters derived from the working config */
 struct alloy_accel_params {
-	int accel; /* 0..100: gain rises with speed */
-	int decel; /* 0..100: gain falls with speed */
+	int accel; /* 0..100: raises the gain at high speed (flicks) */
+	int decel; /* 0..100: lowers the gain at low speed (precision) */
 	int snap; /* 0 = off, else half-cone in degrees (1..45) */
 };
 
