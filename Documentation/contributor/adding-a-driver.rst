@@ -99,8 +99,10 @@ imitate.
     *
     * Mark the LED zones (Z1, Z2, ...) and the side buttons (B4, B5, ...)
     * like the Rival 3 drivers do. Prefix a character with "$N"
-    * (N = 1..8) to paint it in the live color of zone N; "$$" renders
-    * a literal dollar and the markers take no column. Painted
+    * (N = 1..8) to paint it in the live color of zone N; "$i" paints the
+    * following character in a static native "info" tint, for guide labels
+    * (the "B4 --" pointers) so they read as annotation, not art; "$$"
+    * renders a literal dollar. Every marker takes no column. Zone-painted
     * characters follow the user's colors in the main view and animate
     * in the illumination preview.
     *
