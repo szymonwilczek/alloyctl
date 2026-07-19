@@ -53,6 +53,7 @@ enum tui_color {
 	CLR_DISABLED,
 	CLR_BUTTON,
 	CLR_BUTTON_HOT,
+	CLR_INFO, /* static native tint for art guide chars ($i) */
 	CLR_ZONE_BASE, /* CLR_ZONE_BASE + zone index, dynamic RGB */
 	CLR_PICKER_PREVIEW = CLR_ZONE_BASE + ALLOY_MAX_LED_ZONES,
 	CLR_PICKER_SWATCH, /* + swatch index */

@@ -153,6 +153,7 @@ static void tui_init_colors(struct tui *t)
 	init_pair(CLR_DISABLED, COLOR_BLUE, -1);
 	init_pair(CLR_BUTTON, COLOR_BLACK, COLOR_WHITE);
 	init_pair(CLR_BUTTON_HOT, COLOR_BLACK, COLOR_GREEN);
+	init_pair(CLR_INFO, COLOR_CYAN, -1);
 
 	tui_zone_color_pairs(t);
 }
