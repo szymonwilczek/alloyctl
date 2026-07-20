@@ -60,4 +60,11 @@ int alloy_hid_cmd(struct alloy_hid_dev *dev, const uint8_t *payload,
 int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
 		       size_t len, uint8_t *resp, size_t resp_len);
 
+/*
+ * Non-blocking read of one pending unsolicited input report.
+ * Device-initiated events, e.g. hardware CPI level switches on dedicated event interface.
+ * Returns the byte count, 0 when nothing is pending, -1 on I/O error.
+ */
+int alloy_hid_poll(struct alloy_hid_dev *dev, uint8_t *buf, size_t len);
+
 #endif /* ALLOY_HID_H */

@@ -19,6 +19,7 @@ size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 static const struct alloy_driver *r3g2(void)
 {
@@ -254,4 +255,41 @@ ALLOY_TEST(test_brightness_packet)
 	cfg.brightness = 255; /* clamps to 100 */
 	r3g2_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[1], 100);
+}
+
+ALLOY_TEST(test_cpi_level_event)
+{
+	/* exact notification captured on hardware: levels 800/900/1800 */
+	uint8_t evt[64] = { 0xAD, 0x03, 0x01, 0x12, 0x14, 0x29 };
+	struct alloy_config cfg;
+
+	r3g2()->config_defaults(r3g2(), &cfg);
+	cfg.dpi_count = 3;
+	cfg.dpi_active = 0;
+
+	/* hardware switched to level 2 (0-based 1) */
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 1);
+	ASSERT_EQ(cfg.dpi_active, 1);
+
+	/* same level again: no change to report */
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+	ASSERT_EQ(cfg.dpi_active, 1);
+
+	/* not the CPI notification */
+	evt[0] = 0x21;
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+	evt[0] = 0xAD;
+
+	/* truncated report */
+	ASSERT_EQ(r3g2_parse_event(evt, 2, &cfg), 0);
+
+	/* active out of the report's own range */
+	evt[2] = 0x03;
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+
+	/* active beyond what the host config knows: ignored, not clamped */
+	evt[1] = 0x05;
+	evt[2] = 0x04;
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+	ASSERT_EQ(cfg.dpi_active, 1);
 }

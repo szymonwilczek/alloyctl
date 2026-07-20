@@ -58,6 +58,7 @@ int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 
 	memset(dev, 0, sizeof(*dev));
 	dev->hid.fd = -1;
+	dev->ev.fd = -1;
 
 	drv = alloy_driver_find(vendor_id, product_id);
 	if (!drv)
@@ -65,12 +66,22 @@ int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 	if (alloy_hid_open(&dev->hid, drv->vendor_id, drv->product_id,
 			   drv->interface, drv->report_size))
 		return -1;
+	/*
+	 * Event channel is best-effort:
+	 * without it the device still configures fine,
+	 * only device-initiated changes go unnoticed.
+	 */
+	if (drv->ops->parse_event &&
+	    alloy_hid_open(&dev->ev, drv->vendor_id, drv->product_id,
+			   drv->event_interface, drv->report_size))
+		dev->ev.fd = -1;
 	dev->drv = drv;
 	return 0;
 }
 
 void alloy_device_close(struct alloy_device *dev)
 {
+	alloy_hid_close(&dev->ev);
 	alloy_hid_close(&dev->hid);
 	dev->drv = NULL;
 }
@@ -84,7 +95,7 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 
 	/*
 	 * One preset out of the box;
-	 * More are created on demand in the SENSITIVITY pane.
+	 * More are created on demand in the CPI LEVELS pane.
 	 * Persisted baseline always overrides this.
 	 */
 	cfg->dpi_count = 1;

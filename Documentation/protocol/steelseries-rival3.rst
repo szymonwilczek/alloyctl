@@ -42,6 +42,13 @@ Every command starts with ``<cmd> 0x00``.
 One byte per preset (no separate X/Y), same TrueMove Core table as the Gen 2
 (200--8500 DPI, step 100, ``byte ~= dpi / 43.1``). ``active`` is 1-based.
 
+As on the Gen 2, the presets are onboard **CPI levels** only: the CPI button
+cycles the active CPI value, while colors, effects, polling rate and button
+bindings are one global configuration shared by every level. Pressing the
+button flashes a fixed, firmware-chosen indicator color for the new level
+before the configured lighting returns -- a level indicator, not per-level
+lighting.
+
 ``0x04 0x00`` -- polling rate
 -----------------------------
 
@@ -109,7 +116,10 @@ carries the keycode where applicable:
 ``0x09 0x00`` -- save to onboard flash
 --------------------------------------
 
-Commits the live configuration to persistent memory.
+Commits the live configuration to persistent memory. One save commits
+everything: the flash configuration is global (single set of colors, effects,
+polling and bindings plus the CPI level table); there are no per-level
+profile slots.
 
 ``0x10 0x00`` -- firmware version
 ---------------------------------

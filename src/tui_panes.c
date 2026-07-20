@@ -5,8 +5,8 @@
  * Screen layout (percentages of the usable width):
  *
  *   +----------+----------------+------------+------------+
- *   | ACTIONS  |                | SENS 1     | ACCEL /    |
- *   |          |   mouse art    | SENS 2     | DECEL      |
+ *   | ACTIONS  |                | LVL 1      | ACCEL /    |
+ *   |          |   mouse art    | LVL 2      | DECEL      |
  *   | (3/4 h)  |                |            | ANGLE SNAP |
  *   +----------+                |            | POLLING    |
  *   | MACRO    |  ILLUMINATION  |            |            |
@@ -44,7 +44,7 @@ static void compute_layout(void)
 
 	layout[PANE_ACTIONS] = (struct rect){ 0, 0, main_h, left_w };
 	layout[PANE_CENTER] = (struct rect){ 0, left_w, main_h, center_w };
-	layout[PANE_SENSITIVITY] =
+	layout[PANE_LEVELS] =
 		(struct rect){ 0, left_w + center_w, main_h, sens_w };
 	layout[PANE_TUNING] =
 		(struct rect){ 0, left_w + center_w + sens_w, main_h, tune_w };
@@ -227,15 +227,15 @@ static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
  * so the pane holds every preset the mouse supports;
  * CREATE button follows the last preset until the driver limit is reached.
  */
-static void draw_sensitivity_pane(struct tui *t)
+static void draw_levels_pane(struct tui *t)
 {
-	const struct rect *r = &layout[PANE_SENSITIVITY];
-	int focused = t->focus == PANE_SENSITIVITY;
-	int sel = t->cursor[PANE_SENSITIVITY];
+	const struct rect *r = &layout[PANE_LEVELS];
+	int focused = t->focus == PANE_LEVELS;
+	int sel = t->cursor[PANE_LEVELS];
 	int y = r->y + 2;
 	int i;
 
-	draw_box(r, "SENSITIVITY", focused);
+	draw_box(r, "CPI LEVELS", focused);
 
 	for (i = 0; i < t->cfg.dpi_count; i++) {
 		int active = t->cfg.dpi_active == i;
@@ -249,7 +249,7 @@ static void draw_sensitivity_pane(struct tui *t)
 			attron(COLOR_PAIR(CLR_SELECTED));
 		else if (active)
 			attron(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
-		mvprintw(y, r->x + 2, "SENSITIVITY %d", i + 1);
+		mvprintw(y, r->x + 2, "LEVEL %d", i + 1);
 		attroff(COLOR_PAIR(CLR_SELECTED));
 		attroff(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
 
@@ -488,7 +488,7 @@ static void draw_tuning_pane(struct tui *t)
 	y += 4; /* chart height + blank line before the stepper */
 
 	/*
-	 * stepper mirrors the sensitivity presets:
+	 * stepper mirrors the CPI level entries:
 	 * highlighted label, bold accent value and slider over the ladder;
 	 * h/l steps, H/L jumps
 	 */
@@ -569,7 +569,7 @@ void tui_draw(struct tui *t)
 
 	draw_actions_pane(t);
 	draw_center_pane(t);
-	draw_sensitivity_pane(t);
+	draw_levels_pane(t);
 	draw_tuning_pane(t);
 	draw_footer(t);
 
