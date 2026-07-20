@@ -42,16 +42,30 @@ void tui_apply(struct tui *t,
 		tui_status(t, "%s: I/O error", what);
 }
 
-void tui_apply_all(struct tui *t)
+/*
+ * @with_dpi: push the DPI table, which also latches the active CPI level.
+ * Off at startup only: the active level is live device state the user drives
+ * with the physical CPI button, and there is no read-back to recover it
+ * (0xAD notification is push-only).
+ * Every other apply path - SAVE, REVERT, live-preview - is explicit user
+ * action and does push it.
+ */
+static void tui_apply_all_impl(struct tui *t, int with_dpi)
 {
 	const struct alloy_driver_ops *ops = t->drv->ops;
 
-	tui_apply(t, ops->apply_dpi, "dpi");
+	if (with_dpi)
+		tui_apply(t, ops->apply_dpi, "dpi");
 	tui_apply(t, ops->apply_polling, "polling");
 	tui_apply(t, ops->apply_colors, "colors");
 	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
 		tui_apply(t, ops->apply_brightness, "brightness");
 	tui_apply(t, ops->apply_buttons, "buttons");
+}
+
+void tui_apply_all(struct tui *t)
+{
+	tui_apply_all_impl(t, 1);
 }
 
 /*
@@ -377,10 +391,11 @@ int alloy_tui_run(struct alloy_device *dev)
 		tui_init_colors(&t);
 
 	/*
-	 * make the mouse state match the working config
-	 * so what the user sees on screen is what the hardware runs
+	 * make the mouse state match the working config so what the user sees
+	 * on screen is what the hardware runs - except the active CPI level,
+	 * which the mouse owns and we must not clobber at launch (#41)
 	 */
-	tui_apply_all(&t);
+	tui_apply_all_impl(&t, 0);
 	tui_status(&t, used_defaults ?
 			       "no saved baseline - using driver defaults" :
 			       "baseline loaded from disk");
