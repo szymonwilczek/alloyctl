@@ -101,6 +101,14 @@ Design notes
   persisted under ``~/.config/alloyctl/`` (driver defaults on the very first
   run) -- your defaults, not the application's.
 
+Disclaimer
+==========
+
+alloyctl is an independent, unofficial project. It is not affiliated with,
+endorsed by, or sponsored by SteelSeries ApS. "SteelSeries" and "SteelSeries
+Engine" are trademarks of their respective owners, used here only to describe
+hardware compatibility.
+
 License
 =======
 
