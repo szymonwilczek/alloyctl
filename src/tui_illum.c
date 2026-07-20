@@ -144,9 +144,16 @@ static struct alloy_rgb zone_preview_color(const struct tui *t, int zone,
 
 		c = hue_to_rgb((int)((bucket * 137) % 360));
 	} else if (rainbow) {
-		/* hue wheel; zones are phase shifted so the cycle
-		 * visibly travels across the mouse */
-		int hue = (int)((tms / 20 + (long)zone * freq * 30) % 360);
+		/*
+		 * Hue wheel:
+		 * Zone-mask hardware cycles each zone with offset so the rainbow
+		 * visibly travels across the mouse;
+		 * global effect steps every zone through the same hue in lockstep
+		 */
+		long shift = (t->drv->caps & ALLOY_CAP_FX_GLOBAL) ?
+				     0 :
+				     (long)zone * freq * 30;
+		int hue = (int)((tms / 20 + shift) % 360);
 
 		c = hue_to_rgb(hue);
 	}
@@ -178,6 +185,54 @@ void tui_zone_fx_pairs(const struct tui *t, long ms)
 		struct alloy_rgb c = zone_preview_color(t, i, ms);
 
 		init_pair((short)(CLR_ZONE_BASE + i), tui_rgb_to_color(&c), -1);
+	}
+}
+
+/*
+ * On ALLOY_CAP_FX_GLOBAL hardware the effect selector drives the whole device,
+ * not the edited zone.
+ * Mirror the edited zone's effect and preview rates onto every zone, so the config
+ * matches what the firmware will do and the preview animates the mouse as one
+ * - per-zone colors stay independent.
+ */
+static void illum_sync_global_fx(struct tui *t)
+{
+	int zone = t->illum_zone;
+	uint8_t i;
+
+	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL))
+		return;
+	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
+		t->cfg.zone_fx[i] = t->cfg.zone_fx[zone];
+		t->cfg.zone_fx_freq[i] = t->cfg.zone_fx_freq[zone];
+		t->cfg.zone_fx_speed[i] = t->cfg.zone_fx_speed[zone];
+	}
+}
+
+/*
+ * Align loaded config with the global-effect rule above:
+ * older baselines (and hand-edited state files) may carry divergent per-zone
+ * effects that the hardware can never show.
+ * First zone running effect wins - the same best-effort rule the driver uses
+ * when it builds the packet.
+ */
+void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg)
+{
+	uint8_t src = 0;
+	uint8_t i;
+
+	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL))
+		return;
+	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
+		if (cfg->zone_fx[i]) {
+			src = i;
+			break;
+		}
+	}
+	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
+		cfg->zone_fx[i] = cfg->zone_fx[src];
+		cfg->zone_fx_freq[i] = cfg->zone_fx_freq[src];
+		cfg->zone_fx_speed[i] = cfg->zone_fx_speed[src];
 	}
 }
 
@@ -480,6 +535,12 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	mvprintw(y + 4, x + 13, "< %s >", fx_name);
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 
+	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
+		attron(COLOR_PAIR(CLR_DISABLED));
+		mvprintw(y + 5, x + 2, "drives the whole device");
+		attroff(COLOR_PAIR(CLR_DISABLED));
+	}
+
 	draw_rate_row(t, y + 6, x + 2, "FREQUENCY",
 		      t->cfg.zone_fx_freq[t->illum_zone],
 		      focused && sel == ILL_FREQ);
@@ -514,7 +575,9 @@ static void illum_effect_modal(struct tui *t)
 	for (;;) {
 		tui_illum_draw(t);
 		tui_modal_frame(count + 4, 30, &y, &x,
-				t->drv->zones[t->illum_zone].name);
+				(t->drv->caps & ALLOY_CAP_FX_GLOBAL) ?
+					"WHOLE DEVICE" :
+					t->drv->zones[t->illum_zone].name);
 
 		for (i = 0; i < count; i++) {
 			if (i == sel)
@@ -544,6 +607,7 @@ static void illum_effect_modal(struct tui *t)
 		case '\n':
 		case KEY_ENTER:
 			t->cfg.zone_fx[t->illum_zone] = (uint8_t)sel;
+			illum_sync_global_fx(t);
 			tui_lighting_changed(t);
 			return;
 		default:
@@ -587,6 +651,7 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		t->cfg.zone_fx[zone] = (uint8_t)((t->cfg.zone_fx[zone] +
 						  t->drv->num_fx + dir) %
 						 t->drv->num_fx);
+		illum_sync_global_fx(t);
 		tui_lighting_changed(t);
 		return;
 	case ILL_FREQ:
@@ -599,6 +664,7 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		val = *rate + dir;
 		*rate = (uint8_t)ALLOY_CLAMP(val, ALLOY_FX_RATE_MIN,
 					     ALLOY_FX_RATE_MAX);
+		illum_sync_global_fx(t);
 		tui_lighting_changed(t);
 		return;
 	case ILL_R:

@@ -229,9 +229,12 @@ static int r3_apply_polling(struct alloy_device *dev,
 }
 
 /*
- * Full lighting state:
- * effect selector first (switching back to steady restores static colors),
- * then all four zones.
+ * Full lighting state.
+ * Hardware-verified (#38): any 0x05 zone-color write cancels the running global effect
+ * on every zone, freezing the animation.
+ * So the zones (which also carry the shared brightness) go out first and the effect
+ * selector last - the breathing modes then pulse the freshly latched colors,
+ * and steady simply shows them.
  */
 static int r3_apply_colors(struct alloy_device *dev,
 			   const struct alloy_config *cfg)
@@ -240,25 +243,21 @@ static int r3_apply_colors(struct alloy_device *dev,
 	int ret = 0;
 	int zone;
 
-	ret |= alloy_hid_send(&dev->hid, buf, r3_build_effect(cfg, buf));
 	for (zone = 0; zone < 4; zone++)
 		ret |= alloy_hid_send(&dev->hid, buf,
 				      r3_build_zone_color(cfg, zone, buf));
+	ret |= alloy_hid_send(&dev->hid, buf, r3_build_effect(cfg, buf));
 	return ret ? -1 : 0;
 }
 
-/* Brightness rides in every color write; just resend the zones */
+/*
+ * Brightness rides in every color write - and those writes kill the running
+ * effect (#38), so a brightness change is a full lighting reapply.
+ */
 static int r3_apply_brightness(struct alloy_device *dev,
 			       const struct alloy_config *cfg)
 {
-	uint8_t buf[R3_REPORT_SIZE];
-	int ret = 0;
-	int zone;
-
-	for (zone = 0; zone < 4; zone++)
-		ret |= alloy_hid_send(&dev->hid, buf,
-				      r3_build_zone_color(cfg, zone, buf));
-	return ret ? -1 : 0;
+	return r3_apply_colors(dev, cfg);
 }
 
 static int r3_apply_buttons(struct alloy_device *dev,

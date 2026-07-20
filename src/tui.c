@@ -354,6 +354,7 @@ int alloy_tui_run(struct alloy_device *dev)
 	t.live_preview = 1;
 
 	used_defaults = alloy_state_load(t.drv, &t.baseline);
+	tui_fx_global_normalize(&t, &t.baseline);
 	t.cfg = t.baseline;
 
 	t.accel_running =

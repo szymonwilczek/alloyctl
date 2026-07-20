@@ -139,5 +139,6 @@ void tui_zone_fx_pairs(const struct tui *t, long ms);
 void tui_illum_draw(struct tui *t);
 void tui_illum_handle_key(struct tui *t, int ch);
 void tui_illum_enter(struct tui *t);
+void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg);
 
 #endif /* ALLOY_TUI_INTERNAL_H */

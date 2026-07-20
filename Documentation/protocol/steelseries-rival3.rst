@@ -69,9 +69,13 @@ lighting.
 * zone ``0x00`` -- all zones at once
 
 ``brightness`` is ``0x00``-``0x64`` (0-100 %) and rides in every color write --
-there is no separate global brightness command. Setting a color while an effect
-runs switches that back to steady behaviour on the next effect write, so
-alloyctl orders effect-first, colors-second.
+there is no separate global brightness command.
+
+Hardware-verified (#38): **any** ``0x05`` write cancels the running global
+effect on *every* zone, freezing the animation in place. Effects therefore
+have to be applied colors-first, effect-selector-last, and a brightness
+change (which is just another round of color writes) must resend the effect
+too.
 
 ``0x06 0x00`` -- global light effect
 ------------------------------------
