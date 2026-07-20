@@ -122,6 +122,8 @@ q            Quit
 Documentation
 =============
 
+Online hosted documentation can be found at https://alloy.szymon-wilczek.me
+
 Full manual can be found under ``Documentation/`` and builds to HTML
 with Sphinx::
 
