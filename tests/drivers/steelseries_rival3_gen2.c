@@ -168,16 +168,19 @@ ALLOY_TEST(test_reactive_packet)
 
 	cfg.reactive_enabled = 1;
 	cfg.reactive_color = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
-	ASSERT_EQ(r3g2_build_reactive(&cfg, buf), 4);
+	ASSERT_EQ(r3g2_build_reactive(&cfg, buf), 6);
 	ASSERT_EQ(buf[0], 0x26);
-	ASSERT_EQ(buf[1], 0x12);
-	ASSERT_EQ(buf[2], 0x34);
-	ASSERT_EQ(buf[3], 0x56);
+	ASSERT_EQ(buf[1], 0x01); /* enable byte, hardware-verified (#24) */
+	ASSERT_EQ(buf[2], 0x00);
+	ASSERT_EQ(buf[3], 0x12);
+	ASSERT_EQ(buf[4], 0x34);
+	ASSERT_EQ(buf[5], 0x56);
 
 	/* disabled: all-zero payload turns the effect off */
 	cfg.reactive_enabled = 0;
 	r3g2_build_reactive(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x00);
+	ASSERT_EQ(buf[3], 0x00);
 	ASSERT_EQ(buf[2], 0x00);
 	ASSERT_EQ(buf[3], 0x00);
 }

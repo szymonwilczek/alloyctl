@@ -143,9 +143,18 @@ replaced by the 3-zone bottom strip.
 
 ::
 
-   0x26 <R> <G> <B>           ; color flashed on button click
+   0x26 <enable> 0x00 <R> <G> <B>   ; color flashed on button click
 
-All-zero payload disables the effect.
+``enable`` is ``0x01`` to arm the flash, ``0x00`` (with a zero color) to
+disable it. All hardware-verified (fw ``1.1.6``):
+
+* The flash **overlays** whatever the zones currently show - static colors,
+  the rainbow cycle or unlit zones alike.
+* The enable byte is mandatory. A short ``0x26 <R> <G> <B>`` write is still
+  ACKed, but the firmware then latches a **black** flash - the effect looks
+  completely dead while every command "succeeds" (the #24 trap).
+* The color is **not persisted** by ``0x11`` and resets on power-up, so the
+  host must re-arm it after every replug.
 
 ``0x27`` -- default lighting at power-up
 ----------------------------------------
@@ -153,6 +162,13 @@ All-zero payload disables the effect.
 ::
 
    0x27 <rainbow> <reactive>  ; each 0x00 or 0x01
+
+Despite the name, the mode also applies **immediately** when written, not
+only at the next power-up (verified: writing ``0x27 0x01 0x00`` starts the
+rainbow on the spot, ``0x27 0x00 0x01`` turns the zones off live). At wake-up
+the reactive bit lights nothing by itself - it only selects whether clicking
+triggers the flash before the host reconfigures the zones; once any ``0x21``/
+``0x22`` write lands, the ``0x26`` overlay works in every mode regardless.
 
 ``0x2A`` -- button mapping
 --------------------------
