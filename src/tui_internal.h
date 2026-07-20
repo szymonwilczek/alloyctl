@@ -68,6 +68,7 @@ struct tui {
 
 	int live_preview;
 	int dirty; /* differs from what SAVE last wrote */
+	int accel_running; /* host-side accel engine active for this device */
 
 	enum tui_pane focus;
 	int cursor[PANE_COUNT]; /* per-pane selected item */
@@ -95,6 +96,8 @@ void tui_apply(struct tui *t,
 void tui_apply_all(struct tui *t);
 int tui_save(struct tui *t);
 void tui_revert(struct tui *t);
+void tui_accel_changed(struct tui *t);
+void tui_accel_set_enabled(struct tui *t, int on);
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
 int tui_dpi_preset_limit(const struct tui *t);
 int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx);

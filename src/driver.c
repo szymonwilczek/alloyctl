@@ -116,4 +116,5 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 	cfg->acceleration = 0;
 	cfg->deceleration = 0;
 	cfg->angle_snapping = 0;
+	cfg->accel_enabled = 0;
 }

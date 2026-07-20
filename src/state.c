@@ -182,6 +182,8 @@ static void parse_line(struct alloy_config *cfg, const char *key,
 		cfg->deceleration = (int8_t)atoi(val);
 	} else if (!strcmp(key, "angle_snapping")) {
 		cfg->angle_snapping = (uint8_t)atoi(val);
+	} else if (!strcmp(key, "accel_enabled")) {
+		cfg->accel_enabled = atoi(val) ? 1 : 0;
 	}
 }
 
@@ -265,12 +267,10 @@ int alloy_state_store(const struct alloy_driver *drv,
 		fprintf(f, "button%u=%s:%u\n", i,
 			action_type_name(cfg->buttons[i].type),
 			cfg->buttons[i].value);
-	if (drv->caps & ALLOY_CAP_ACCELERATION)
-		fprintf(f, "acceleration=%d\n", cfg->acceleration);
-	if (drv->caps & ALLOY_CAP_DECELERATION)
-		fprintf(f, "deceleration=%d\n", cfg->deceleration);
-	if (drv->caps & ALLOY_CAP_ANGLE_SNAPPING)
-		fprintf(f, "angle_snapping=%u\n", cfg->angle_snapping);
+	fprintf(f, "acceleration=%d\n", cfg->acceleration);
+	fprintf(f, "deceleration=%d\n", cfg->deceleration);
+	fprintf(f, "angle_snapping=%u\n", cfg->angle_snapping);
+	fprintf(f, "accel_enabled=%u\n", cfg->accel_enabled);
 
 	fclose(f);
 	return 0;

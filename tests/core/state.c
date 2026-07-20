@@ -62,6 +62,10 @@ ALLOY_TEST(test_state_roundtrip)
 	in.brightness = 42;
 	in.buttons[5].type = ALLOY_ACT_KEYBOARD;
 	in.buttons[5].value = 0x29;
+	in.acceleration = 40;
+	in.deceleration = 15;
+	in.angle_snapping = 12;
+	in.accel_enabled = 1;
 
 	ASSERT_EQ(alloy_state_store(drv, &in), 0);
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
@@ -81,6 +85,10 @@ ALLOY_TEST(test_state_roundtrip)
 	ASSERT_EQ(out.reactive_color.g, 0x20);
 	ASSERT_EQ(out.startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
 	ASSERT_EQ(out.brightness, 42);
+	ASSERT_EQ(out.acceleration, 40);
+	ASSERT_EQ(out.deceleration, 15);
+	ASSERT_EQ(out.angle_snapping, 12);
+	ASSERT_EQ(out.accel_enabled, 1);
 
 	/* reactive=off round-trips to disabled */
 	in.reactive_enabled = 0;

@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "accel.h"
 #include "tui_internal.h"
 #include "default_art.h"
 
@@ -320,15 +321,53 @@ static void draw_poll_wave(int y, int x, int w, int h, uint16_t hz,
 	}
 }
 
+/*
+ * Dotted pointer trajectory:
+ * wobbly hand motion that straightens out as the snapping cone widens.
+ * Three rows tall; diamonds are the start and end of the stroke.
+ */
+static void draw_snap_wave(int y, int x, int w, uint8_t snap)
+{
+	/* one period of sin() scaled to +-100, 16 samples */
+	static const int8_t sine[16] = { 0, 38,	 71,  92,  100,	 92,  71,  38,
+					 0, -38, -71, -92, -100, -92, -71, -38 };
+	int amp = 100 - (int)snap * 100 / ALLOY_SNAP_MAX;
+	int i;
+
+	mvaddch(y + 1, x, ACS_DIAMOND);
+	mvaddch(y + 1, x + w - 1, ACS_DIAMOND);
+	for (i = 1; i < w - 1; i++) {
+		int v = sine[(i * 32 / w) % 16] * amp / 100;
+		int row = v > 50 ? 0 : v < -50 ? 2 : 1;
+
+		mvaddch(y + row, x + i, ACS_BULLET);
+	}
+}
+
+/*
+ * Map a fixed-point gain onto a graph row.
+ * Visible range is exactly what the transform can reach at the reference speed:
+ * 0.25x (bottom row) through 1.00x (middle) to 1.75x (top row).
+ */
+static int gain_to_row(int32_t g, int graph_h)
+{
+	const int32_t top = ALLOY_ACCEL_FP * 7 / 4;
+	const int32_t span = ALLOY_ACCEL_FP * 3 / 2;
+	int row = (int)(((int64_t)(top - g) * (graph_h - 1) + span / 2) / span);
+
+	return ALLOY_CLAMP(row, 0, graph_h - 1);
+}
+
 static void draw_tuning_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_TUNING];
+	struct alloy_accel_params ap;
 	int focused = t->focus == PANE_TUNING;
 	int sel = t->cursor[PANE_TUNING];
-	int has_accel = t->drv->caps & ALLOY_CAP_ACCELERATION;
-	int has_decel = t->drv->caps & ALLOY_CAP_DECELERATION;
-	int has_snap = t->drv->caps & ALLOY_CAP_ANGLE_SNAPPING;
-	int graph_h = 6;
+	int graph_h = 5;
+	int gx = r->x + 9;
+	int gw = r->w - 14;
+	int prev = -1;
 	int y = r->y + 2;
 	int i;
 
@@ -337,36 +376,73 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "ACCELERATION / DECELERATION");
 	y++;
 
-	/* SPEED OF HAND MOVEMENT vs SENSITIVITY graph */
+	/*
+	 * Y-axis title:
+	 * curses cannot rotate glyphs and the graph is too short for one letter per row,
+	 * so it sits right-aligned above the curve
+	 */
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, gx + gw - (int)strlen("SENSITIVITY"), "SENSITIVITY");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y, r->x + 8, ACS_UARROW);
+	y++;
+
+	/* gain ticks on the Y axis */
 	for (i = 0; i < graph_h; i++)
-		mvaddch(y + i, r->x + 3, i == 0 ? ACS_UARROW : ACS_VLINE);
-	mvaddch(y + graph_h, r->x + 3, ACS_LLCORNER);
-	mvhline(y + graph_h, r->x + 4, ACS_HLINE, r->w - 9);
+		mvaddch(y + i, r->x + 8, ACS_VLINE);
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, r->x + 2, "1.75x");
+	mvprintw(y + graph_h / 2, r->x + 2, "1.00x");
+	mvprintw(y + graph_h - 1, r->x + 2, "0.25x");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h / 2, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h - 1, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h, r->x + 8, ACS_LLCORNER);
+	mvhline(y + graph_h, gx, ACS_HLINE, gw);
 	mvaddch(y + graph_h, r->x + r->w - 5, ACS_RARROW);
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(y + graph_h + 1, r->x + 4, "SPEED OF HAND MOVEMENT");
+	mvprintw(y + graph_h + 1, r->x + 4, "%.*s", r->w - 6,
+		 "SPEED OF HAND MOVEMENT");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
-	if (has_accel || has_decel) {
-		/* curve bends up with accel, down with decel */
-		int mid = graph_h / 2 - t->cfg.acceleration / 4 +
-			  t->cfg.deceleration / 4;
+	/*
+	 * Curve is the exact speed-to-gain response the daemon applies (alloy_accel_gain_fp):
+	 * flat 1.0x when neutral, ramping up with acceleration or down with
+	 * deceleration until the ramp saturates.
+	 * Hand speed sweeps 0..30 counts/event across the axis,
+	 * so saturation (20 counts/event) lands two thirds of the way along.
+	 * Row steps are joined with corner and vertical glyphs to keep the line continuous.
+	 */
+	alloy_accel_from_config(&t->cfg, &ap);
+	attron(COLOR_PAIR(CLR_ACCENT));
+	for (i = 0; i < gw; i++) {
+		int s = i * 30 / (gw - 1);
+		int row = gain_to_row(alloy_accel_gain_fp(&ap, (int64_t)s * s),
+				      graph_h);
+		int rr;
 
-		attron(COLOR_PAIR(CLR_ACCENT));
-		mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 4,
-			ACS_HLINE, r->w - 9);
-		attroff(COLOR_PAIR(CLR_ACCENT));
-	} else {
-		attron(COLOR_PAIR(CLR_ACCENT));
-		mvhline(y + graph_h / 2, r->x + 4, ACS_HLINE, r->w - 9);
-		attroff(COLOR_PAIR(CLR_ACCENT));
+		if (prev < 0 || row == prev) {
+			mvaddch(y + row, gx + i, ACS_HLINE);
+		} else if (row < prev) { /* gain rising: turn upward */
+			mvaddch(y + prev, gx + i, ACS_LRCORNER);
+			for (rr = row + 1; rr < prev; rr++)
+				mvaddch(y + rr, gx + i, ACS_VLINE);
+			mvaddch(y + row, gx + i, ACS_ULCORNER);
+		} else { /* gain falling: turn downward */
+			mvaddch(y + prev, gx + i, ACS_URCORNER);
+			for (rr = prev + 1; rr < row; rr++)
+				mvaddch(y + rr, gx + i, ACS_VLINE);
+			mvaddch(y + row, gx + i, ACS_LLCORNER);
+		}
+		prev = row;
 	}
+	attroff(COLOR_PAIR(CLR_ACCENT));
 
 	y += graph_h + 2;
 
 	for (i = 0; i < 2; i++) {
 		const char *name = i == 0 ? "Acceleration" : "Deceleration";
-		int supported = i == 0 ? has_accel : has_decel;
 		int8_t val = i == 0 ? t->cfg.acceleration : t->cfg.deceleration;
 
 		if (focused && sel == i)
@@ -374,31 +450,32 @@ static void draw_tuning_pane(struct tui *t)
 		mvprintw(y, r->x + 2, "%-13s", name);
 		if (focused && sel == i)
 			attroff(COLOR_PAIR(CLR_SELECTED));
-		if (supported) {
-			mvprintw(y, r->x + 16, "< %3d >", val);
-		} else {
-			attron(COLOR_PAIR(CLR_DISABLED));
-			mvprintw(y, r->x + 16, "N/A (device)");
-			attroff(COLOR_PAIR(CLR_DISABLED));
-		}
+		mvprintw(y, r->x + 16, "< %3d >", val);
 		y++;
 	}
 
-	y++;
 	mvprintw(y, r->x + 2, "ANGLE SNAPPING");
 	y++;
+	attron(COLOR_PAIR(CLR_ACCENT));
+	draw_snap_wave(y, r->x + 3, r->w - 6, t->cfg.angle_snapping);
+	attroff(COLOR_PAIR(CLR_ACCENT));
+	y += 3;
 	if (focused && sel == 2)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Snapping");
 	if (focused && sel == 2)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	if (has_snap) {
-		mvprintw(y, r->x + 16, "< %3u >", t->cfg.angle_snapping);
-	} else {
-		attron(COLOR_PAIR(CLR_DISABLED));
-		mvprintw(y, r->x + 16, "N/A (device)");
-		attroff(COLOR_PAIR(CLR_DISABLED));
-	}
+	mvprintw(y, r->x + 16, "< %3u deg >", t->cfg.angle_snapping);
+	y++;
+
+	if (focused && sel == 3)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, r->x + 2, "%-13s", "Engine");
+	if (focused && sel == 3)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	attron(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
+	mvprintw(y, r->x + 16, " %s ", t->accel_running ? "ON " : "OFF");
+	attroff(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
 	y += 2;
 
 	mvprintw(y, r->x + 2, "POLLING RATE");
@@ -415,10 +492,10 @@ static void draw_tuning_pane(struct tui *t)
 	 * highlighted label, bold accent value and slider over the ladder;
 	 * h/l steps, H/L jumps
 	 */
-	if (focused && sel == 3)
+	if (focused && sel == 4)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Rate");
-	if (focused && sel == 3)
+	if (focused && sel == 4)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 	mvprintw(y, r->x + 16, "%4u Hz", t->cfg.polling_hz);

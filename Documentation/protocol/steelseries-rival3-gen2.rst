@@ -200,10 +200,14 @@ found (``0x10``, ``0x12``, ``0x92`` all go unanswered). Consequence for
 alloyctl: the pre-session baseline used by REVERT is kept in a host-side state
 file, seeded with driver defaults on first run.
 
-Not supported by this hardware
-==============================
+Acceleration / deceleration / angle snapping -- not firmware
+============================================================
 
-Acceleration / deceleration and angle snapping are not exposed by this protocol
-family (no known command; SteelSeries Engine does not offer them for TrueMove
-Core sensors either). Drivers advertise these capabilities per-device and the
-UI disables the sections when absent.
+These three have no onboard command and cannot be stored on the mouse. They are
+not a gap in this reverse engineering: SteelSeries Engine offers them, but
+applies them **host-side** (they need the software running and are never written
+to the device), and ``rivalcfg`` - which only drives onboard HID config -
+defines no such setting. Probing finds no acknowledged command.
+
+alloyctl implements them host-side instead, as a pointer-transform daemon; see
+:doc:`../architecture/pointer-transform`.
