@@ -339,7 +339,7 @@ static void draw_rate_row(struct tui *t, int y, int x, const char *name,
 
 	if (rate_disabled) {
 		attron(COLOR_PAIR(CLR_DISABLED));
-		mvprintw(y, x + 11, "steady");
+		mvprintw(y, x + 11, "Steady");
 		attroff(COLOR_PAIR(CLR_DISABLED));
 		return;
 	}
@@ -552,7 +552,7 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	draw_device_section(t, y + 20, x, focused);
 
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(y + h - 2, x + 2, "j/k: item  h/l: adjust");
+	mvprintw(y + h - 2, x + 2, "j/k: Item  h/l: Adjust");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
@@ -774,7 +774,7 @@ void tui_illum_draw(struct tui *t)
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(LINES - 1, 2, "%s", t->status);
 	mvprintw(LINES - 1, COLS - 52,
-		 "tab: zone  enter: edit zone  s: save  esc: back");
+		 "Tab: Zone  Enter: Edit zone  s: Save  Esc: Back");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
 	refresh();

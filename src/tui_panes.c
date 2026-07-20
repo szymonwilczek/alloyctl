@@ -278,8 +278,8 @@ static void draw_levels_pane(struct tui *t)
 	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: adjust  H/L: fast");
-	mvprintw(r->y + r->h - 2, r->x + 2, "enter: set active");
+	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: Adjust  H/L: Fast Adjust");
+	mvprintw(r->y + r->h - 2, r->x + 2, "Enter: Set Active");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
@@ -439,7 +439,7 @@ static void draw_tuning_pane(struct tui *t)
 	}
 	attroff(COLOR_PAIR(CLR_ACCENT));
 
-	y += graph_h + 2;
+	y += graph_h + 3;
 
 	for (i = 0; i < 2; i++) {
 		const char *name = i == 0 ? "Acceleration" : "Deceleration";
@@ -453,13 +453,13 @@ static void draw_tuning_pane(struct tui *t)
 		mvprintw(y, r->x + 16, "< %3d >", val);
 		y++;
 	}
-
+	y += 2;
 	mvprintw(y, r->x + 2, "ANGLE SNAPPING");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
 	draw_snap_wave(y, r->x + 3, r->w - 6, t->cfg.angle_snapping);
 	attroff(COLOR_PAIR(CLR_ACCENT));
-	y += 3;
+	y += 4;
 	if (focused && sel == 2)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Snapping");
@@ -549,7 +549,7 @@ static void draw_footer(struct tui *t)
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(LINES - 1, 2, "%s", t->status);
 	mvprintw(LINES - 1, COLS - 44,
-		 "tab: pane  enter: select  s: save  q: quit");
+		 "Tab: Pane  Enter: Select  s: Save  q: Quit");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
@@ -558,7 +558,7 @@ void tui_draw(struct tui *t)
 	erase();
 
 	if (COLS < MIN_COLS || LINES < MIN_LINES) {
-		mvprintw(0, 0, "terminal too small: need at least %dx%d",
+		mvprintw(0, 0, "Terminal too small: need at least %dx%d",
 			 MIN_COLS, MIN_LINES);
 		refresh();
 		return;
