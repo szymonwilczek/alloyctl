@@ -39,6 +39,42 @@ jobs:
       - name: Check formatting
         run: make check-format
 
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libncursesw5-dev pkg-config
+      - name: Build
+        run: make
+      - name: Stage the release tarball
+        run: scripts/stage-release "$(cat VERSION)" release
+      - name: Install from the unpacked tarball and verify
+        run: |
+          set -eu
+          ver="$(cat VERSION)"
+          dist="alloyctl-${ver}-linux-x86_64"
+          work="$RUNNER_TEMP/pkg"
+          root="$RUNNER_TEMP/root"
+          rm -rf "$work" "$root"
+          mkdir -p "$work"
+          tar -xzf "release/${dist}.tar.gz" -C "$work"
+          cd "$work/$dist"
+
+          sudo env DESTDIR="$root" ./install.sh --prefix /usr
+          test -x "$root/usr/bin/alloyctl"
+          test -f "$root/usr/lib/udev/rules.d/70-alloyctl-uinput.rules"
+          echo "install: binary and udev rule present"
+
+          sudo env DESTDIR="$root" ./install.sh --prefix /usr --uninstall
+          test ! -e "$root/usr/bin/alloyctl"
+          test ! -e "$root/usr/lib/udev/rules.d/70-alloyctl-uinput.rules"
+          echo "uninstall: both removed"
+
   codeowners:
     # .github/CODEOWNERS is generated from MAINTAINERS
     # Fail if it drifted
