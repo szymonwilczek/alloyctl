@@ -20,7 +20,28 @@ ifdef SANITIZE
 CFLAGS += -fsanitize=$(SANITIZE) -fno-omit-frame-pointer -fno-sanitize-recover=all
 endif
 
-SRCS := $(wildcard src/*.c) $(wildcard drivers/*/*.c)
+# Driver selection (opt-in)
+# Each directory under drivers/ is self-contained driver that registers itself
+# through the alloy_drivers ELF section, so the drivers built into the binary
+# are exactly the driver objects linked in - dropping one drops its code and its embedded art.
+# DRIVERS restricts that set; empty (the default) builds every driver, so plain `make` is unchanged.
+#   make DRIVERS="steelseries_rival3_gen2"   only this driver
+#   make list-drivers                        show the valid names
+# Test binary always links every driver (see TEST_SRCS below).
+ALL_DRIVERS := $(sort $(notdir $(patsubst %/,%,$(wildcard drivers/*/))))
+ifeq ($(strip $(DRIVERS)),)
+SEL_DRIVERS := $(ALL_DRIVERS)
+else
+SEL_DRIVERS := $(strip $(DRIVERS))
+UNKNOWN_DRIVERS := $(filter-out $(ALL_DRIVERS),$(SEL_DRIVERS))
+ifneq ($(UNKNOWN_DRIVERS),)
+$(error unknown driver(s): $(UNKNOWN_DRIVERS); available: $(ALL_DRIVERS) \
+	(run 'make list-drivers'))
+endif
+endif
+
+SRCS := $(wildcard src/*.c) \
+	$(foreach d,$(SEL_DRIVERS),$(wildcard drivers/$(d)/*.c))
 OBJS := $(patsubst %.c,build/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -37,16 +58,18 @@ all: $(BIN)
 $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
-ART_TXTS := $(wildcard drivers/*/*_art.txt)
-ART_DRIVERS := $(patsubst %_art.txt,%,$(notdir $(ART_TXTS)))
-ART_HDRS := $(patsubst %,build/art_%.h,$(ART_DRIVERS))
+# Art rules exist for every driver so the all-driver test binary can link them;
+# main binary only depends on - and thus embeds - the selected drivers' art
+ALL_ART_DRIVERS := $(patsubst %_art.txt,%,$(notdir $(wildcard drivers/*/*_art.txt)))
+ALL_ART_HDRS := $(patsubst %,build/art_%.h,$(ALL_ART_DRIVERS))
+ART_HDRS := $(patsubst %,build/art_%.h,$(filter $(SEL_DRIVERS),$(ALL_ART_DRIVERS)))
 
 define ART_RULE
 build/art_$(1).h: drivers/$(1)/$(1)_art.txt tools/txt2c.sh
 	@mkdir -p build
 	sh tools/txt2c.sh alloy_art_$(1) < $$< > $$@
 endef
-$(foreach d,$(ART_DRIVERS),$(eval $(call ART_RULE,$(d))))
+$(foreach d,$(ALL_ART_DRIVERS),$(eval $(call ART_RULE,$(d))))
 
 build/%.o: %.c build/default_art.h $(ART_HDRS)
 	@mkdir -p $(dir $@)
@@ -70,7 +93,7 @@ TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
 # harness (test.h) and mock transport (mock_hid.h) that live in tests/
-build/test/%.o: %.c build/default_art.h $(ART_HDRS)
+build/test/%.o: %.c build/default_art.h $(ALL_ART_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) -Itests $(CFLAGS) -c -o $@ $<
 
@@ -79,6 +102,9 @@ build/test/run-tests: $(TEST_OBJS)
 
 test: build/test/run-tests
 	./build/test/run-tests
+
+list-drivers:
+	@printf '%s\n' $(ALL_DRIVERS)
 
 # Runtime sanitizer gates for the unit tests.
 # Each rebuilds from clean tree because the instrumentation changes every object.
@@ -185,4 +211,4 @@ clean:
 
 .PHONY: all install uninstall test test-asan test-ubsan test-tsan test-valgrind \
 	check-format format htmldocs checkdocs docs-serve check-patch \
-	codeowners check-codeowners check-version-tag clean
+	codeowners check-codeowners check-version-tag clean list-drivers
