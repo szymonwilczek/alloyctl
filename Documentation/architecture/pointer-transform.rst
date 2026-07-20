@@ -62,11 +62,13 @@ Lifecycle and permissions
   ``SIGHUP``; the daemon re-reads it.
 * **Permissions (rootless):** the daemon needs ``/dev/uinput`` (root-only by
   default) and the mouse's ``/dev/input`` motion node (``root:input`` by
-  default - *not* seat-accessible out of the box). ``make install`` ships
+  default - *not* seat-accessible out of the box). ``make install`` (from
+  source) and ``sudo ./install.sh`` (from a release tarball) both ship
   ``70-alloyctl-uinput.rules`` granting both to the active seat (``uaccess``):
   ``/dev/uinput`` directly and the evdev nodes of SteelSeries (VID ``1038``)
-  devices. On non-logind systems, ``input``-group membership is the fallback
-  (takes effect at the next login).
+  devices. The rule and installer ride inside the release tarball, so a binary
+  download needs no source clone. On non-logind systems, ``input``-group
+  membership is the fallback (takes effect at the next login).
 
 Interaction with the compositor
 ===============================

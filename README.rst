@@ -59,6 +59,35 @@ No root needed as long as your ``/dev/hidraw*`` nodes are writable by your user
 (most desktop distributions handle this via udev already; otherwise add a udev
 rule for your mouse's VID/PID).
 
+Installing
+==========
+
+TUI itself runs straight from the build tree. Installing matters mainly for
+the **pointer-transform daemon** (host-side acceleration/deceleration/angle
+snapping): it needs the ``70-alloyctl-uinput.rules`` udev rule for ``/dev/uinput``
+and evdev access, and a binary in a stable location so the autostart entry keeps
+working across reboots.
+
+From a release download (no source tree):
+
+.. code-block:: sh
+
+   tar -xzf alloyctl-<version>-linux-x86_64.tar.gz
+   cd alloyctl-<version>-linux-x86_64
+   sudo ./install.sh                               # or: sudo ./install.sh --prefix /usr
+   sudo ./install.sh --uninstall                   # to remove it again
+
+From source:
+
+.. code-block:: sh
+
+   sudo make install    # PREFIX, DESTDIR, BINDIR, UDEVDIR overridable
+   sudo make uninstall
+
+Both install the binary and the udev rule, then reload udev. On non-logind
+systems, add yourself to the ``input`` group for ``/dev/input`` and
+``/dev/uinput`` access: ``sudo usermod -aG input $USER``.
+
 Keys
 ====
 
