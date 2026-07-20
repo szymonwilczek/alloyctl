@@ -209,6 +209,19 @@ ALLOY_TEST(test_startup_packet)
 		ASSERT_EQ(buf[1], cases[i].rainbow);
 		ASSERT_EQ(buf[2], cases[i].reactive);
 	}
+
+	/*
+	 * rainbow byte doubles as the live engine switch (#23):
+	 * any zone running the rainbow forces it on regardless of
+	 * the startup choice, or 0x22 masks would be silently ignored
+	 */
+	cfg.zone_fx[1] = 1;
+	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
+		cfg.startup_fx = cases[i].fx;
+		r3g2_build_startup(&cfg, buf);
+		ASSERT_EQ(buf[1], 1);
+		ASSERT_EQ(buf[2], cases[i].reactive);
+	}
 }
 
 ALLOY_TEST(test_buttons_packet)
