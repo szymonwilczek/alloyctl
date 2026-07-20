@@ -194,12 +194,29 @@ size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
 	return 6;
 }
 
-/* Power-up lighting: 0x27 <rainbow> <reactive> */
+/*
+ * Lighting mode: 0x27 <rainbow> <reactive>
+ *
+ * Hardware-verified (#23): rainbow byte is the live master switch of the rainbow
+ * engine, not just the power-up default - 0x22 masks only enroll zones into already
+ * running engine and are silently ignored while it is off.
+ * Both roles share this one flag, so the effective rainbow bit is "any zone runs
+ * the rainbow OR the startup preference wants it".
+ * Config with rainbow zones therefore also wakes up cycling, which is the only
+ * behaviour the firmware can express.
+ */
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 {
+	uint8_t rainbow_zones = 0;
+	uint8_t i;
+
+	for (i = 0; i < 3; i++)
+		rainbow_zones |= cfg->zone_fx[i];
+
 	buf[0] = R3G2_CMD_STARTUP_FX;
-	buf[1] = (cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
-		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	buf[1] = rainbow_zones != 0 ||
+		 cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
+		 cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
 	buf[2] = (cfg->startup_fx == ALLOY_STARTUP_REACTIVE ||
 		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
 	return 3;
@@ -301,10 +318,12 @@ static int r3g2_apply_polling(struct alloy_device *dev,
 }
 
 /*
- * Full lighting state.
- * Static color write clears the rainbow on the zones it touches,
- * so the rainbow mask goes out first and the static colors
- * (masked to static zones only) second.
+ * Full lighting state, in engine order (#23):
+ * 0x27 mode goes out first - its rainbow byte is the live master switch
+ * of the rainbow engine, and a 0x22 mask sent while the engine is off is
+ * silently ignored.
+ * Then the mask enrolls the rainbow zones, the masked static colors carve
+ * their zones out of the cycle, and the reactive overlay closes the batch.
  */
 static int r3g2_apply_colors(struct alloy_device *dev,
 			     const struct alloy_config *cfg)
@@ -312,6 +331,8 @@ static int r3g2_apply_colors(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 	int ret = 0;
+
+	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
 
 	len = r3g2_build_rainbow(cfg, buf);
 	if (len)
@@ -322,7 +343,6 @@ static int r3g2_apply_colors(struct alloy_device *dev,
 		ret |= alloy_hid_cmd(&dev->hid, buf, len);
 
 	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_reactive(cfg, buf));
-	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
 
 	return ret ? -1 : 0;
 }

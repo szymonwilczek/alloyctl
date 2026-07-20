@@ -138,6 +138,13 @@ replaced by the 3-zone bottom strip.
 
    0x22 <mask>                ; same zone mask as 0x21
 
+Hardware-verified (#23): the mask only **enrolls zones into an already
+running rainbow engine** - the engine itself is the rainbow byte of ``0x27``.
+While that byte is ``0x00`` the device ignores ``0x22`` entirely (ACKed, no
+visible effect), even on zones freshly lit by ``0x21``. Turning the engine on
+(re)enrolls every zone; masked ``0x21`` writes then carve static zones out of
+the cycle.
+
 ``0x26`` -- reactive color
 --------------------------
 
@@ -169,6 +176,15 @@ rainbow on the spot, ``0x27 0x00 0x01`` turns the zones off live). At wake-up
 the reactive bit lights nothing by itself - it only selects whether clicking
 triggers the flash before the host reconfigures the zones; once any ``0x21``/
 ``0x22`` write lands, the ``0x26`` overlay works in every mode regardless.
+
+The rainbow byte is in fact the **live master switch of the rainbow engine**
+(#23): ``0x22`` masks only work while it is set, and turning it on enrolls
+every zone in the cycle. Startup preference and running engine share this
+one flag - a configuration with rainbow zones therefore necessarily wakes up
+cycling too; the firmware cannot store "startup off" together with a live
+rainbow. alloyctl derives the effective byte as "any rainbow zone OR the
+startup choice" and sends ``0x27`` **first** in every lighting apply, before
+the ``0x22`` mask and the ``0x21`` statics.
 
 ``0x2A`` -- button mapping
 --------------------------
