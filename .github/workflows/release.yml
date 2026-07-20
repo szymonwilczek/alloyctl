@@ -99,8 +99,13 @@ jobs:
               ;;
           esac
 
+          body="$(git log -1 --format=%b "$GITHUB_SHA" \
+            | grep -viE '^(signed-off-by|co-authored-by|acked-by|reviewed-by|tested-by|reported-by|cc):')"
           notes="Portable Linux x86_64 build of alloyctl $TAG."
-          notes="$notes Verify with: cosign verify-blob --bundle SHA256SUMS.cosign.bundle SHA256SUMS && sha256sum -c SHA256SUMS."
+          if [ -n "$body" ]; then
+            notes="$notes"$'\n\n'"$body"
+          fi
+          notes="$notes"$'\n\n'"Verify with: cosign verify-blob --bundle SHA256SUMS.cosign.bundle SHA256SUMS && sha256sum -c SHA256SUMS."
 
           gh release create "$TAG" \
             release/alloyctl release/*.tar.gz \
