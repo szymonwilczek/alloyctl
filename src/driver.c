@@ -84,7 +84,7 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 
 	/*
 	 * One preset out of the box;
-	 * More are created on demand in the SENSITIVITY pane.
+	 * More are created on demand in the CPI LEVELS pane.
 	 * Persisted baseline always overrides this.
 	 */
 	cfg->dpi_count = 1;

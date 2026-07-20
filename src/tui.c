@@ -190,7 +190,7 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 	case PANE_CENTER:
 		/* ILLUMINATION button is all the pane offers */
 		return 1;
-	case PANE_SENSITIVITY:
+	case PANE_LEVELS:
 		/* one item per preset plus CREATE below the limit */
 		return t->cfg.dpi_count +
 		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);

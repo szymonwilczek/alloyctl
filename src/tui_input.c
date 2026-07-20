@@ -85,7 +85,7 @@ static void set_active_dpi_preset(struct tui *t, int preset)
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, t->drv->ops->apply_dpi, "dpi");
-	tui_status(t, "sensitivity %d active", preset + 1);
+	tui_status(t, "level %d active", preset + 1);
 }
 
 /*
@@ -100,7 +100,7 @@ static void create_dpi_preset(struct tui *t)
 	int dpi;
 
 	if (n >= tui_dpi_preset_limit(t)) {
-		tui_status(t, "this mouse holds at most %d presets",
+		tui_status(t, "this mouse holds at most %d levels",
 			   tui_dpi_preset_limit(t));
 		return;
 	}
@@ -111,12 +111,12 @@ static void create_dpi_preset(struct tui *t)
 	t->cfg.dpi[n][0] = (uint16_t)dpi;
 	t->cfg.dpi[n][1] = (uint16_t)dpi;
 	t->cfg.dpi_count = (uint8_t)(n + 1);
-	t->cursor[PANE_SENSITIVITY] = n;
+	t->cursor[PANE_LEVELS] = n;
 
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, drv->ops->apply_dpi, "dpi");
-	tui_status(t, "sensitivity %u created", n + 1);
+	tui_status(t, "level %u created", n + 1);
 }
 
 static void footer_activate(struct tui *t)
@@ -149,7 +149,7 @@ static void pane_adjust(struct tui *t, int dir, int big)
 	int sel = t->cursor[t->focus];
 
 	switch (t->focus) {
-	case PANE_SENSITIVITY:
+	case PANE_LEVELS:
 		if (sel < t->cfg.dpi_count)
 			adjust_dpi(t, sel,
 				   dir * (big ? 10 : 1) * t->drv->dpi.step);
@@ -201,7 +201,7 @@ static void pane_activate(struct tui *t)
 		if (sel == 3)
 			tui_accel_set_enabled(t, !t->accel_running);
 		break;
-	case PANE_SENSITIVITY:
+	case PANE_LEVELS:
 		if (sel < t->cfg.dpi_count)
 			set_active_dpi_preset(t, sel);
 		else
@@ -268,8 +268,8 @@ void tui_handle_key(struct tui *t, int ch)
 		pane_adjust(t, 1, 1);
 		break;
 	case 'a':
-		if (t->focus == PANE_SENSITIVITY)
-			set_active_dpi_preset(t, t->cursor[PANE_SENSITIVITY]);
+		if (t->focus == PANE_LEVELS)
+			set_active_dpi_preset(t, t->cursor[PANE_LEVELS]);
 		break;
 	case '\n':
 	case KEY_ENTER:
