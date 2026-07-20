@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "accel.h"
+#include "hid.h"
 #include "tui_internal.h"
 
 void tui_status(struct tui *t, const char *fmt, ...)
@@ -91,6 +92,29 @@ void tui_revert(struct tui *t)
 		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
 	}
 	t->dirty = 0;
+}
+
+/*
+ * Drain unsolicited device events so the ACTIVE level indicator tracks
+ * the physical CPI button.
+ * Hardware switch is the user acting on the device itself, not a pending edit:
+ * it lands in the baseline too, so REVERT and the quit guard never fight the button.
+ */
+static void tui_poll_device_events(struct tui *t)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	int n;
+
+	if (!t->drv->ops->parse_event || t->dev->ev.fd < 0)
+		return;
+	while ((n = alloy_hid_poll(&t->dev->ev, buf, sizeof(buf))) > 0) {
+		if (!t->drv->ops->parse_event(buf, (size_t)n, &t->cfg))
+			continue;
+		t->baseline.dpi_active = t->cfg.dpi_active;
+		t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+		tui_status(t, "level %u active (mouse button)",
+			   t->cfg.dpi_active + 1);
+	}
 }
 
 /*
@@ -367,6 +391,7 @@ int alloy_tui_run(struct alloy_device *dev)
 	 * real keys are dispatched to the active view
 	 */
 	while (!t.quit) {
+		tui_poll_device_events(&t);
 		timeout(TUI_ILLUM_FRAME_MS);
 		if (t.view == VIEW_ILLUM) {
 			tui_illum_draw(&t);
