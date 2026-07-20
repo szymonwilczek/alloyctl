@@ -144,9 +144,16 @@ static struct alloy_rgb zone_preview_color(const struct tui *t, int zone,
 
 		c = hue_to_rgb((int)((bucket * 137) % 360));
 	} else if (rainbow) {
-		/* hue wheel; zones are phase shifted so the cycle
-		 * visibly travels across the mouse */
-		int hue = (int)((tms / 20 + (long)zone * freq * 30) % 360);
+		/*
+		 * Hue wheel:
+		 * Zone-mask hardware cycles each zone with offset so the rainbow
+		 * visibly travels across the mouse;
+		 * global effect steps every zone through the same hue in lockstep
+		 */
+		long shift = (t->drv->caps & ALLOY_CAP_FX_GLOBAL) ?
+				     0 :
+				     (long)zone * freq * 30;
+		int hue = (int)((tms / 20 + shift) % 360);
 
 		c = hue_to_rgb(hue);
 	}
