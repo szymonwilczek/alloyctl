@@ -61,15 +61,7 @@ jobs:
           set -eu
           ver="${TAG#v}"
           dist="alloyctl-${ver}-linux-x86_64"
-          mkdir -p "release/$dist"
-          cp alloyctl "release/$dist/"
-          cp dist/install.sh "release/$dist/"
-          cp dist/udev/70-alloyctl-uinput.rules "release/$dist/"
-          chmod +x "release/$dist/install.sh"
-          cp README.rst LICENSE VERSION "release/$dist/"
-          tar -czf "release/${dist}.tar.gz" -C release "$dist"
-          rm -rf "release/$dist"
-          cp alloyctl release/alloyctl
+          scripts/stage-release "$ver" release
           (cd release && sha256sum alloyctl "${dist}.tar.gz" > SHA256SUMS)
           cat release/SHA256SUMS
 
