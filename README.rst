@@ -59,6 +59,22 @@ No root needed as long as your ``/dev/hidraw*`` nodes are writable by your user
 (most desktop distributions handle this via udev already; otherwise add a udev
 rule for your mouse's VID/PID).
 
+Choosing drivers
+----------------
+
+Plain ``make`` builds every driver in the tree. You can trim the binary to just
+the hardware you use:
+
+.. code-block:: sh
+
+   make list-drivers                                           # valid driver names
+   make DRIVERS="steelseries_rival3_gen2"                      # build only this one
+   make DRIVERS="steelseries_rival3 steelseries_rival3_gen2"   # subset
+
+Only the named drivers' code and embedded art are compiled and linked; an
+unknown name is a hard error listing the valid ones. Released binaries always
+ship the full driver set -- this is a source-build convenience.
+
 Installing
 ==========
 
