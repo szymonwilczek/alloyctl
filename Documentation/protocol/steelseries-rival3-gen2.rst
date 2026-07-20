@@ -206,13 +206,40 @@ per-level profile slots to iterate.
 Responds with ``0x90`` followed by an ASCII string, e.g. ``"1.1.6 +e57ff6a1"``.
 Found by probing the device.
 
+Unsolicited events (interface 2)
+================================
+
+The vendor interface (``0xFF00``, 64-byte input reports) streams
+device-initiated notifications. One is known, discovered on hardware
+(fw ``1.1.6 +e57ff6a1``):
+
+``0xAD`` -- CPI level switch
+----------------------------
+
+::
+
+   0xAD <count> <active> <wire1> ... <wireN>
+
+Emitted every time the active CPI level changes, including switches made with
+the physical CPI button. ``active`` is **0-based** (unlike the 1-based field
+of command ``0x34``) and the wire bytes repeat the level table in the ``0x34``
+sensor encoding. Captured example with levels 800/900/1800 and level 2 going
+active::
+
+   ad 03 01 12 14 29 00 ... 00
+
+alloyctl's TUI listens on this interface to keep the ACTIVE level indicator in
+sync with the hardware button - the only known device-to-host state channel.
+
 Read-back
 =========
 
 No command to read the current configuration back from the device has been
 found (``0x10``, ``0x12``, ``0x92`` all go unanswered). Consequence for
 alloyctl: the pre-session baseline used by REVERT is kept in a host-side state
-file, seeded with driver defaults on first run.
+file, seeded with driver defaults on first run. The ``0xAD`` notification
+above is push-only: it reports level switches as they happen but cannot be
+queried.
 
 Acceleration / deceleration / angle snapping -- not firmware
 ============================================================

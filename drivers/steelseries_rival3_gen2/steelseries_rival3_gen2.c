@@ -29,6 +29,9 @@
 #define R3G2_CMD_DPI 0x34
 #define R3G2_CMD_FIRMWARE 0x90
 
+/* unsolicited event on the vendor interface (2), not the config one */
+#define R3G2_EVT_CPI_LEVEL 0xAD
+
 #define R3G2_DPI_MIN 200
 #define R3G2_DPI_MAX 8500
 #define R3G2_DPI_STEP 100
@@ -70,6 +73,7 @@ size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 {
@@ -244,6 +248,32 @@ size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	return n + 8 * 5;
 }
 
+/*
+ * CPI-level switch notification, discovered on hardware (fw 1.1.6):
+ *
+ *   0xAD <count> <active> <wire1> ... <wireN>
+ *
+ * Emitted on the vendor interface every time the active level changes -
+ * including switches made with the physical CPI button.
+ * <active> is 0-based and the wire bytes repeat the level table in the 0x34 sensor encoding.
+ * Only the active index is taken over:
+ * the host configuration stays the source of truth for the level values themselves.
+ */
+int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
+{
+	uint8_t active;
+
+	if (len < 3 || buf[0] != R3G2_EVT_CPI_LEVEL)
+		return 0;
+	active = buf[2];
+	if (buf[1] < 1 || buf[1] > ALLOY_MAX_DPI_PRESETS || active >= buf[1])
+		return 0;
+	if (active >= cfg->dpi_count || active == cfg->dpi_active)
+		return 0;
+	cfg->dpi_active = active;
+	return 1;
+}
+
 static int r3g2_apply_dpi(struct alloy_device *dev,
 			  const struct alloy_config *cfg)
 {
@@ -363,6 +393,7 @@ static const struct alloy_driver_ops r3g2_ops = {
 	.apply_buttons = r3g2_apply_buttons,
 	.save = r3g2_save,
 	.firmware_version = r3g2_firmware_version,
+	.parse_event = r3g2_parse_event,
 };
 
 static const struct alloy_driver steelseries_rival3_gen2 = {
@@ -370,6 +401,7 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.vendor_id = 0x1038,
 	.product_id = 0x1870,
 	.interface = 3,
+	.event_interface = 2,
 	.dpi = {
 		.min = R3G2_DPI_MIN,
 		.max = R3G2_DPI_MAX,
