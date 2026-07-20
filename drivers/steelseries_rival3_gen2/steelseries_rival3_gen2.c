@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "driver.h"
+#include "art_steelseries_rival3_gen2.h"
 
 #define R3G2_CMD_SAVE 0x11
 #define R3G2_CMD_ZONE_COLORS 0x21
@@ -27,6 +28,9 @@
 #define R3G2_CMD_POLLING 0x2B
 #define R3G2_CMD_DPI 0x34
 #define R3G2_CMD_FIRMWARE 0x90
+
+/* unsolicited event on the vendor interface (2), not the config one */
+#define R3G2_EVT_CPI_LEVEL 0xAD
 
 #define R3G2_DPI_MIN 200
 #define R3G2_DPI_MAX 8500
@@ -69,6 +73,7 @@ size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 {
@@ -77,7 +82,13 @@ size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 
 	buf[n++] = R3G2_CMD_DPI;
 	buf[n++] = cfg->dpi_count;
-	buf[n++] = (uint8_t)(cfg->dpi_active + 1); /* 1-based on wire */
+	/*
+	 * Active index is 0-based on the wire, matching the 0xAD level event
+	 * (r3g2_parse_event) the firmware reports back.
+	 * Sending dpi_active + 1 here selected the *next* level,
+	 * which SAVE then latched to flash (#41)
+	 */
+	buf[n++] = cfg->dpi_active;
 	for (i = 0; i < cfg->dpi_count; i++) {
 		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][0]);
 		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][1]);
@@ -123,7 +134,7 @@ size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->zone_mode[i] == ALLOY_LED_STATIC)
+		if (!cfg->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -151,7 +162,7 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->zone_mode[i] == ALLOY_LED_RAINBOW)
+		if (cfg->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -162,29 +173,56 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	return 2;
 }
 
-/* Reactive click color: 0x26 <R> <G> <B>
- * All zero disables.*/
+/*
+ * Reactive click color: 0x26 <enable> 0x00 <R> <G> <B>
+ *
+ * Verified on hardware (fw 1.1.6):
+ * Flash overlays whatever the zones are showing (static colors, rainbow or off).
+ * Enable byte is mandatory - short 0x26 <R> <G> <B> write is ACKed but latches
+ * black flash, which is why the effect looked dead (#24).
+ * Color survives neither the 0x11 save nor a power cycle,
+ * so the host re-arms it on every apply.
+ */
 size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = R3G2_CMD_REACTIVE;
+	buf[1] = cfg->reactive_enabled ? 0x01 : 0x00;
+	buf[2] = 0x00;
 	if (cfg->reactive_enabled) {
-		buf[1] = cfg->reactive_color.r;
-		buf[2] = cfg->reactive_color.g;
-		buf[3] = cfg->reactive_color.b;
+		buf[3] = cfg->reactive_color.r;
+		buf[4] = cfg->reactive_color.g;
+		buf[5] = cfg->reactive_color.b;
 	} else {
-		buf[1] = 0x00;
-		buf[2] = 0x00;
 		buf[3] = 0x00;
+		buf[4] = 0x00;
+		buf[5] = 0x00;
 	}
-	return 4;
+	return 6;
 }
 
-/* Power-up lighting: 0x27 <rainbow> <reactive> */
+/*
+ * Lighting mode: 0x27 <rainbow> <reactive>
+ *
+ * Hardware-verified (#23): rainbow byte is the live master switch of the rainbow
+ * engine, not just the power-up default - 0x22 masks only enroll zones into already
+ * running engine and are silently ignored while it is off.
+ * Both roles share this one flag, so the effective rainbow bit is "any zone runs
+ * the rainbow OR the startup preference wants it".
+ * Config with rainbow zones therefore also wakes up cycling, which is the only
+ * behaviour the firmware can express.
+ */
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 {
+	uint8_t rainbow_zones = 0;
+	uint8_t i;
+
+	for (i = 0; i < 3; i++)
+		rainbow_zones |= cfg->zone_fx[i];
+
 	buf[0] = R3G2_CMD_STARTUP_FX;
-	buf[1] = (cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
-		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	buf[1] = rainbow_zones != 0 ||
+		 cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
+		 cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
 	buf[2] = (cfg->startup_fx == ALLOY_STARTUP_REACTIVE ||
 		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
 	return 3;
@@ -243,6 +281,32 @@ size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	return n + 8 * 5;
 }
 
+/*
+ * CPI-level switch notification, discovered on hardware (fw 1.1.6):
+ *
+ *   0xAD <count> <active> <wire1> ... <wireN>
+ *
+ * Emitted on the vendor interface every time the active level changes -
+ * including switches made with the physical CPI button.
+ * <active> is 0-based and the wire bytes repeat the level table in the 0x34 sensor encoding.
+ * Only the active index is taken over:
+ * the host configuration stays the source of truth for the level values themselves.
+ */
+int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
+{
+	uint8_t active;
+
+	if (len < 3 || buf[0] != R3G2_EVT_CPI_LEVEL)
+		return 0;
+	active = buf[2];
+	if (buf[1] < 1 || buf[1] > ALLOY_MAX_DPI_PRESETS || active >= buf[1])
+		return 0;
+	if (active >= cfg->dpi_count || active == cfg->dpi_active)
+		return 0;
+	cfg->dpi_active = active;
+	return 1;
+}
+
 static int r3g2_apply_dpi(struct alloy_device *dev,
 			  const struct alloy_config *cfg)
 {
@@ -260,10 +324,12 @@ static int r3g2_apply_polling(struct alloy_device *dev,
 }
 
 /*
- * Full lighting state.
- * Static color write clears the rainbow on the zones it touches,
- * so the rainbow mask goes out first and the static colors
- * (masked to static zones only) second.
+ * Full lighting state, in engine order (#23):
+ * 0x27 mode goes out first - its rainbow byte is the live master switch
+ * of the rainbow engine, and a 0x22 mask sent while the engine is off is
+ * silently ignored.
+ * Then the mask enrolls the rainbow zones, the masked static colors carve
+ * their zones out of the cycle, and the reactive overlay closes the batch.
  */
 static int r3g2_apply_colors(struct alloy_device *dev,
 			     const struct alloy_config *cfg)
@@ -271,6 +337,8 @@ static int r3g2_apply_colors(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 	int ret = 0;
+
+	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
 
 	len = r3g2_build_rainbow(cfg, buf);
 	if (len)
@@ -281,7 +349,6 @@ static int r3g2_apply_colors(struct alloy_device *dev,
 		ret |= alloy_hid_cmd(&dev->hid, buf, len);
 
 	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_reactive(cfg, buf));
-	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
 
 	return ret ? -1 : 0;
 }
@@ -331,6 +398,12 @@ static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
 
 static const uint16_t r3g2_polling_rates[] = { 1000, 500, 250, 125 };
 
+/*
+ * Per-zone effect list;
+ * index 1 maps to the 0x22 rainbow mask, everything else is steady.
+ */
+static const char *const r3g2_fx_names[] = { "STEADY", "RAINBOW" };
+
 static const struct alloy_led_zone r3g2_zones[] = {
 	{ .name = "TOP", .def_color = { 0xFF, 0x00, 0x00 } },
 	{ .name = "MIDDLE", .def_color = { 0x00, 0xFF, 0x00 } },
@@ -348,27 +421,6 @@ static const struct alloy_button r3g2_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
-/* clang-format off */
-static const char r3g2_art[] =
-	"              _.-------._\n"
-	"           ,-'     |     '-.\n"
-	"         ,'   .----'----.   ',\n"
-	"        /    |     |     |    \\\n"
-	"       /     |    | |    |     \\\n"
-	"      ;      |    |_|    |      ;\n"
-	" B4 --|      |     |     |      |\n"
-	"      |       '----'----'       |\n"
-	" B5 --|            O -- B6      |\n"
-	"      |                         |\n"
-	"  Z1 =|                         |= Z1\n"
-	"      ;                         ;\n"
-	"  Z2 =\\                        /= Z2\n"
-	"        \\                     /\n"
-	"  Z3 ==='.                  ,'=== Z3\n"
-	"           '-.           ,-'\n"
-	"              '-._____.-'\n";
-/* clang-format on */
-
 static const struct alloy_driver_ops r3g2_ops = {
 	.apply_dpi = r3g2_apply_dpi,
 	.apply_polling = r3g2_apply_polling,
@@ -377,6 +429,7 @@ static const struct alloy_driver_ops r3g2_ops = {
 	.apply_buttons = r3g2_apply_buttons,
 	.save = r3g2_save,
 	.firmware_version = r3g2_firmware_version,
+	.parse_event = r3g2_parse_event,
 };
 
 static const struct alloy_driver steelseries_rival3_gen2 = {
@@ -384,6 +437,7 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.vendor_id = 0x1038,
 	.product_id = 0x1870,
 	.interface = 3,
+	.event_interface = 2,
 	.dpi = {
 		.min = R3G2_DPI_MIN,
 		.max = R3G2_DPI_MAX,
@@ -399,7 +453,9 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
 		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
 		ALLOY_CAP_FX_STARTUP,
-	.ascii_art = r3g2_art,
+	.fx_names = r3g2_fx_names,
+	.num_fx = ALLOY_ARRAY_SIZE(r3g2_fx_names),
+	.ascii_art = alloy_art_steelseries_rival3_gen2,
 	.ops = &r3g2_ops,
 	.config_defaults = alloy_config_generic_defaults,
 };

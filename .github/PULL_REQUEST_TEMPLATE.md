@@ -14,7 +14,7 @@
 
 ### Adding a new driver? Also:
 
-- [ ] One file under `drivers/`, with a `Maintainer:` line in the header.
+- [ ] Dedicated directory under `drivers/` containing the driver C file (with `Maintainer:`) and optionally a custom `_art.txt` file.
 - [ ] Packet-builder tests under `tests/drivers/`.
 - [ ] Protocol notes under `Documentation/protocol/`.
 - [ ] A `MAINTAINERS` entry for the new driver (you become its maintainer).

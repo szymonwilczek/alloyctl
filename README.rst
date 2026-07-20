@@ -16,16 +16,10 @@ Supported hardware
 
    * - Device
      - USB ID
-     - Status
    * - SteelSeries Rival 3 Gen 2
      - ``1038:1870``
-     - Fully Supported
    * - SteelSeries Rival 3
      - ``1038:1824``, ``1038:184c``
-     - Fully Supported
-
-With several supported mice connected, pick one with
-``alloyctl --device VID:PID``.
 
 This project is mice only for now (keyboards are maybe in the scope for the future).
 Want yours supported? See
@@ -65,6 +59,51 @@ No root needed as long as your ``/dev/hidraw*`` nodes are writable by your user
 (most desktop distributions handle this via udev already; otherwise add a udev
 rule for your mouse's VID/PID).
 
+Choosing drivers
+----------------
+
+Plain ``make`` builds every driver in the tree. You can trim the binary to just
+the hardware you use:
+
+.. code-block:: sh
+
+   make list-drivers                                           # valid driver names
+   make DRIVERS="steelseries_rival3_gen2"                      # build only this one
+   make DRIVERS="steelseries_rival3 steelseries_rival3_gen2"   # subset
+
+Only the named drivers' code and embedded art are compiled and linked; an
+unknown name is a hard error listing the valid ones. Released binaries always
+ship the full driver set -- this is a source-build convenience.
+
+Installing
+==========
+
+TUI itself runs straight from the build tree. Installing matters mainly for
+the **pointer-transform daemon** (host-side acceleration/deceleration/angle
+snapping): it needs the ``70-alloyctl-uinput.rules`` udev rule for ``/dev/uinput``
+and evdev access, and a binary in a stable location so the autostart entry keeps
+working across reboots.
+
+From a release download (no source tree):
+
+.. code-block:: sh
+
+   tar -xzf alloyctl-<version>-linux-x86_64.tar.gz
+   cd alloyctl-<version>-linux-x86_64
+   sudo ./install.sh                               # or: sudo ./install.sh --prefix /usr
+   sudo ./install.sh --uninstall                   # to remove it again
+
+From source:
+
+.. code-block:: sh
+
+   sudo make install    # PREFIX, DESTDIR, BINDIR, UDEVDIR overridable
+   sudo make uninstall
+
+Both install the binary and the udev rule, then reload udev. On non-logind
+systems, add yourself to the ``input`` group for ``/dev/input`` and
+``/dev/uinput`` access: ``sudo usermod -aG input $USER``.
+
 Keys
 ====
 
@@ -82,6 +121,8 @@ q            Quit
 
 Documentation
 =============
+
+Online hosted documentation can be found at https://alloy.szymon-wilczek.me
 
 Full manual can be found under ``Documentation/`` and builds to HTML
 with Sphinx::

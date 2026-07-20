@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# alloyctl's host-side pointer-transform daemon creates virtual pointer
+# through /dev/uinput and reads the mouse's motion node under /dev/input,
+# both root-only by default.
+#
+# Grant access to the active desktop session (uaccess, on logind systems)
+# and, as a fallback, to members of the "input" group.
+#
+# Install to /usr/lib/udev/rules.d/ (or /etc/udev/rules.d/) then reload:
+#   sudo udevadm control --reload && sudo udevadm trigger
+KERNEL=="uinput", SUBSYSTEM=="misc", TAG+="uaccess", OPTIONS+="static_node=uinput", GROUP="input", MODE="0660"
+
+# SteelSeries mice (USB VID 1038):
+# daemon needs to read and EVIOCGRAB the evdev motion node of the device it transforms
+SUBSYSTEM=="input", KERNEL=="event*", ATTRS{idVendor}=="1038", TAG+="uaccess"

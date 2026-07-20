@@ -7,6 +7,9 @@
  *   dpi0=800:800
  *   polling_hz=1000
  *   zone0=ff0000
+ *   zone_fx0=1
+ *   zone_freq0=5
+ *   zone_speed0=5
  *   brightness=100
  *   button0=mouse:1
  *
@@ -137,9 +140,21 @@ static void parse_line(struct alloy_config *cfg, const char *key,
 		}
 	} else if (sscanf(key, "zone_fx%u", &idx) == 1 &&
 		   idx < ALLOY_MAX_LED_ZONES) {
-		cfg->zone_mode[idx] = strcmp(val, "rainbow") ?
-					      ALLOY_LED_STATIC :
-					      ALLOY_LED_RAINBOW;
+		if (!strcmp(val, "rainbow"))
+			cfg->zone_fx[idx] = 1;
+		else if (!strcmp(val, "static"))
+			cfg->zone_fx[idx] = 0;
+		else
+			cfg->zone_fx[idx] =
+				(uint8_t)ALLOY_CLAMP(atoi(val), 0, 255);
+	} else if (sscanf(key, "zone_freq%u", &idx) == 1 &&
+		   idx < ALLOY_MAX_LED_ZONES) {
+		cfg->zone_fx_freq[idx] = (uint8_t)ALLOY_CLAMP(
+			atoi(val), ALLOY_FX_RATE_MIN, ALLOY_FX_RATE_MAX);
+	} else if (sscanf(key, "zone_speed%u", &idx) == 1 &&
+		   idx < ALLOY_MAX_LED_ZONES) {
+		cfg->zone_fx_speed[idx] = (uint8_t)ALLOY_CLAMP(
+			atoi(val), ALLOY_FX_RATE_MIN, ALLOY_FX_RATE_MAX);
 	} else if (!strcmp(key, "reactive")) {
 		if (sscanf(val, "%x", &rgb) == 1) {
 			cfg->reactive_enabled = 1;
@@ -153,7 +168,9 @@ static void parse_line(struct alloy_config *cfg, const char *key,
 		cfg->startup_fx = (uint8_t)ALLOY_CLAMP(
 			atoi(val), 0, ALLOY_STARTUP_REACTIVE_RAINBOW);
 	} else if (!strcmp(key, "fx")) {
-		cfg->fx_index = (uint8_t)ALLOY_CLAMP(atoi(val), 0, 255);
+		for (idx = 0; idx < ALLOY_MAX_LED_ZONES; idx++)
+			cfg->zone_fx[idx] =
+				(uint8_t)ALLOY_CLAMP(atoi(val), 0, 255);
 	} else if (!strcmp(key, "brightness")) {
 		cfg->brightness = (uint8_t)ALLOY_CLAMP(atoi(val), 0, 100);
 	} else if (sscanf(key, "button%u", &idx) == 1 &&
@@ -165,6 +182,8 @@ static void parse_line(struct alloy_config *cfg, const char *key,
 		cfg->deceleration = (int8_t)atoi(val);
 	} else if (!strcmp(key, "angle_snapping")) {
 		cfg->angle_snapping = (uint8_t)atoi(val);
+	} else if (!strcmp(key, "accel_enabled")) {
+		cfg->accel_enabled = atoi(val) ? 1 : 0;
 	}
 }
 
@@ -195,6 +214,10 @@ int alloy_state_load(const struct alloy_driver *drv, struct alloy_config *cfg)
 		parse_line(cfg, line, eq + 1);
 	}
 	fclose(f);
+
+	/* edited file may point the active preset past the count */
+	if (cfg->dpi_active >= cfg->dpi_count)
+		cfg->dpi_active = (uint8_t)(cfg->dpi_count - 1);
 	return 0;
 }
 
@@ -221,12 +244,13 @@ int alloy_state_store(const struct alloy_driver *drv,
 	for (i = 0; i < drv->num_zones; i++)
 		fprintf(f, "zone%u=%02x%02x%02x\n", i, cfg->zone_color[i].r,
 			cfg->zone_color[i].g, cfg->zone_color[i].b);
-	if (drv->caps & ALLOY_CAP_FX_RAINBOW) {
-		for (i = 0; i < drv->num_zones; i++)
-			fprintf(f, "zone_fx%u=%s\n", i,
-				cfg->zone_mode[i] == ALLOY_LED_RAINBOW ?
-					"rainbow" :
-					"static");
+	if (drv->num_fx > 1) {
+		for (i = 0; i < drv->num_zones; i++) {
+			fprintf(f, "zone_fx%u=%u\n", i, cfg->zone_fx[i]);
+			fprintf(f, "zone_freq%u=%u\n", i, cfg->zone_fx_freq[i]);
+			fprintf(f, "zone_speed%u=%u\n", i,
+				cfg->zone_fx_speed[i]);
+		}
 	}
 	if (drv->caps & ALLOY_CAP_FX_REACTIVE) {
 		if (cfg->reactive_enabled)
@@ -238,19 +262,15 @@ int alloy_state_store(const struct alloy_driver *drv,
 	}
 	if (drv->caps & ALLOY_CAP_FX_STARTUP)
 		fprintf(f, "startup_fx=%u\n", cfg->startup_fx);
-	if (drv->caps & ALLOY_CAP_FX_GLOBAL)
-		fprintf(f, "fx=%u\n", cfg->fx_index);
 	fprintf(f, "brightness=%u\n", cfg->brightness);
 	for (i = 0; i < drv->num_buttons; i++)
 		fprintf(f, "button%u=%s:%u\n", i,
 			action_type_name(cfg->buttons[i].type),
 			cfg->buttons[i].value);
-	if (drv->caps & ALLOY_CAP_ACCELERATION)
-		fprintf(f, "acceleration=%d\n", cfg->acceleration);
-	if (drv->caps & ALLOY_CAP_DECELERATION)
-		fprintf(f, "deceleration=%d\n", cfg->deceleration);
-	if (drv->caps & ALLOY_CAP_ANGLE_SNAPPING)
-		fprintf(f, "angle_snapping=%u\n", cfg->angle_snapping);
+	fprintf(f, "acceleration=%d\n", cfg->acceleration);
+	fprintf(f, "deceleration=%d\n", cfg->deceleration);
+	fprintf(f, "angle_snapping=%u\n", cfg->angle_snapping);
+	fprintf(f, "accel_enabled=%u\n", cfg->accel_enabled);
 
 	fclose(f);
 	return 0;

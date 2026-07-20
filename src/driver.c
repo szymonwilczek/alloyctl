@@ -34,23 +34,21 @@ const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 	return NULL;
 }
 
-int alloy_device_open(struct alloy_device *dev)
+int alloy_device_enumerate(const struct alloy_driver **out, int max)
 {
 	const struct alloy_driver *const *iter;
-
-	memset(dev, 0, sizeof(*dev));
-	dev->hid.fd = -1;
+	int n = 0;
 
 	alloy_for_each_driver(iter)
 	{
-		if (alloy_hid_open(&dev->hid, (*iter)->vendor_id,
-				   (*iter)->product_id, (*iter)->interface,
-				   (*iter)->report_size) == 0) {
-			dev->drv = *iter;
-			return 0;
-		}
+		if (!alloy_hid_present((*iter)->vendor_id, (*iter)->product_id,
+				       (*iter)->interface))
+			continue;
+		if (out && n < max)
+			out[n] = *iter;
+		n++;
 	}
-	return -1;
+	return n;
 }
 
 int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
@@ -60,6 +58,7 @@ int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 
 	memset(dev, 0, sizeof(*dev));
 	dev->hid.fd = -1;
+	dev->ev.fd = -1;
 
 	drv = alloy_driver_find(vendor_id, product_id);
 	if (!drv)
@@ -67,12 +66,22 @@ int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 	if (alloy_hid_open(&dev->hid, drv->vendor_id, drv->product_id,
 			   drv->interface, drv->report_size))
 		return -1;
+	/*
+	 * Event channel is best-effort:
+	 * without it the device still configures fine,
+	 * only device-initiated changes go unnoticed.
+	 */
+	if (drv->ops->parse_event &&
+	    alloy_hid_open(&dev->ev, drv->vendor_id, drv->product_id,
+			   drv->event_interface, drv->report_size))
+		dev->ev.fd = -1;
 	dev->drv = drv;
 	return 0;
 }
 
 void alloy_device_close(struct alloy_device *dev)
 {
+	alloy_hid_close(&dev->ev);
 	alloy_hid_close(&dev->hid);
 	dev->drv = NULL;
 }
@@ -84,20 +93,23 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 
 	memset(cfg, 0, sizeof(*cfg));
 
-	cfg->dpi_count = ALLOY_MIN(2, drv->dpi.max_presets);
+	/*
+	 * One preset out of the box;
+	 * More are created on demand in the CPI LEVELS pane.
+	 * Persisted baseline always overrides this.
+	 */
+	cfg->dpi_count = 1;
 	cfg->dpi[0][0] = 800;
 	cfg->dpi[0][1] = 800;
-	if (cfg->dpi_count > 1) {
-		cfg->dpi[1][0] = 1600;
-		cfg->dpi[1][1] = 1600;
-	}
 	cfg->dpi_active = 0;
 
 	cfg->polling_hz = drv->num_polling_rates ? drv->polling_rates[0] : 1000;
 
 	for (i = 0; i < drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
 		cfg->zone_color[i] = drv->zones[i].def_color;
-		cfg->zone_mode[i] = ALLOY_LED_STATIC;
+		cfg->zone_fx[i] = 0; /* steady */
+		cfg->zone_fx_freq[i] = ALLOY_FX_RATE_DEF;
+		cfg->zone_fx_speed[i] = ALLOY_FX_RATE_DEF;
 	}
 
 	cfg->brightness = 100;
@@ -109,12 +121,11 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 				  ALLOY_STARTUP_RAINBOW :
 				  ALLOY_STARTUP_OFF;
 
-	cfg->fx_index = 0; /* steady */
-
 	for (i = 0; i < drv->num_buttons && i < ALLOY_MAX_BUTTONS; i++)
 		cfg->buttons[i] = drv->buttons[i].def;
 
 	cfg->acceleration = 0;
 	cfg->deceleration = 0;
 	cfg->angle_snapping = 0;
+	cfg->accel_enabled = 0;
 }

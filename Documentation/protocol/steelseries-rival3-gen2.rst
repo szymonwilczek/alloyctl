@@ -67,13 +67,25 @@ Commands (output reports, interface 3)
    0x34 <count> <active> <x1> <y1> [<x2> <y2> ...]
 
 * ``count``  -- number of presets being configured (1--5)
-* ``active`` -- 1-based index of the initially active preset
+* ``active`` -- 0-based index of the initially active preset (same encoding
+  as the ``0xAD`` notification below; sending it 1-based selected the next
+  level, which SAVE then latched to flash -- see #41)
 * ``xN yN``  -- per-axis sensor step bytes (see table below)
 
 DPI range 200--8500 in steps of 100. The sensor is a TrueMove Core; DPI does
 not map linearly to the wire byte. Formula approximation:
 ``byte ~= round(dpi / 43.1)``, exact values in the table used by the driver
 (200 -> ``0x04``, 800 -> ``0x12``, 1600 -> ``0x24``, ..., 8500 -> ``0xC5``).
+
+The presets are onboard **CPI levels**, nothing more: the CPI button cycles
+only the active CPI value. Colors, effects, polling rate and button bindings
+are a single global configuration shared by every level (verified on
+hardware: after a save, cycling the CPI button changes CPI only).
+
+Pressing the CPI button also makes the firmware flash a fixed, per-level
+indicator color before the configured lighting returns. That color is chosen
+by the firmware and is not configurable -- it is a level indicator, not
+per-level lighting (and is easily mistaken for stored per-profile colors).
 
 ``0x2B`` -- polling rate
 ------------------------
@@ -128,14 +140,30 @@ replaced by the 3-zone bottom strip.
 
    0x22 <mask>                ; same zone mask as 0x21
 
+Hardware-verified (#23): the mask only **enrolls zones into an already
+running rainbow engine** - the engine itself is the rainbow byte of ``0x27``.
+While that byte is ``0x00`` the device ignores ``0x22`` entirely (ACKed, no
+visible effect), even on zones freshly lit by ``0x21``. Turning the engine on
+(re)enrolls every zone; masked ``0x21`` writes then carve static zones out of
+the cycle.
+
 ``0x26`` -- reactive color
 --------------------------
 
 ::
 
-   0x26 <R> <G> <B>           ; color flashed on button click
+   0x26 <enable> 0x00 <R> <G> <B>   ; color flashed on button click
 
-All-zero payload disables the effect.
+``enable`` is ``0x01`` to arm the flash, ``0x00`` (with a zero color) to
+disable it. All hardware-verified (fw ``1.1.6``):
+
+* The flash **overlays** whatever the zones currently show - static colors,
+  the rainbow cycle or unlit zones alike.
+* The enable byte is mandatory. A short ``0x26 <R> <G> <B>`` write is still
+  ACKed, but the firmware then latches a **black** flash - the effect looks
+  completely dead while every command "succeeds" (the #24 trap).
+* The color is **not persisted** by ``0x11`` and resets on power-up, so the
+  host must re-arm it after every replug.
 
 ``0x27`` -- default lighting at power-up
 ----------------------------------------
@@ -143,6 +171,22 @@ All-zero payload disables the effect.
 ::
 
    0x27 <rainbow> <reactive>  ; each 0x00 or 0x01
+
+Despite the name, the mode also applies **immediately** when written, not
+only at the next power-up (verified: writing ``0x27 0x01 0x00`` starts the
+rainbow on the spot, ``0x27 0x00 0x01`` turns the zones off live). At wake-up
+the reactive bit lights nothing by itself - it only selects whether clicking
+triggers the flash before the host reconfigures the zones; once any ``0x21``/
+``0x22`` write lands, the ``0x26`` overlay works in every mode regardless.
+
+The rainbow byte is in fact the **live master switch of the rainbow engine**
+(#23): ``0x22`` masks only work while it is set, and turning it on enrolls
+every zone in the cycle. Startup preference and running engine share this
+one flag - a configuration with rainbow zones therefore necessarily wakes up
+cycling too; the firmware cannot store "startup off" together with a live
+rainbow. alloyctl derives the effective byte as "any rainbow zone OR the
+startup choice" and sends ``0x27`` **first** in every lighting apply, before
+the ``0x22`` mask and the ``0x21`` statics.
 
 ``0x2A`` -- button mapping
 --------------------------
@@ -182,6 +226,10 @@ Commits the current live configuration to persistent memory. Without it every
 change is live-only and lost on replug -- which is exactly what a live preview
 needs.
 
+One save commits everything: the flash configuration is global (single set of
+colors, effects, polling and bindings plus the CPI level table); there are no
+per-level profile slots to iterate.
+
 ``0x90`` -- firmware version (discovered on hardware)
 -----------------------------------------------------
 
@@ -192,18 +240,53 @@ needs.
 Responds with ``0x90`` followed by an ASCII string, e.g. ``"1.1.6 +e57ff6a1"``.
 Found by probing the device.
 
+Unsolicited events (interface 2)
+================================
+
+The vendor interface (``0xFF00``, 64-byte input reports) streams
+device-initiated notifications. One is known, discovered on hardware
+(fw ``1.1.6 +e57ff6a1``):
+
+``0xAD`` -- CPI level switch
+----------------------------
+
+::
+
+   0xAD <count> <active> <wire1> ... <wireN>
+
+Emitted every time the active CPI level changes, including switches made with
+the physical CPI button. ``active`` is **0-based**, the same encoding as the
+``active`` field of command ``0x34``, and the wire bytes repeat the level
+table in the ``0x34`` sensor encoding. Captured example with levels
+800/900/1800 and level 2 going active::
+
+   ad 03 01 12 14 29 00 ... 00
+
+alloyctl's TUI listens on this interface to keep the ACTIVE level indicator in
+sync with the hardware button - the only known device-to-host state channel.
+Because it is push-only and there is no read-back, alloyctl cannot learn the
+active level at launch, so it does **not** push the DPI table (and thus the
+active level) at startup; doing so would force the last-saved level over
+whatever the mouse is actually running.
+
 Read-back
 =========
 
 No command to read the current configuration back from the device has been
 found (``0x10``, ``0x12``, ``0x92`` all go unanswered). Consequence for
 alloyctl: the pre-session baseline used by REVERT is kept in a host-side state
-file, seeded with driver defaults on first run.
+file, seeded with driver defaults on first run. The ``0xAD`` notification
+above is push-only: it reports level switches as they happen but cannot be
+queried.
 
-Not supported by this hardware
-==============================
+Acceleration / deceleration / angle snapping -- not firmware
+============================================================
 
-Acceleration / deceleration and angle snapping are not exposed by this protocol
-family (no known command; SteelSeries Engine does not offer them for TrueMove
-Core sensors either). Drivers advertise these capabilities per-device and the
-UI disables the sections when absent.
+These three have no onboard command and cannot be stored on the mouse. They are
+not a gap in this reverse engineering: SteelSeries Engine offers them, but
+applies them **host-side** (they need the software running and are never written
+to the device), and ``rivalcfg`` - which only drives onboard HID config -
+defines no such setting. Probing finds no acknowledged command.
+
+alloyctl implements them host-side instead, as a pointer-transform daemon; see
+:doc:`../architecture/pointer-transform`.

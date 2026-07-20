@@ -59,19 +59,22 @@ static int uevent_matches(const char *path, uint16_t vendor_id,
 	return id_ok && phys_ok;
 }
 
-int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
-		   uint16_t product_id, int interface, size_t report_size)
+/*
+ * Locate the hidraw node matching the VID/PID/interface triple.
+ * On a match, copies "/dev/hidrawN" into node (when non-NULL) and returns 1;
+ * returns 0 when no connected device matches.
+ */
+static int hid_find_node(uint16_t vendor_id, uint16_t product_id, int interface,
+			 char *node, size_t node_len)
 {
 	char path[288];
 	struct dirent *ent;
 	DIR *dir;
-
-	dev->fd = -1;
-	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
+	int found = 0;
 
 	dir = opendir("/sys/class/hidraw");
 	if (!dir)
-		return -1;
+		return 0;
 
 	while ((ent = readdir(dir))) {
 		if (strncmp(ent->d_name, "hidraw", 6))
@@ -82,12 +85,34 @@ int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		if (!uevent_matches(path, vendor_id, product_id, interface))
 			continue;
 
-		snprintf(path, sizeof(path), "/dev/%s", ent->d_name);
-		dev->fd = open(path, O_RDWR | O_CLOEXEC);
+		if (node)
+			snprintf(node, node_len, "/dev/%s", ent->d_name);
+		found = 1;
 		break;
 	}
 	closedir(dir);
 
+	return found;
+}
+
+int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface)
+{
+	return hid_find_node(vendor_id, product_id, interface, NULL, 0);
+}
+
+int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
+		   uint16_t product_id, int interface, size_t report_size)
+{
+	char node[288];
+
+	dev->fd = -1;
+	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
+
+	if (!hid_find_node(vendor_id, product_id, interface, node,
+			   sizeof(node)))
+		return -1;
+
+	dev->fd = open(node, O_RDWR | O_CLOEXEC);
 	return dev->fd < 0 ? -1 : 0;
 }
 
@@ -96,6 +121,23 @@ void alloy_hid_close(struct alloy_hid_dev *dev)
 	if (dev->fd >= 0)
 		close(dev->fd);
 	dev->fd = -1;
+}
+
+int alloy_hid_poll(struct alloy_hid_dev *dev, uint8_t *buf, size_t len)
+{
+	struct pollfd pfd = { .fd = dev->fd, .events = POLLIN };
+	ssize_t n;
+	int r;
+
+	if (dev->fd < 0)
+		return 0;
+	r = poll(&pfd, 1, 0);
+	if (r <= 0)
+		return r < 0 ? -1 : 0;
+	if (!(pfd.revents & POLLIN))
+		return 0;
+	n = read(dev->fd, buf, len);
+	return n < 0 ? -1 : (int)n;
 }
 
 static int hid_write_report(struct alloy_hid_dev *dev, const uint8_t *payload,

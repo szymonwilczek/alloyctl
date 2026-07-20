@@ -42,6 +42,13 @@ Every command starts with ``<cmd> 0x00``.
 One byte per preset (no separate X/Y), same TrueMove Core table as the Gen 2
 (200--8500 DPI, step 100, ``byte ~= dpi / 43.1``). ``active`` is 1-based.
 
+As on the Gen 2, the presets are onboard **CPI levels** only: the CPI button
+cycles the active CPI value, while colors, effects, polling rate and button
+bindings are one global configuration shared by every level. Pressing the
+button flashes a fixed, firmware-chosen indicator color for the new level
+before the configured lighting returns -- a level indicator, not per-level
+lighting.
+
 ``0x04 0x00`` -- polling rate
 -----------------------------
 
@@ -62,9 +69,13 @@ One byte per preset (no separate X/Y), same TrueMove Core table as the Gen 2
 * zone ``0x00`` -- all zones at once
 
 ``brightness`` is ``0x00``-``0x64`` (0-100 %) and rides in every color write --
-there is no separate global brightness command. Setting a color while an effect
-runs switches that back to steady behaviour on the next effect write, so
-alloyctl orders effect-first, colors-second.
+there is no separate global brightness command.
+
+Hardware-verified (#38): **any** ``0x05`` write cancels the running global
+effect on *every* zone, freezing the animation in place. Effects therefore
+have to be applied colors-first, effect-selector-last, and a brightness
+change (which is just another round of color writes) must resend the effect
+too.
 
 ``0x06 0x00`` -- global light effect
 ------------------------------------
@@ -109,7 +120,10 @@ carries the keycode where applicable:
 ``0x09 0x00`` -- save to onboard flash
 --------------------------------------
 
-Commits the live configuration to persistent memory.
+Commits the live configuration to persistent memory. One save commits
+everything: the flash configuration is global (single set of colors, effects,
+polling and bindings plus the CPI level table); there are no per-level
+profile slots.
 
 ``0x10 0x00`` -- firmware version
 ---------------------------------
@@ -122,4 +136,12 @@ Not supported by this hardware
 
 Per-zone rainbow masks, reactive click color and the power-up lighting selector
 are Gen 2 features; this firmware has the global effect list instead.
-Acceleration / deceleration / angle snapping: absent, as on the Gen 2.
+Probed on hardware while debugging #24: the Gen 2 reactive command (``0x26``,
+sent both as ``0x26 0x00 ...`` in this firmware's framing and in the raw Gen 2
+layout) is silently ignored - no flash, no lighting change. rivalcfg's mature
+``rival3`` profile defines no reactive setting either.
+
+Acceleration / deceleration / angle snapping are not onboard here either, as on
+the Gen 2: SteelSeries applies them host-side, not in firmware, and alloyctl
+does the same via its pointer-transform daemon (see
+:doc:`../architecture/pointer-transform`).

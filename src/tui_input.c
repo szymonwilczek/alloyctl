@@ -5,11 +5,34 @@
  */
 #include <string.h>
 
+#include "accel.h"
 #include "tui_internal.h"
 
 static void mark_dirty(struct tui *t)
 {
 	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+}
+
+/* host-side transform steppers: edit the value and live-preview via the daemon */
+static void adjust_accel(struct tui *t, int delta)
+{
+	t->cfg.acceleration = (int8_t)ALLOY_CLAMP(
+		t->cfg.acceleration + delta, ALLOY_ACCEL_MIN, ALLOY_ACCEL_MAX);
+	tui_accel_changed(t);
+}
+
+static void adjust_decel(struct tui *t, int delta)
+{
+	t->cfg.deceleration = (int8_t)ALLOY_CLAMP(
+		t->cfg.deceleration + delta, ALLOY_DECEL_MIN, ALLOY_DECEL_MAX);
+	tui_accel_changed(t);
+}
+
+static void adjust_snap(struct tui *t, int delta)
+{
+	t->cfg.angle_snapping = (uint8_t)ALLOY_CLAMP(
+		t->cfg.angle_snapping + delta, ALLOY_SNAP_MIN, ALLOY_SNAP_MAX);
+	tui_accel_changed(t);
 }
 
 static void adjust_dpi(struct tui *t, int preset, int delta)
@@ -26,10 +49,13 @@ static void adjust_dpi(struct tui *t, int preset, int delta)
 		tui_apply(t, drv->ops->apply_dpi, "dpi");
 }
 
-static void adjust_polling(struct tui *t, int dir)
+static void adjust_polling(struct tui *t, int dir, int big)
 {
 	const struct alloy_driver *drv = t->drv;
 	int i;
+
+	if (!drv->num_polling_rates)
+		return;
 
 	for (i = 0; i < drv->num_polling_rates; i++) {
 		if (drv->polling_rates[i] == t->cfg.polling_hz)
@@ -37,12 +63,13 @@ static void adjust_polling(struct tui *t, int dir)
 	}
 	if (i == drv->num_polling_rates)
 		i = 0;
-	/* rates are stored descending:
-	 * previous entry is faster */
+	/* rates are stored descending: lower index is faster
+	 * H/L jump straight to the fastest / slowest rate */
 	else if (dir > 0)
-		i = ALLOY_MAX(i - 1, 0);
+		i = big ? 0 : ALLOY_MAX(i - 1, 0);
 	else
-		i = ALLOY_MIN(i + 1, drv->num_polling_rates - 1);
+		i = big ? drv->num_polling_rates - 1 :
+			  ALLOY_MIN(i + 1, drv->num_polling_rates - 1);
 
 	t->cfg.polling_hz = drv->polling_rates[i];
 	mark_dirty(t);
@@ -50,14 +77,46 @@ static void adjust_polling(struct tui *t, int dir)
 		tui_apply(t, drv->ops->apply_polling, "polling");
 }
 
-static void adjust_brightness(struct tui *t, int delta)
+static void set_active_dpi_preset(struct tui *t, int preset)
 {
-	int val = t->cfg.brightness + delta;
-
-	t->cfg.brightness = (uint8_t)ALLOY_CLAMP(val, 0, 100);
+	if (preset >= t->cfg.dpi_count)
+		return;
+	t->cfg.dpi_active = (uint8_t)preset;
 	mark_dirty(t);
 	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_brightness, "brightness");
+		tui_apply(t, t->drv->ops->apply_dpi, "dpi");
+	tui_status(t, "level %d active", preset + 1);
+}
+
+/*
+ * Append preset seeded with double the last one (clamped and snapped),
+ * which reproduces the 800/1600/3200/... ladder the stock software builds,
+ * and leave the cursor on the newcomer.
+ */
+static void create_dpi_preset(struct tui *t)
+{
+	const struct alloy_driver *drv = t->drv;
+	uint8_t n = t->cfg.dpi_count;
+	int dpi;
+
+	if (n >= tui_dpi_preset_limit(t)) {
+		tui_status(t, "this mouse holds at most %d levels",
+			   tui_dpi_preset_limit(t));
+		return;
+	}
+
+	dpi = t->cfg.dpi[n - 1][0] * 2;
+	dpi = ALLOY_CLAMP(dpi, drv->dpi.min, drv->dpi.max);
+	dpi = dpi / drv->dpi.step * drv->dpi.step;
+	t->cfg.dpi[n][0] = (uint16_t)dpi;
+	t->cfg.dpi[n][1] = (uint16_t)dpi;
+	t->cfg.dpi_count = (uint8_t)(n + 1);
+	t->cursor[PANE_LEVELS] = n;
+
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, drv->ops->apply_dpi, "dpi");
+	tui_status(t, "level %u created", n + 1);
 }
 
 static void footer_activate(struct tui *t)
@@ -74,35 +133,15 @@ static void footer_activate(struct tui *t)
 		}
 		break;
 	case FOOTER_REVERT:
-		t->cfg = t->baseline;
-		tui_apply_all(t);
-		t->dirty = 0;
+		tui_revert(t);
 		tui_status(t, "reverted to session baseline");
 		break;
 	case FOOTER_SAVE:
-		tui_apply_all(t);
-		if (t->drv->ops->save(t->dev)) {
-			tui_status(t, "save failed: no device ACK");
-			break;
-		}
-		t->baseline = t->cfg;
-		if (alloy_state_store(t->drv, &t->cfg))
-			tui_status(t, "saved to mouse; baseline file "
-				      "not writable");
-		else
-			tui_status(t, "saved to mouse flash + baseline");
-		t->dirty = 0;
+		tui_save(t);
 		break;
 	default:
 		break;
 	}
-}
-
-static void apply_lighting(struct tui *t)
-{
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_colors, "lighting");
 }
 
 static void pane_adjust(struct tui *t, int dir, int big)
@@ -110,38 +149,33 @@ static void pane_adjust(struct tui *t, int dir, int big)
 	int sel = t->cursor[t->focus];
 
 	switch (t->focus) {
-	case PANE_CENTER:
-		if (sel == tui_center_idx_brightness(t)) {
-			adjust_brightness(t, dir * (big ? 20 : 5));
-		} else if (sel == tui_center_idx_fx(t)) {
-			t->cfg.fx_index = (uint8_t)((t->cfg.fx_index +
-						     t->drv->num_fx + dir) %
-						    t->drv->num_fx);
-			apply_lighting(t);
-		} else if (sel == tui_center_idx_reactive(t)) {
-			t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
-			apply_lighting(t);
-		} else if (sel == tui_center_idx_startup(t)) {
-			t->cfg.startup_fx =
-				(uint8_t)((t->cfg.startup_fx + 4 + dir) % 4);
-			apply_lighting(t);
-		} else if (sel < t->drv->num_zones &&
-			   (t->drv->caps & ALLOY_CAP_FX_RAINBOW)) {
-			t->cfg.zone_mode[sel] =
-				t->cfg.zone_mode[sel] == ALLOY_LED_STATIC ?
-					ALLOY_LED_RAINBOW :
-					ALLOY_LED_STATIC;
-			apply_lighting(t);
-		}
-		break;
-	case PANE_SENSITIVITY:
-		adjust_dpi(t, sel, dir * (big ? 10 : 1) * t->drv->dpi.step);
+	case PANE_LEVELS:
+		if (sel < t->cfg.dpi_count)
+			adjust_dpi(t, sel,
+				   dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
 	case PANE_TUNING:
-		if (sel == 3) {
-			adjust_polling(t, dir);
-		} else {
-			tui_status(t, "not supported by this device");
+		switch (sel) {
+		case 0:
+			adjust_accel(t, dir * (big ? ALLOY_ACCEL_STEP * 10 :
+						     ALLOY_ACCEL_STEP));
+			break;
+		case 1:
+			adjust_decel(t, dir * (big ? ALLOY_DECEL_STEP * 10 :
+						     ALLOY_DECEL_STEP));
+			break;
+		case 2:
+			adjust_snap(t, dir * (big ? ALLOY_SNAP_STEP * 5 :
+						    ALLOY_SNAP_STEP));
+			break;
+		case 3:
+			tui_status(t, "enter: toggle the OS accel engine");
+			break;
+		case 4:
+			adjust_polling(t, dir, big);
+			break;
+		default:
+			break;
 		}
 		break;
 	default:
@@ -161,10 +195,17 @@ static void pane_activate(struct tui *t)
 			tui_modal_message("MACRO EDITOR", "TBA");
 		break;
 	case PANE_CENTER:
-		if (sel < t->drv->num_zones)
-			tui_modal_color_zone(t, sel);
-		else if (sel == tui_center_idx_reactive(t))
-			tui_modal_color_reactive(t);
+		tui_illum_enter(t);
+		break;
+	case PANE_TUNING:
+		if (sel == 3)
+			tui_accel_set_enabled(t, !t->accel_running);
+		break;
+	case PANE_LEVELS:
+		if (sel < t->cfg.dpi_count)
+			set_active_dpi_preset(t, sel);
+		else
+			create_dpi_preset(t);
 		break;
 	case PANE_FOOTER:
 		footer_activate(t);
@@ -180,7 +221,13 @@ void tui_handle_key(struct tui *t, int ch)
 
 	switch (ch) {
 	case 'q':
-		t->quit = 1;
+		if (t->dirty)
+			tui_modal_confirm_quit(t);
+		else
+			t->quit = 1;
+		return;
+	case 's':
+		tui_save(t);
 		return;
 	case '\t':
 		t->focus = (enum tui_pane)((t->focus + 1) % PANE_COUNT);
@@ -221,13 +268,8 @@ void tui_handle_key(struct tui *t, int ch)
 		pane_adjust(t, 1, 1);
 		break;
 	case 'a':
-		if (t->focus == PANE_SENSITIVITY) {
-			t->cfg.dpi_active =
-				(uint8_t)t->cursor[PANE_SENSITIVITY];
-			t->dirty = 1;
-			if (t->live_preview)
-				tui_apply(t, t->drv->ops->apply_dpi, "dpi");
-		}
+		if (t->focus == PANE_LEVELS)
+			set_active_dpi_preset(t, t->cursor[PANE_LEVELS]);
 		break;
 	case '\n':
 	case KEY_ENTER:
