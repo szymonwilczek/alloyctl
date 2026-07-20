@@ -167,21 +167,31 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	return 2;
 }
 
-/* Reactive click color: 0x26 <R> <G> <B>
- * All zero disables.*/
+/*
+ * Reactive click color: 0x26 <enable> 0x00 <R> <G> <B>
+ *
+ * Verified on hardware (fw 1.1.6):
+ * Flash overlays whatever the zones are showing (static colors, rainbow or off).
+ * Enable byte is mandatory - short 0x26 <R> <G> <B> write is ACKed but latches
+ * black flash, which is why the effect looked dead (#24).
+ * Color survives neither the 0x11 save nor a power cycle,
+ * so the host re-arms it on every apply.
+ */
 size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = R3G2_CMD_REACTIVE;
+	buf[1] = cfg->reactive_enabled ? 0x01 : 0x00;
+	buf[2] = 0x00;
 	if (cfg->reactive_enabled) {
-		buf[1] = cfg->reactive_color.r;
-		buf[2] = cfg->reactive_color.g;
-		buf[3] = cfg->reactive_color.b;
+		buf[3] = cfg->reactive_color.r;
+		buf[4] = cfg->reactive_color.g;
+		buf[5] = cfg->reactive_color.b;
 	} else {
-		buf[1] = 0x00;
-		buf[2] = 0x00;
 		buf[3] = 0x00;
+		buf[4] = 0x00;
+		buf[5] = 0x00;
 	}
-	return 4;
+	return 6;
 }
 
 /* Power-up lighting: 0x27 <rainbow> <reactive> */
