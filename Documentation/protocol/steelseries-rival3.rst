@@ -132,6 +132,10 @@ Not supported by this hardware
 
 Per-zone rainbow masks, reactive click color and the power-up lighting selector
 are Gen 2 features; this firmware has the global effect list instead.
+Probed on hardware while debugging #24: the Gen 2 reactive command (``0x26``,
+sent both as ``0x26 0x00 ...`` in this firmware's framing and in the raw Gen 2
+layout) is silently ignored - no flash, no lighting change. rivalcfg's mature
+``rival3`` profile defines no reactive setting either.
 
 Acceleration / deceleration / angle snapping are not onboard here either, as on
 the Gen 2: SteelSeries applies them host-side, not in firmware, and alloyctl
