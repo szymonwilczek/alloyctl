@@ -123,6 +123,23 @@ void alloy_hid_close(struct alloy_hid_dev *dev)
 	dev->fd = -1;
 }
 
+int alloy_hid_poll(struct alloy_hid_dev *dev, uint8_t *buf, size_t len)
+{
+	struct pollfd pfd = { .fd = dev->fd, .events = POLLIN };
+	ssize_t n;
+	int r;
+
+	if (dev->fd < 0)
+		return 0;
+	r = poll(&pfd, 1, 0);
+	if (r <= 0)
+		return r < 0 ? -1 : 0;
+	if (!(pfd.revents & POLLIN))
+		return 0;
+	n = read(dev->fd, buf, len);
+	return n < 0 ? -1 : (int)n;
+}
+
 static int hid_write_report(struct alloy_hid_dev *dev, const uint8_t *payload,
 			    size_t len)
 {

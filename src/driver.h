@@ -146,6 +146,17 @@ struct alloy_driver_ops {
 	/* optional: NUL-terminated firmware version string */
 	int (*firmware_version)(struct alloy_device *dev, char *buf,
 				size_t len);
+
+	/*
+	 * Optional:
+	 * parse one unsolicited report from the driver's event interface
+	 * (see alloy_driver.event_interface).
+	 * Returns 1 when cfg was updated to reflect a device-initiated change
+	 * (e.g. the hardware CPI button switching the active level),
+	 * 0 when the report is not recognized event.
+	 */
+	int (*parse_event)(const uint8_t *buf, size_t len,
+			   struct alloy_config *cfg);
 };
 
 struct alloy_driver {
@@ -153,6 +164,11 @@ struct alloy_driver {
 	uint16_t vendor_id;
 	uint16_t product_id;
 	int interface; /* USB interface carrying config reports */
+	/*
+	 * USB interface streaming unsolicited device events;
+	 * only consulted when ops->parse_event is set.
+	 */
+	int event_interface;
 
 	/* Vendor report payload size;
 	 * 0 selects the 64-byte default */
@@ -212,6 +228,9 @@ struct alloy_driver {
 struct alloy_device {
 	const struct alloy_driver *drv;
 	struct alloy_hid_dev hid;
+	/* unsolicited-event channel;
+	 * fd < 0 when the driver has none */
+	struct alloy_hid_dev ev;
 };
 
 #define ALLOY_DRIVER_REGISTER(drv)                             \
