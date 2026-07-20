@@ -75,6 +75,16 @@ not map linearly to the wire byte. Formula approximation:
 ``byte ~= round(dpi / 43.1)``, exact values in the table used by the driver
 (200 -> ``0x04``, 800 -> ``0x12``, 1600 -> ``0x24``, ..., 8500 -> ``0xC5``).
 
+The presets are onboard **CPI levels**, nothing more: the CPI button cycles
+only the active CPI value. Colors, effects, polling rate and button bindings
+are a single global configuration shared by every level (verified on
+hardware: after a save, cycling the CPI button changes CPI only).
+
+Pressing the CPI button also makes the firmware flash a fixed, per-level
+indicator color before the configured lighting returns. That color is chosen
+by the firmware and is not configurable -- it is a level indicator, not
+per-level lighting (and is easily mistaken for stored per-profile colors).
+
 ``0x2B`` -- polling rate
 ------------------------
 
@@ -181,6 +191,10 @@ First byte of each field selects the action:
 Commits the current live configuration to persistent memory. Without it every
 change is live-only and lost on replug -- which is exactly what a live preview
 needs.
+
+One save commits everything: the flash configuration is global (single set of
+colors, effects, polling and bindings plus the CPI level table); there are no
+per-level profile slots to iterate.
 
 ``0x90`` -- firmware version (discovered on hardware)
 -----------------------------------------------------
