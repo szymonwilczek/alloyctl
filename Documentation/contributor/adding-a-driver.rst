@@ -12,6 +12,12 @@ Nothing else in the tree needs to change: the build picks the C files up
 automatically via wildcard and ``ALLOY_DRIVER_REGISTER()`` adds the driver to the runtime registry
 through a dedicated ELF section.
 
+Because registration rides in that ELF section, the drivers built into the
+binary are just the ones whose objects get linked. Plain ``make`` links them
+all; ``make DRIVERS="..."`` restricts the set (see ``make list-drivers``), which
+lets users trim to their own hardware. The test binary always links every
+driver, so add your packet-builder tests as usual.
+
 Before you write code
 =====================
 
