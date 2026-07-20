@@ -91,7 +91,13 @@ size_t r3_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 	buf[n++] = R3_CMD_DPI;
 	buf[n++] = 0x00;
 	buf[n++] = cfg->dpi_count;
-	buf[n++] = (uint8_t)(cfg->dpi_active + 1); /* 1-based on wire */
+	/*
+	 * Active index is 0-based on the wire.
+	 * Sending dpi_active + 1 selected the next preset,
+	 * which SAVE then latched to flash, advancing the active
+	 * level on every save (#41)
+	 */
+	buf[n++] = cfg->dpi_active;
 	for (i = 0; i < cfg->dpi_count; i++)
 		buf[n++] = r3_dpi_to_wire(cfg->dpi[i][0]);
 	return n;

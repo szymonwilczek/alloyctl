@@ -59,7 +59,7 @@ ALLOY_TEST(test_gen1_dpi_packet)
 	ASSERT_EQ(buf[0], 0x0B);
 	ASSERT_EQ(buf[1], 0x00);
 	ASSERT_EQ(buf[2], 2); /* count */
-	ASSERT_EQ(buf[3], 2); /* active, 1-based */
+	ASSERT_EQ(buf[3], 1); /* active, 0-based on wire */
 	ASSERT_EQ(buf[4], 0x12); /* 800 dpi, one byte per preset */
 	ASSERT_EQ(buf[5], 0x24); /* 1600 dpi */
 }

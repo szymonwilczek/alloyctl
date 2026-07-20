@@ -82,7 +82,13 @@ size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 
 	buf[n++] = R3G2_CMD_DPI;
 	buf[n++] = cfg->dpi_count;
-	buf[n++] = (uint8_t)(cfg->dpi_active + 1); /* 1-based on wire */
+	/*
+	 * Active index is 0-based on the wire, matching the 0xAD level event
+	 * (r3g2_parse_event) the firmware reports back.
+	 * Sending dpi_active + 1 here selected the *next* level,
+	 * which SAVE then latched to flash (#41)
+	 */
+	buf[n++] = cfg->dpi_active;
 	for (i = 0; i < cfg->dpi_count; i++) {
 		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][0]);
 		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][1]);
