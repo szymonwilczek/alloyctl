@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "driver.h"
+#include "art_steelseries_rival3.h"
 
 #define R3_CMD_POLLING 0x04
 #define R3_CMD_ZONE_COLOR 0x05
@@ -90,7 +91,13 @@ size_t r3_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 	buf[n++] = R3_CMD_DPI;
 	buf[n++] = 0x00;
 	buf[n++] = cfg->dpi_count;
-	buf[n++] = (uint8_t)(cfg->dpi_active + 1); /* 1-based on wire */
+	/*
+	 * Active index is 0-based on the wire.
+	 * Sending dpi_active + 1 selected the next preset,
+	 * which SAVE then latched to flash, advancing the active
+	 * level on every save (#41)
+	 */
+	buf[n++] = cfg->dpi_active;
 	for (i = 0; i < cfg->dpi_count; i++)
 		buf[n++] = r3_dpi_to_wire(cfg->dpi[i][0]);
 	return n;
@@ -140,10 +147,21 @@ size_t r3_build_zone_color(const struct alloy_config *cfg, int zone,
 	return 7;
 }
 
+/*
+ * Effect selector is device-wide on this hardware (ALLOY_CAP_FX_GLOBAL):
+ * per-zone selection is applied best-effort from the first zone not running steady.
+ */
 size_t r3_build_effect(const struct alloy_config *cfg, uint8_t *buf)
 {
-	uint8_t idx = cfg->fx_index;
+	uint8_t idx = 0;
+	uint8_t i;
 
+	for (i = 0; i < 4; i++) {
+		if (cfg->zone_fx[i]) {
+			idx = cfg->zone_fx[i];
+			break;
+		}
+	}
 	if (idx >= ALLOY_ARRAY_SIZE(r3_fx_wire))
 		idx = 0;
 
@@ -217,9 +235,12 @@ static int r3_apply_polling(struct alloy_device *dev,
 }
 
 /*
- * Full lighting state:
- * effect selector first (switching back to steady restores static colors),
- * then all four zones.
+ * Full lighting state.
+ * Hardware-verified (#38): any 0x05 zone-color write cancels the running global effect
+ * on every zone, freezing the animation.
+ * So the zones (which also carry the shared brightness) go out first and the effect
+ * selector last - the breathing modes then pulse the freshly latched colors,
+ * and steady simply shows them.
  */
 static int r3_apply_colors(struct alloy_device *dev,
 			   const struct alloy_config *cfg)
@@ -228,25 +249,21 @@ static int r3_apply_colors(struct alloy_device *dev,
 	int ret = 0;
 	int zone;
 
-	ret |= alloy_hid_send(&dev->hid, buf, r3_build_effect(cfg, buf));
 	for (zone = 0; zone < 4; zone++)
 		ret |= alloy_hid_send(&dev->hid, buf,
 				      r3_build_zone_color(cfg, zone, buf));
+	ret |= alloy_hid_send(&dev->hid, buf, r3_build_effect(cfg, buf));
 	return ret ? -1 : 0;
 }
 
-/* Brightness rides in every color write; just resend the zones */
+/*
+ * Brightness rides in every color write - and those writes kill the running
+ * effect (#38), so a brightness change is a full lighting reapply.
+ */
 static int r3_apply_brightness(struct alloy_device *dev,
 			       const struct alloy_config *cfg)
 {
-	uint8_t buf[R3_REPORT_SIZE];
-	int ret = 0;
-	int zone;
-
-	for (zone = 0; zone < 4; zone++)
-		ret |= alloy_hid_send(&dev->hid, buf,
-				      r3_build_zone_color(cfg, zone, buf));
-	return ret ? -1 : 0;
+	return r3_apply_colors(dev, cfg);
 }
 
 static int r3_apply_buttons(struct alloy_device *dev,
@@ -299,27 +316,6 @@ static const struct alloy_button r3_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
-/* clang-format off */
-static const char r3_art[] =
-	"              _.-------._\n"
-	"           ,-'     |     '-.\n"
-	"         ,'   .----'----.   ',\n"
-	"        /    |     |     |    \\\n"
-	"       /     |    | |    |     \\\n"
-	"      ;      |    |_|    |      ;\n"
-	" B4 --|      |     |     |      |\n"
-	"      |       '----'----'       |\n"
-	" B5 --|            O -- B6      |\n"
-	"      |                         |\n"
-	"  Z1 =|        .-'''-.          |= Z1\n"
-	"      ;       ( LOGO  )         ;\n"
-	"  Z2 =\\        '-...-'   Z4    /= Z2\n"
-	"        \\                     /\n"
-	"  Z3 ==='.                  ,'=== Z3\n"
-	"           '-.           ,-'\n"
-	"              '-._____.-'\n";
-/* clang-format on */
-
 static const struct alloy_driver_ops r3_ops = {
 	.apply_dpi = r3_apply_dpi,
 	.apply_polling = r3_apply_polling,
@@ -353,7 +349,7 @@ static const struct alloy_driver_ops r3_ops = {
 			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_FX_GLOBAL, \
 		.fx_names = r3_fx_names,                                  \
 		.num_fx = ALLOY_ARRAY_SIZE(r3_fx_names),                  \
-		.ascii_art = r3_art,                                      \
+		.ascii_art = alloy_art_steelseries_rival3,                                      \
 		.ops = &r3_ops,                                           \
 		.config_defaults = alloy_config_generic_defaults,         \
 	}; \

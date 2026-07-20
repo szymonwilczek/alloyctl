@@ -19,6 +19,7 @@ size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 static const struct alloy_driver *r3g2(void)
 {
@@ -40,6 +41,7 @@ ALLOY_TEST(test_registry)
 	ASSERT_EQ(drv->dpi.max, 8500);
 	ASSERT_EQ(drv->num_zones, 3);
 	ASSERT_EQ(drv->num_buttons, 8);
+	ASSERT_EQ(drv->num_fx, 2); /* steady + rainbow, per zone */
 	ASSERT_TRUE(alloy_driver_find(0x1038, 0xbaad) == NULL);
 }
 
@@ -61,7 +63,7 @@ ALLOY_TEST(test_dpi_packet)
 	ASSERT_EQ(len, 7);
 	ASSERT_EQ(buf[0], 0x34);
 	ASSERT_EQ(buf[1], 2); /* preset count */
-	ASSERT_EQ(buf[2], 1); /* active, 1-based on the wire */
+	ASSERT_EQ(buf[2], 0); /* active, 0-based on the wire */
 	ASSERT_EQ(buf[3], 0x12); /* 800 dpi */
 	ASSERT_EQ(buf[4], 0x12);
 	ASSERT_EQ(buf[5], 0x24); /* 1600 dpi */
@@ -129,14 +131,14 @@ ALLOY_TEST(test_colors_packet)
 
 	/* rainbow on the middle zone drops it from the static mask
 	 * but keeps the RGB triplets positional */
-	cfg.zone_mode[1] = ALLOY_LED_RAINBOW;
+	cfg.zone_fx[1] = 1;
 	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 11);
 	ASSERT_EQ(buf[1], 0x05);
 	ASSERT_EQ(buf[8], 0x77); /* zone 3 still in triplet 3 */
 
 	/* all zones on the rainbow: nothing static to send */
-	cfg.zone_mode[0] = ALLOY_LED_RAINBOW;
-	cfg.zone_mode[2] = ALLOY_LED_RAINBOW;
+	cfg.zone_fx[0] = 1;
+	cfg.zone_fx[2] = 1;
 	ASSERT_EQ(r3g2_build_colors(&cfg, buf), 0);
 }
 
@@ -150,8 +152,8 @@ ALLOY_TEST(test_rainbow_packet)
 	/* defaults are all static: no rainbow packet */
 	ASSERT_EQ(r3g2_build_rainbow(&cfg, buf), 0);
 
-	cfg.zone_mode[0] = ALLOY_LED_RAINBOW;
-	cfg.zone_mode[2] = ALLOY_LED_RAINBOW;
+	cfg.zone_fx[0] = 1;
+	cfg.zone_fx[2] = 1;
 	ASSERT_EQ(r3g2_build_rainbow(&cfg, buf), 2);
 	ASSERT_EQ(buf[0], 0x22);
 	ASSERT_EQ(buf[1], 0x05);
@@ -166,16 +168,19 @@ ALLOY_TEST(test_reactive_packet)
 
 	cfg.reactive_enabled = 1;
 	cfg.reactive_color = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
-	ASSERT_EQ(r3g2_build_reactive(&cfg, buf), 4);
+	ASSERT_EQ(r3g2_build_reactive(&cfg, buf), 6);
 	ASSERT_EQ(buf[0], 0x26);
-	ASSERT_EQ(buf[1], 0x12);
-	ASSERT_EQ(buf[2], 0x34);
-	ASSERT_EQ(buf[3], 0x56);
+	ASSERT_EQ(buf[1], 0x01); /* enable byte, hardware-verified (#24) */
+	ASSERT_EQ(buf[2], 0x00);
+	ASSERT_EQ(buf[3], 0x12);
+	ASSERT_EQ(buf[4], 0x34);
+	ASSERT_EQ(buf[5], 0x56);
 
 	/* disabled: all-zero payload turns the effect off */
 	cfg.reactive_enabled = 0;
 	r3g2_build_reactive(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x00);
+	ASSERT_EQ(buf[3], 0x00);
 	ASSERT_EQ(buf[2], 0x00);
 	ASSERT_EQ(buf[3], 0x00);
 }
@@ -202,6 +207,19 @@ ALLOY_TEST(test_startup_packet)
 		ASSERT_EQ(r3g2_build_startup(&cfg, buf), 3);
 		ASSERT_EQ(buf[0], 0x27);
 		ASSERT_EQ(buf[1], cases[i].rainbow);
+		ASSERT_EQ(buf[2], cases[i].reactive);
+	}
+
+	/*
+	 * rainbow byte doubles as the live engine switch (#23):
+	 * any zone running the rainbow forces it on regardless of
+	 * the startup choice, or 0x22 masks would be silently ignored
+	 */
+	cfg.zone_fx[1] = 1;
+	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
+		cfg.startup_fx = cases[i].fx;
+		r3g2_build_startup(&cfg, buf);
+		ASSERT_EQ(buf[1], 1);
 		ASSERT_EQ(buf[2], cases[i].reactive);
 	}
 }
@@ -253,4 +271,41 @@ ALLOY_TEST(test_brightness_packet)
 	cfg.brightness = 255; /* clamps to 100 */
 	r3g2_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[1], 100);
+}
+
+ALLOY_TEST(test_cpi_level_event)
+{
+	/* exact notification captured on hardware: levels 800/900/1800 */
+	uint8_t evt[64] = { 0xAD, 0x03, 0x01, 0x12, 0x14, 0x29 };
+	struct alloy_config cfg;
+
+	r3g2()->config_defaults(r3g2(), &cfg);
+	cfg.dpi_count = 3;
+	cfg.dpi_active = 0;
+
+	/* hardware switched to level 2 (0-based 1) */
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 1);
+	ASSERT_EQ(cfg.dpi_active, 1);
+
+	/* same level again: no change to report */
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+	ASSERT_EQ(cfg.dpi_active, 1);
+
+	/* not the CPI notification */
+	evt[0] = 0x21;
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+	evt[0] = 0xAD;
+
+	/* truncated report */
+	ASSERT_EQ(r3g2_parse_event(evt, 2, &cfg), 0);
+
+	/* active out of the report's own range */
+	evt[2] = 0x03;
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+
+	/* active beyond what the host config knows: ignored, not clamped */
+	evt[1] = 0x05;
+	evt[2] = 0x04;
+	ASSERT_EQ(r3g2_parse_event(evt, sizeof(evt), &cfg), 0);
+	ASSERT_EQ(cfg.dpi_active, 1);
 }

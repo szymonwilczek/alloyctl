@@ -5,11 +5,11 @@
  * Screen layout (percentages of the usable width):
  *
  *   +----------+----------------+------------+------------+
- *   | ACTIONS  |                | SENS 1     | ACCEL /    |
- *   |          |   mouse art    | SENS 2     | DECEL      |
+ *   | ACTIONS  |                | LVL 1      | ACCEL /    |
+ *   |          |   mouse art    | LVL 2      | DECEL      |
  *   | (3/4 h)  |                |            | ANGLE SNAP |
- *   +----------+  zone buttons  |            | POLLING    |
- *   | MACRO    |  brightness    |            |            |
+ *   +----------+                |            | POLLING    |
+ *   | MACRO    |  ILLUMINATION  |            |            |
  *   +----------+----------------+------------+------------+
  *   |  LIVE PREVIEW [ON]            REVERT  SAVE  (footer)|
  *   |  status line                                        |
@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "accel.h"
 #include "tui_internal.h"
 #include "default_art.h"
 
@@ -43,7 +44,7 @@ static void compute_layout(void)
 
 	layout[PANE_ACTIONS] = (struct rect){ 0, 0, main_h, left_w };
 	layout[PANE_CENTER] = (struct rect){ 0, left_w, main_h, center_w };
-	layout[PANE_SENSITIVITY] =
+	layout[PANE_LEVELS] =
 		(struct rect){ 0, left_w + center_w, main_h, sens_w };
 	layout[PANE_TUNING] =
 		(struct rect){ 0, left_w + center_w + sens_w, main_h, tune_w };
@@ -52,21 +53,16 @@ static void compute_layout(void)
 
 void tui_zone_color_pairs(const struct tui *t)
 {
-	uint8_t i;
-
-	if (COLORS < 256)
-		return;
-
-	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		const struct alloy_rgb *c = &t->cfg.zone_color[i];
-		short cube = (short)(16 + 36 * (c->r / 51) + 6 * (c->g / 51) +
-				     (c->b / 51));
-
-		init_pair((short)(CLR_ZONE_BASE + i), cube, -1);
-	}
+	/*
+	 * Same animated preview the illumination view uses, so the center-pane
+	 * portrait breathes, cycles and tracks color live on the main screen
+	 * too - not just frozen snapshot of the base zone colors.
+	 */
+	tui_zone_fx_pairs(t, tui_now_ms());
 }
 
-static void draw_box(const struct rect *r, const char *title, int focused)
+void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
+		       int focused)
 {
 	int attr = COLOR_PAIR(focused ? CLR_FRAME_FOCUS : CLR_FRAME);
 	int i;
@@ -74,25 +70,30 @@ static void draw_box(const struct rect *r, const char *title, int focused)
 	if (focused)
 		attr |= A_BOLD;
 	attron(attr);
-	mvaddch(r->y, r->x, ACS_ULCORNER);
-	mvaddch(r->y, r->x + r->w - 1, ACS_URCORNER);
-	mvaddch(r->y + r->h - 1, r->x, ACS_LLCORNER);
-	mvaddch(r->y + r->h - 1, r->x + r->w - 1, ACS_LRCORNER);
-	mvhline(r->y, r->x + 1, ACS_HLINE, r->w - 2);
-	mvhline(r->y + r->h - 1, r->x + 1, ACS_HLINE, r->w - 2);
-	mvvline(r->y + 1, r->x, ACS_VLINE, r->h - 2);
-	mvvline(r->y + 1, r->x + r->w - 1, ACS_VLINE, r->h - 2);
+	mvaddch(y, x, ACS_ULCORNER);
+	mvaddch(y, x + w - 1, ACS_URCORNER);
+	mvaddch(y + h - 1, x, ACS_LLCORNER);
+	mvaddch(y + h - 1, x + w - 1, ACS_LRCORNER);
+	mvhline(y, x + 1, ACS_HLINE, w - 2);
+	mvhline(y + h - 1, x + 1, ACS_HLINE, w - 2);
+	mvvline(y + 1, x, ACS_VLINE, h - 2);
+	mvvline(y + 1, x + w - 1, ACS_VLINE, h - 2);
 	attroff(attr);
 
 	/* clear the interior so stale content never bleeds through */
-	for (i = 1; i < r->h - 1; i++)
-		mvhline(r->y + i, r->x + 1, ' ', r->w - 2);
+	for (i = 1; i < h - 1; i++)
+		mvhline(y + i, x + 1, ' ', w - 2);
 
 	if (title) {
 		attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
-		mvprintw(r->y, r->x + 2, " %s ", title);
+		mvprintw(y, x + 2, " %s ", title);
 		attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
 	}
+}
+
+static void draw_box(const struct rect *r, const char *title, int focused)
+{
+	tui_draw_pane_box(r->y, r->x, r->h, r->w, title, focused);
 }
 
 static const char *action_label(const struct alloy_action *act, char *buf,
@@ -171,137 +172,40 @@ static void draw_actions_pane(struct tui *t)
 	attroff(COLOR_PAIR(CLR_BUTTON));
 }
 
+/*
+ * Every lighting control lives in the illumination view;
+ * center pane is just the mouse portrait and the way in.
+ * Portrait renders through the zone markup, so its marked characters animate
+ * with the configured effect and track color live, matching the preview.
+ */
 static void draw_center_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_CENTER];
 	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
 					      alloy_default_mouse_art;
-	const char *p = art;
 	int focused = t->focus == PANE_CENTER;
-	int sel = t->cursor[PANE_CENTER];
-	int art_lines = 0;
-	int art_width = 0;
-	int cur = 0;
+	int art_lines;
+	int art_width;
 	int y;
 	int x;
-	int i;
 
 	draw_box(r, t->drv->name, focused);
 
-	for (p = art; *p; p++) {
-		if (*p == '\n') {
-			art_lines++;
-			art_width = ALLOY_MAX(art_width, cur);
-			cur = 0;
-		} else {
-			cur++;
-		}
-	}
-
-	y = r->y + ALLOY_MAX(1, (r->h - 6 - art_lines) / 2);
+	tui_art_measure(art, &art_lines, &art_width);
+	y = r->y + ALLOY_MAX(1, (r->h - 4 - art_lines) / 2);
 	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
+	tui_art_draw(t, art, y, x, r->y + r->h - 4, -1);
 
-	move(y, x);
-	for (p = art; *p && y < r->y + r->h - 6; p++) {
-		if (*p == '\n') {
-			y++;
-			move(y, x);
-		} else {
-			addch((chtype)*p);
-		}
-	}
-
-	/* zone color buttons, side by side above the pane bottom */
-	x = r->x + 3;
-	y = r->y + r->h - 5;
-	for (i = 0; i < t->drv->num_zones; i++) {
-		int pair = COLORS >= 256 ? CLR_ZONE_BASE + i : CLR_ACCENT;
-
-		if (focused && sel == i)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		else
-			attron(COLOR_PAIR(CLR_BUTTON));
-		mvprintw(y, x, " %s ", t->drv->zones[i].name);
-		attroff(COLOR_PAIR(CLR_SELECTED));
-		attroff(COLOR_PAIR(CLR_BUTTON));
-
-		if (t->cfg.zone_mode[i] == ALLOY_LED_RAINBOW) {
-			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			mvprintw(y + 1, x, "RAINBOW");
-			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		} else {
-			attron(COLOR_PAIR(pair) | A_BOLD);
-			mvprintw(y + 1, x, "#%02X%02X%02X",
-				 t->cfg.zone_color[i].r, t->cfg.zone_color[i].g,
-				 t->cfg.zone_color[i].b);
-			attroff(COLOR_PAIR(pair) | A_BOLD);
-		}
-
-		x += ALLOY_MAX((int)strlen(t->drv->zones[i].name) + 2, 8) + 2;
-	}
-
-	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS) {
-		int bsel = focused && sel == tui_center_idx_brightness(t);
-
-		y = r->y + r->h - 3;
-		if (bsel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 3, "BRIGHTNESS");
-		if (bsel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 14, "< %3u%% >", t->cfg.brightness);
-	}
-
-	y = r->y + r->h - 2;
-	x = r->x + 3;
-	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
-		int fsel = focused && sel == tui_center_idx_fx(t);
-		const char *fx_name =
-			t->drv->fx_names[t->cfg.fx_index %
-					 ALLOY_MAX(t->drv->num_fx, 1)];
-
-		if (fsel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x, "EFFECT");
-		if (fsel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		mvprintw(y, x + 7, "< %s >", fx_name);
-		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		x += 12 + (int)strlen(fx_name);
-	}
-	if (t->drv->caps & ALLOY_CAP_FX_REACTIVE) {
-		int rsel = focused && sel == tui_center_idx_reactive(t);
-
-		if (rsel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x, "REACTIVE");
-		if (rsel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		if (t->cfg.reactive_enabled)
-			mvprintw(y, x + 9, "[#%02X%02X%02X]",
-				 t->cfg.reactive_color.r,
-				 t->cfg.reactive_color.g,
-				 t->cfg.reactive_color.b);
-		else
-			mvprintw(y, x + 9, "[OFF]");
-		x += 20;
-	}
-	if (t->drv->caps & ALLOY_CAP_FX_STARTUP) {
-		static const char *startup_names[] = { "OFF", "REACTIVE",
-						       "RAINBOW",
-						       "REACT+RBOW" };
-		int ssel = focused && sel == tui_center_idx_startup(t);
-
-		if (ssel)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x, "STARTUP");
-		if (ssel)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x + 8, "< %s >",
-			 startup_names[t->cfg.startup_fx &
-				       ALLOY_STARTUP_REACTIVE_RAINBOW]);
-	}
+	/* gateway to the illumination view, centered under the art */
+	y = r->y + r->h - 3;
+	x = r->x + (r->w - 16) / 2;
+	if (focused)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	else
+		attron(COLOR_PAIR(CLR_BUTTON));
+	mvprintw(y, x, "  ILLUMINATION  ");
+	attroff(COLOR_PAIR(CLR_SELECTED));
+	attroff(COLOR_PAIR(CLR_BUTTON));
 }
 
 static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
@@ -318,71 +222,152 @@ static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
 	addch(']');
 }
 
-static void draw_sensitivity_pane(struct tui *t)
+/*
+ * Presets are drawn from the working config, one compact block each,
+ * so the pane holds every preset the mouse supports;
+ * CREATE button follows the last preset until the driver limit is reached.
+ */
+static void draw_levels_pane(struct tui *t)
 {
-	const struct rect *r = &layout[PANE_SENSITIVITY];
-	int focused = t->focus == PANE_SENSITIVITY;
-	int sel = t->cursor[PANE_SENSITIVITY];
+	const struct rect *r = &layout[PANE_LEVELS];
+	int focused = t->focus == PANE_LEVELS;
+	int sel = t->cursor[PANE_LEVELS];
+	int y = r->y + 2;
 	int i;
 
-	draw_box(r, "SENSITIVITY", focused);
+	draw_box(r, "CPI LEVELS", focused);
 
-	for (i = 0; i < 2; i++) {
-		int y = r->y + 2 + i * 6;
+	for (i = 0; i < t->cfg.dpi_count; i++) {
 		int active = t->cfg.dpi_active == i;
 
+		/*
+		 * Cursor keeps its usual highlight;
+		 * active preset stands out in the hot green even while
+		 * the cursor sits elsewhere
+		 */
 		if (focused && sel == i)
 			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 2, "SENSITIVITY %d (CPI %d)", i + 1, i + 1);
-		if (focused && sel == i)
-			attroff(COLOR_PAIR(CLR_SELECTED));
+		else if (active)
+			attron(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
+		mvprintw(y, r->x + 2, "LEVEL %d", i + 1);
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
 
 		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		mvprintw(y + 2, r->x + (r->w - 16) / 2, "%5u",
-			 t->cfg.dpi[i][0]);
+		mvprintw(y + 1, r->x + 2, "%5u CPI", t->cfg.dpi[i][0]);
 		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		printw(" CPI");
 		if (active) {
-			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			printw("  ACTIVE");
-			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			attron(COLOR_PAIR(CLR_BUTTON_HOT));
+			mvprintw(y + 1, r->x + 12, " ACTIVE ");
+			attroff(COLOR_PAIR(CLR_BUTTON_HOT));
 		}
 
-		draw_slider(y + 3, r->x + 2, r->w - 4, t->drv->dpi.min,
+		draw_slider(y + 2, r->x + 2, r->w - 4, t->drv->dpi.min,
 			    t->drv->dpi.max, t->cfg.dpi[i][0]);
-		mvprintw(y + 4, r->x + 2, "%u", t->drv->dpi.min);
-		mvprintw(y + 4, r->x + r->w - 2 - 4, "%u", t->drv->dpi.max);
+		y += 4;
+	}
+
+	if (t->cfg.dpi_count < tui_dpi_preset_limit(t)) {
+		if (focused && sel == t->cfg.dpi_count)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		else
+			attron(COLOR_PAIR(CLR_BUTTON));
+		mvprintw(y + 1, r->x + (r->w - 10) / 2, "  CREATE  ");
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON));
 	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: adjust  H/L: fast");
-	mvprintw(r->y + r->h - 2, r->x + 2, "a: set active preset");
+	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: Adjust  H/L: Fast Adjust");
+	mvprintw(r->y + r->h - 2, r->x + 2, "Enter: Set Active");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
-static void draw_wave(int y, int x, int w, uint16_t hz)
+/*
+ * Square wave of the polling rate, drawn with real edges:
+ * top-row plateaus for the high level, bottom-row plateaus for the low level,
+ * vertical lines joining them.
+ * Faster rate shortens the period, so the pulses pack tighter and more full
+ * cycles fit across the width the closer we get to the driver's fastest rate.
+ */
+static void draw_poll_wave(int y, int x, int w, int h, uint16_t hz,
+			   uint16_t max_hz)
 {
-	/* square wave; higher polling rate = denser pulses */
-	int period = hz >= 1000 ? 2 : hz >= 500 ? 3 : hz >= 250 ? 5 : 8;
-	int i;
+	int half = (hz && max_hz) ? ALLOY_MAX(2, 2 * (int)max_hz / (int)hz) : 2;
+	int period = half * 2;
+	int i, row;
 
 	for (i = 0; i < w; i++) {
-		int in_high = (i % period) < (period + 1) / 2;
+		int phase = i % period;
+		int col = x + i;
 
-		mvaddch(y, x + i, in_high ? ACS_S1 : ' ');
-		mvaddch(y + 1, x + i, in_high ? ' ' : ACS_S9);
+		if (phase == 0 && i > 0) {
+			/* rising edge: low plateau (left) up to high (right) */
+			mvaddch(y, col, ACS_ULCORNER);
+			for (row = 1; row < h - 1; row++)
+				mvaddch(y + row, col, ACS_VLINE);
+			mvaddch(y + h - 1, col, ACS_LRCORNER);
+		} else if (phase == half) {
+			/* falling edge: high plateau (left) down to low (right) */
+			mvaddch(y, col, ACS_URCORNER);
+			for (row = 1; row < h - 1; row++)
+				mvaddch(y + row, col, ACS_VLINE);
+			mvaddch(y + h - 1, col, ACS_LLCORNER);
+		} else if (phase < half) {
+			mvaddch(y, col, ACS_HLINE); /* high plateau */
+		} else {
+			mvaddch(y + h - 1, col, ACS_HLINE); /* low plateau */
+		}
 	}
+}
+
+/*
+ * Dotted pointer trajectory:
+ * wobbly hand motion that straightens out as the snapping cone widens.
+ * Three rows tall; diamonds are the start and end of the stroke.
+ */
+static void draw_snap_wave(int y, int x, int w, uint8_t snap)
+{
+	/* one period of sin() scaled to +-100, 16 samples */
+	static const int8_t sine[16] = { 0, 38,	 71,  92,  100,	 92,  71,  38,
+					 0, -38, -71, -92, -100, -92, -71, -38 };
+	int amp = 100 - (int)snap * 100 / ALLOY_SNAP_MAX;
+	int i;
+
+	mvaddch(y + 1, x, ACS_DIAMOND);
+	mvaddch(y + 1, x + w - 1, ACS_DIAMOND);
+	for (i = 1; i < w - 1; i++) {
+		int v = sine[(i * 32 / w) % 16] * amp / 100;
+		int row = v > 50 ? 0 : v < -50 ? 2 : 1;
+
+		mvaddch(y + row, x + i, ACS_BULLET);
+	}
+}
+
+/*
+ * Map a fixed-point gain onto a graph row.
+ * Visible range is exactly what the transform can reach at the reference speed:
+ * 0.25x (bottom row) through 1.00x (middle) to 1.75x (top row).
+ */
+static int gain_to_row(int32_t g, int graph_h)
+{
+	const int32_t top = ALLOY_ACCEL_FP * 7 / 4;
+	const int32_t span = ALLOY_ACCEL_FP * 3 / 2;
+	int row = (int)(((int64_t)(top - g) * (graph_h - 1) + span / 2) / span);
+
+	return ALLOY_CLAMP(row, 0, graph_h - 1);
 }
 
 static void draw_tuning_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_TUNING];
+	struct alloy_accel_params ap;
 	int focused = t->focus == PANE_TUNING;
 	int sel = t->cursor[PANE_TUNING];
-	int has_accel = t->drv->caps & ALLOY_CAP_ACCELERATION;
-	int has_decel = t->drv->caps & ALLOY_CAP_DECELERATION;
-	int has_snap = t->drv->caps & ALLOY_CAP_ANGLE_SNAPPING;
-	int graph_h = 6;
+	int graph_h = 5;
+	int gx = r->x + 9;
+	int gw = r->w - 14;
+	int prev = -1;
 	int y = r->y + 2;
 	int i;
 
@@ -391,36 +376,73 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "ACCELERATION / DECELERATION");
 	y++;
 
-	/* SPEED OF HAND MOVEMENT vs SENSITIVITY graph */
+	/*
+	 * Y-axis title:
+	 * curses cannot rotate glyphs and the graph is too short for one letter per row,
+	 * so it sits right-aligned above the curve
+	 */
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, gx + gw - (int)strlen("SENSITIVITY"), "SENSITIVITY");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y, r->x + 8, ACS_UARROW);
+	y++;
+
+	/* gain ticks on the Y axis */
 	for (i = 0; i < graph_h; i++)
-		mvaddch(y + i, r->x + 3, i == 0 ? ACS_UARROW : ACS_VLINE);
-	mvaddch(y + graph_h, r->x + 3, ACS_LLCORNER);
-	mvhline(y + graph_h, r->x + 4, ACS_HLINE, r->w - 9);
+		mvaddch(y + i, r->x + 8, ACS_VLINE);
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(y, r->x + 2, "1.75x");
+	mvprintw(y + graph_h / 2, r->x + 2, "1.00x");
+	mvprintw(y + graph_h - 1, r->x + 2, "0.25x");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+	mvaddch(y, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h / 2, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h - 1, r->x + 8, ACS_RTEE);
+	mvaddch(y + graph_h, r->x + 8, ACS_LLCORNER);
+	mvhline(y + graph_h, gx, ACS_HLINE, gw);
 	mvaddch(y + graph_h, r->x + r->w - 5, ACS_RARROW);
 	attron(COLOR_PAIR(CLR_DISABLED));
-	mvprintw(y + graph_h + 1, r->x + 4, "SPEED OF HAND MOVEMENT");
+	mvprintw(y + graph_h + 1, r->x + 4, "%.*s", r->w - 6,
+		 "SPEED OF HAND MOVEMENT");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 
-	if (has_accel || has_decel) {
-		/* curve bends up with accel, down with decel */
-		int mid = graph_h / 2 - t->cfg.acceleration / 4 +
-			  t->cfg.deceleration / 4;
+	/*
+	 * Curve is the exact speed-to-gain response the daemon applies (alloy_accel_gain_fp):
+	 * flat 1.0x when neutral, ramping up with acceleration or down with
+	 * deceleration until the ramp saturates.
+	 * Hand speed sweeps 0..30 counts/event across the axis,
+	 * so saturation (20 counts/event) lands two thirds of the way along.
+	 * Row steps are joined with corner and vertical glyphs to keep the line continuous.
+	 */
+	alloy_accel_from_config(&t->cfg, &ap);
+	attron(COLOR_PAIR(CLR_ACCENT));
+	for (i = 0; i < gw; i++) {
+		int s = i * 30 / (gw - 1);
+		int row = gain_to_row(alloy_accel_gain_fp(&ap, (int64_t)s * s),
+				      graph_h);
+		int rr;
 
-		attron(COLOR_PAIR(CLR_ACCENT));
-		mvhline(y + ALLOY_CLAMP(mid, 0, graph_h - 1), r->x + 4,
-			ACS_HLINE, r->w - 9);
-		attroff(COLOR_PAIR(CLR_ACCENT));
-	} else {
-		attron(COLOR_PAIR(CLR_ACCENT));
-		mvhline(y + graph_h / 2, r->x + 4, ACS_HLINE, r->w - 9);
-		attroff(COLOR_PAIR(CLR_ACCENT));
+		if (prev < 0 || row == prev) {
+			mvaddch(y + row, gx + i, ACS_HLINE);
+		} else if (row < prev) { /* gain rising: turn upward */
+			mvaddch(y + prev, gx + i, ACS_LRCORNER);
+			for (rr = row + 1; rr < prev; rr++)
+				mvaddch(y + rr, gx + i, ACS_VLINE);
+			mvaddch(y + row, gx + i, ACS_ULCORNER);
+		} else { /* gain falling: turn downward */
+			mvaddch(y + prev, gx + i, ACS_URCORNER);
+			for (rr = prev + 1; rr < row; rr++)
+				mvaddch(y + rr, gx + i, ACS_VLINE);
+			mvaddch(y + row, gx + i, ACS_LLCORNER);
+		}
+		prev = row;
 	}
+	attroff(COLOR_PAIR(CLR_ACCENT));
 
-	y += graph_h + 2;
+	y += graph_h + 3;
 
 	for (i = 0; i < 2; i++) {
 		const char *name = i == 0 ? "Acceleration" : "Deceleration";
-		int supported = i == 0 ? has_accel : has_decel;
 		int8_t val = i == 0 ? t->cfg.acceleration : t->cfg.deceleration;
 
 		if (focused && sel == i)
@@ -428,45 +450,62 @@ static void draw_tuning_pane(struct tui *t)
 		mvprintw(y, r->x + 2, "%-13s", name);
 		if (focused && sel == i)
 			attroff(COLOR_PAIR(CLR_SELECTED));
-		if (supported) {
-			mvprintw(y, r->x + 16, "< %3d >", val);
-		} else {
-			attron(COLOR_PAIR(CLR_DISABLED));
-			mvprintw(y, r->x + 16, "N/A (device)");
-			attroff(COLOR_PAIR(CLR_DISABLED));
-		}
+		mvprintw(y, r->x + 16, "< %3d >", val);
 		y++;
 	}
-
-	y++;
+	y += 2;
 	mvprintw(y, r->x + 2, "ANGLE SNAPPING");
 	y++;
+	attron(COLOR_PAIR(CLR_ACCENT));
+	draw_snap_wave(y, r->x + 3, r->w - 6, t->cfg.angle_snapping);
+	attroff(COLOR_PAIR(CLR_ACCENT));
+	y += 4;
 	if (focused && sel == 2)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Snapping");
 	if (focused && sel == 2)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	if (has_snap) {
-		mvprintw(y, r->x + 16, "< %3u >", t->cfg.angle_snapping);
-	} else {
-		attron(COLOR_PAIR(CLR_DISABLED));
-		mvprintw(y, r->x + 16, "N/A (device)");
-		attroff(COLOR_PAIR(CLR_DISABLED));
-	}
+	mvprintw(y, r->x + 16, "< %3u deg >", t->cfg.angle_snapping);
+	y++;
+
+	if (focused && sel == 3)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, r->x + 2, "%-13s", "Engine");
+	if (focused && sel == 3)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	attron(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
+	mvprintw(y, r->x + 16, " %s ", t->accel_running ? "ON " : "OFF");
+	attroff(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
 	y += 2;
 
 	mvprintw(y, r->x + 2, "POLLING RATE");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
-	draw_wave(y, r->x + 3, r->w - 6, t->cfg.polling_hz);
+	draw_poll_wave(y, r->x + 3, r->w - 6, 3, t->cfg.polling_hz,
+		       t->drv->num_polling_rates ? t->drv->polling_rates[0] :
+						   t->cfg.polling_hz);
 	attroff(COLOR_PAIR(CLR_ACCENT));
-	y += 2;
-	if (focused && sel == 3)
+	y += 4; /* chart height + blank line before the stepper */
+
+	/*
+	 * stepper mirrors the CPI level entries:
+	 * highlighted label, bold accent value and slider over the ladder;
+	 * h/l steps, H/L jumps
+	 */
+	if (focused && sel == 4)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	mvprintw(y, r->x + 2, "%-13s", "Rate");
-	if (focused && sel == 3)
+	if (focused && sel == 4)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	mvprintw(y, r->x + 16, "< %4u Hz >", t->cfg.polling_hz);
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	mvprintw(y, r->x + 16, "%4u Hz", t->cfg.polling_hz);
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	y++;
+	if (t->drv->num_polling_rates > 1)
+		draw_slider(
+			y, r->x + 2, r->w - 4,
+			t->drv->polling_rates[t->drv->num_polling_rates - 1],
+			t->drv->polling_rates[0], t->cfg.polling_hz);
 }
 
 static void draw_footer(struct tui *t)
@@ -509,7 +548,8 @@ static void draw_footer(struct tui *t)
 	mvhline(LINES - 1, 0, ' ', COLS);
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(LINES - 1, 2, "%s", t->status);
-	mvprintw(LINES - 1, COLS - 34, "tab: pane  enter: select  q: quit");
+	mvprintw(LINES - 1, COLS - 44,
+		 "Tab: Pane  Enter: Select  s: Save  q: Quit");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
@@ -518,7 +558,7 @@ void tui_draw(struct tui *t)
 	erase();
 
 	if (COLS < MIN_COLS || LINES < MIN_LINES) {
-		mvprintw(0, 0, "terminal too small: need at least %dx%d",
+		mvprintw(0, 0, "Terminal too small: need at least %dx%d",
 			 MIN_COLS, MIN_LINES);
 		refresh();
 		return;
@@ -529,7 +569,7 @@ void tui_draw(struct tui *t)
 
 	draw_actions_pane(t);
 	draw_center_pane(t);
-	draw_sensitivity_pane(t);
+	draw_levels_pane(t);
 	draw_tuning_pane(t);
 	draw_footer(t);
 

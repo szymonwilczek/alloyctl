@@ -43,6 +43,12 @@ struct alloy_led_zone {
 };
 
 /* Optional feature flags advertised by driver */
+/*
+ * Acceleration / deceleration / angle snapping are host-side features applied
+ * by the accel daemon for every device, so these three bits are no longer
+ * consulted; Kept only so the flag values stay stable.
+ * TODO: Cut it out in the near future
+ */
 #define ALLOY_CAP_ACCELERATION (1u << 0)
 #define ALLOY_CAP_DECELERATION (1u << 1)
 #define ALLOY_CAP_ANGLE_SNAPPING (1u << 2)
@@ -53,13 +59,16 @@ struct alloy_led_zone {
 #define ALLOY_CAP_FX_RAINBOW (1u << 5) /* per-zone rainbow cycle */
 #define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
 #define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
-#define ALLOY_CAP_FX_GLOBAL (1u << 8) /* driver-defined effect list */
+#define ALLOY_CAP_FX_GLOBAL (1u << 8) /* one effect device-wide only */
 
-/* Per-zone lighting mode */
-enum alloy_led_mode {
-	ALLOY_LED_STATIC,
-	ALLOY_LED_RAINBOW,
-};
+/*
+ * Per-zone effect rate knobs.
+ * Frequency is how many cycles one period packs, speed is the tempo the
+ * animation runs at; both are unitless steps the driver maps best-effort.
+ */
+#define ALLOY_FX_RATE_MIN 1
+#define ALLOY_FX_RATE_MAX 10
+#define ALLOY_FX_RATE_DEF 5
 
 /* Power-up lighting (ALLOY_CAP_FX_STARTUP) */
 enum alloy_startup_fx {
@@ -82,7 +91,17 @@ struct alloy_config {
 	uint16_t polling_hz;
 
 	struct alloy_rgb zone_color[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_mode[ALLOY_MAX_LED_ZONES]; /* enum alloy_led_mode */
+
+	/*
+	 * Per-zone lighting effect as index into the driver's fx_names list;
+	 * index 0 is by convention the static "steady" mode.
+	 * Hardware that only runs one effect device-wide (ALLOY_CAP_FX_GLOBAL)
+	 * is driven best-effort from the first zone not running steady.
+	 */
+	uint8_t zone_fx[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_fx_freq[ALLOY_MAX_LED_ZONES]; /* ALLOY_FX_RATE_* */
+	uint8_t zone_fx_speed[ALLOY_MAX_LED_ZONES]; /* ALLOY_FX_RATE_* */
+
 	uint8_t brightness; /* 0-100 */
 
 	/* only meaningful with ALLOY_CAP_FX_REACTIVE */
@@ -92,19 +111,18 @@ struct alloy_config {
 	/* only meaningful with ALLOY_CAP_FX_STARTUP */
 	uint8_t startup_fx; /* enum alloy_startup_fx */
 
-	/*
-	 * only meaningful with ALLOY_CAP_FX_GLOBAL:
-	 * index into the driver's fx_names list.
-	 * Index 0 is by convention the static "steady" mode
-	 */
-	uint8_t fx_index;
-
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
-	/* only meaningful when the matching ALLOY_CAP_* bit is set */
-	int8_t acceleration;
-	int8_t deceleration;
-	uint8_t angle_snapping;
+	/*
+	 * Host-side pointer transform (acceleration/deceleration/angle snapping)
+	 * applied by the accel daemon, not by the device -
+	 * these are always meaningful, independent of any ALLOY_CAP_* bit.
+	 * accel_enabled is the persisted "engine on" intent.
+	 */
+	int8_t acceleration; /* 0..100 */
+	int8_t deceleration; /* 0..100 */
+	uint8_t angle_snapping; /* 0 = off, else degrees 1..45 */
+	uint8_t accel_enabled;
 };
 
 struct alloy_device;
@@ -128,6 +146,17 @@ struct alloy_driver_ops {
 	/* optional: NUL-terminated firmware version string */
 	int (*firmware_version)(struct alloy_device *dev, char *buf,
 				size_t len);
+
+	/*
+	 * Optional:
+	 * parse one unsolicited report from the driver's event interface
+	 * (see alloy_driver.event_interface).
+	 * Returns 1 when cfg was updated to reflect a device-initiated change
+	 * (e.g. the hardware CPI button switching the active level),
+	 * 0 when the report is not recognized event.
+	 */
+	int (*parse_event)(const uint8_t *buf, size_t len,
+			   struct alloy_config *cfg);
 };
 
 struct alloy_driver {
@@ -135,6 +164,11 @@ struct alloy_driver {
 	uint16_t vendor_id;
 	uint16_t product_id;
 	int interface; /* USB interface carrying config reports */
+	/*
+	 * USB interface streaming unsolicited device events;
+	 * only consulted when ops->parse_event is set.
+	 */
+	int event_interface;
 
 	/* Vendor report payload size;
 	 * 0 selects the 64-byte default */
@@ -159,17 +193,27 @@ struct alloy_driver {
 	uint32_t caps; /* ALLOY_CAP_* bits */
 
 	/*
-	 * Global lighting effects (ALLOY_CAP_FX_GLOBAL):
-	 * display names in wire order, index 0 being the static/steady mode.
-	 * Driver maps the index to its wire encoding.
+	 * Lighting effects selectable per zone:
+	 * display names, index 0 being the static/steady mode.
+	 * Driver maps the index to its wire encoding; hardware running one
+	 * effect device-wide (ALLOY_CAP_FX_GLOBAL) applies the selection
+	 * best-effort.
 	 */
 	const char *const *fx_names;
 	uint8_t num_fx;
 
 	/*
 	 * Optional ASCII art of the mouse, drawn in the center pane.
-	 * NULL selects the built-in generic art.
-	 * Keep every line at most 40 columns wide, please.
+	 * Art should be provided in `drivers/<driver>/<driver>_art.txt`
+	 * and injected via the auto-generated `build/art_<driver>.h` header.
+	 * If no custom art is provided, include `build/default_art.h` and use
+	 * `alloy_default_mouse_art` as the fallback.
+	 * Keep every line at most 40 rendered columns wide, please.
+	 *
+	 * Prefix a character with "$N" (N = 1..8) to paint it in the
+	 * live color of zone N-1; "$$" renders a literal dollar.
+	 * Markers take no column.
+	 * Marker naming zone the device lacks renders its character unpainted.
 	 */
 	const char *ascii_art;
 
@@ -184,6 +228,9 @@ struct alloy_driver {
 struct alloy_device {
 	const struct alloy_driver *drv;
 	struct alloy_hid_dev hid;
+	/* unsolicited-event channel;
+	 * fd < 0 when the driver has none */
+	struct alloy_hid_dev ev;
 };
 
 #define ALLOY_DRIVER_REGISTER(drv)                             \
@@ -200,8 +247,15 @@ const struct alloy_driver *const *alloy_driver_last(void);
 const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 					     uint16_t product_id);
 
-/* Scan the registry against connected hardware and open device */
-int alloy_device_open(struct alloy_device *dev);
+/*
+ * Scan the registry against connected hardware and collect every supported
+ * device currently plugged in.
+ * Fills out[] with up to max driver pointers (in registry order) and returns
+ * the total number found, which may exceed max.
+ * Pass out=NULL to only count.
+ */
+int alloy_device_enumerate(const struct alloy_driver **out, int max);
+
 /* Open a specific device by USB id (e.g. from --device) */
 int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 			 uint16_t product_id);

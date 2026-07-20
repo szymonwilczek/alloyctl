@@ -40,11 +40,15 @@ User
 Build with ``make``, run ``./alloyctl``. The :ghsrc:`README.rst` covers
 supported hardware, features, and key bindings.
 
+* :doc:`Host-side acceleration / deceleration / angle snapping
+  <architecture/pointer-transform>`
+
 .. toctree::
    :hidden:
 
    contributor/index
    protocol/index
+   architecture/index
 
 Disclaimer
 ==========

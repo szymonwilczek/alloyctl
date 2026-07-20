@@ -4,7 +4,9 @@
  * host-side baseline state round-trip and
  * the driver ops wiring over the mocked HID transport.
  */
+#include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include "driver.h"
 #include "state.h"
@@ -39,36 +41,54 @@ ALLOY_TEST(test_state_roundtrip)
 	/* nothing stored yet: defaults, return 1 */
 	ASSERT_EQ(alloy_state_load(drv, &out), 1);
 	ASSERT_EQ(out.dpi[0][0], 800);
+	ASSERT_EQ(out.dpi_count, 1); /* single preset out of the box */
+	ASSERT_EQ(out.dpi_active, 0);
 
 	drv->config_defaults(drv, &in);
+	in.dpi_count = 2;
 	in.dpi[0][0] = 2300;
 	in.dpi[0][1] = 2300;
+	in.dpi[1][0] = 1600;
+	in.dpi[1][1] = 1600;
 	in.dpi_active = 1;
 	in.polling_hz = 250;
 	in.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
-	in.zone_mode[1] = ALLOY_LED_RAINBOW;
+	in.zone_fx[1] = 1; /* rainbow on this driver */
+	in.zone_fx_freq[1] = 8;
+	in.zone_fx_speed[1] = 2;
 	in.reactive_enabled = 1;
 	in.reactive_color = (struct alloy_rgb){ 0x10, 0x20, 0x30 };
 	in.startup_fx = ALLOY_STARTUP_REACTIVE_RAINBOW;
 	in.brightness = 42;
 	in.buttons[5].type = ALLOY_ACT_KEYBOARD;
 	in.buttons[5].value = 0x29;
+	in.acceleration = 40;
+	in.deceleration = 15;
+	in.angle_snapping = 12;
+	in.accel_enabled = 1;
 
 	ASSERT_EQ(alloy_state_store(drv, &in), 0);
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
 
 	ASSERT_EQ(out.dpi[0][0], 2300);
+	ASSERT_EQ(out.dpi_count, 2);
 	ASSERT_EQ(out.dpi_active, 1);
 	ASSERT_EQ(out.polling_hz, 250);
 	ASSERT_EQ(out.zone_color[2].r, 0xAB);
 	ASSERT_EQ(out.zone_color[2].g, 0xCD);
 	ASSERT_EQ(out.zone_color[2].b, 0xEF);
-	ASSERT_EQ(out.zone_mode[0], ALLOY_LED_STATIC);
-	ASSERT_EQ(out.zone_mode[1], ALLOY_LED_RAINBOW);
+	ASSERT_EQ(out.zone_fx[0], 0);
+	ASSERT_EQ(out.zone_fx[1], 1);
+	ASSERT_EQ(out.zone_fx_freq[1], 8);
+	ASSERT_EQ(out.zone_fx_speed[1], 2);
 	ASSERT_EQ(out.reactive_enabled, 1);
 	ASSERT_EQ(out.reactive_color.g, 0x20);
 	ASSERT_EQ(out.startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
 	ASSERT_EQ(out.brightness, 42);
+	ASSERT_EQ(out.acceleration, 40);
+	ASSERT_EQ(out.deceleration, 15);
+	ASSERT_EQ(out.angle_snapping, 12);
+	ASSERT_EQ(out.accel_enabled, 1);
 
 	/* reactive=off round-trips to disabled */
 	in.reactive_enabled = 0;
@@ -77,6 +97,51 @@ ALLOY_TEST(test_state_roundtrip)
 	ASSERT_EQ(out.reactive_enabled, 0);
 	ASSERT_EQ(out.buttons[5].type, ALLOY_ACT_KEYBOARD);
 	ASSERT_EQ(out.buttons[5].value, 0x29);
+}
+
+ALLOY_TEST(test_state_legacy_fx_keys)
+{
+	const struct alloy_driver *drv = r3g2();
+	struct alloy_config out;
+	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
+	char path[128];
+	FILE *f;
+
+	if (!mkdtemp(tmpl)) {
+		printf("FAIL: mkdtemp\n");
+		alloy_test_failures++;
+		return;
+	}
+	setenv("XDG_CONFIG_HOME", tmpl, 1);
+
+	snprintf(path, sizeof(path), "%s/alloyctl", tmpl);
+	if (mkdir(path, 0755)) {
+		printf("FAIL: mkdir\n");
+		alloy_test_failures++;
+		return;
+	}
+	snprintf(path, sizeof(path), "%s/alloyctl/1038-1870.conf", tmpl);
+	f = fopen(path, "w");
+	if (!f) {
+		printf("FAIL: fopen\n");
+		alloy_test_failures++;
+		return;
+	}
+	/* global fx seeds every zone; explicit zone keys override it */
+	fprintf(f, "fx=1\n");
+	fprintf(f, "zone_fx1=rainbow\n");
+	fprintf(f, "zone_fx2=static\n");
+	/* active preset pointing past the count clamps on load */
+	fprintf(f, "dpi_count=1\n");
+	fprintf(f, "dpi_active=3\n");
+	fclose(f);
+
+	ASSERT_EQ(alloy_state_load(drv, &out), 0);
+	ASSERT_EQ(out.zone_fx[0], 1);
+	ASSERT_EQ(out.zone_fx[1], 1);
+	ASSERT_EQ(out.zone_fx[2], 0);
+	ASSERT_EQ(out.dpi_count, 1);
+	ASSERT_EQ(out.dpi_active, 0);
 }
 
 ALLOY_TEST(test_ops_use_mock)

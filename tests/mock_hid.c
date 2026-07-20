@@ -16,6 +16,19 @@ void mock_hid_reset(void)
 	memset(&mock_hid, 0, sizeof(mock_hid));
 }
 
+int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface)
+{
+	int i;
+
+	(void)interface;
+	for (i = 0; i < mock_hid.num_present; i++) {
+		if (mock_hid.present[i].vendor_id == vendor_id &&
+		    mock_hid.present[i].product_id == product_id)
+			return 1;
+	}
+	return 0;
+}
+
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size)
 {

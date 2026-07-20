@@ -26,6 +26,13 @@ struct alloy_hid_dev {
 	size_t report_size;
 };
 
+/*
+ * Report whether a device with the given VID/PID/interface is currently
+ * connected, without opening it.
+ * Returns 1 if present, 0 otherwise.
+ */
+int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface);
+
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size);
 void alloy_hid_close(struct alloy_hid_dev *dev);
@@ -52,5 +59,12 @@ int alloy_hid_cmd(struct alloy_hid_dev *dev, const uint8_t *payload,
  */
 int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
 		       size_t len, uint8_t *resp, size_t resp_len);
+
+/*
+ * Non-blocking read of one pending unsolicited input report.
+ * Device-initiated events, e.g. hardware CPI level switches on dedicated event interface.
+ * Returns the byte count, 0 when nothing is pending, -1 on I/O error.
+ */
+int alloy_hid_poll(struct alloy_hid_dev *dev, uint8_t *buf, size_t len);
 
 #endif /* ALLOY_HID_H */

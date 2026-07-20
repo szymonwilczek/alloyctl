@@ -59,7 +59,7 @@ ALLOY_TEST(test_gen1_dpi_packet)
 	ASSERT_EQ(buf[0], 0x0B);
 	ASSERT_EQ(buf[1], 0x00);
 	ASSERT_EQ(buf[2], 2); /* count */
-	ASSERT_EQ(buf[3], 2); /* active, 1-based */
+	ASSERT_EQ(buf[3], 1); /* active, 0-based on wire */
 	ASSERT_EQ(buf[4], 0x12); /* 800 dpi, one byte per preset */
 	ASSERT_EQ(buf[5], 0x24); /* 1600 dpi */
 }
@@ -96,15 +96,21 @@ ALLOY_TEST(test_gen1_effect_packet)
 
 	gen1()->config_defaults(gen1(), &cfg);
 	for (i = 0; i < ALLOY_ARRAY_SIZE(wire); i++) {
-		cfg.fx_index = (uint8_t)i;
+		cfg.zone_fx[0] = (uint8_t)i;
 		ASSERT_EQ(r3_build_effect(&cfg, buf), 3);
 		ASSERT_EQ(buf[0], 0x06);
 		ASSERT_EQ(buf[1], 0x00);
 		ASSERT_EQ(buf[2], wire[i]);
 	}
 
+	/* device-wide selector: first zone not running steady wins */
+	cfg.zone_fx[0] = 0;
+	cfg.zone_fx[2] = 4; /* rainbow shift */
+	r3_build_effect(&cfg, buf);
+	ASSERT_EQ(buf[2], 0x00);
+
 	/* out-of-range index falls back to steady */
-	cfg.fx_index = 99;
+	cfg.zone_fx[0] = 99;
 	r3_build_effect(&cfg, buf);
 	ASSERT_EQ(buf[2], 0x04);
 }

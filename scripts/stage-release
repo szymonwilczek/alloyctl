@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2026 Szymon Wilczek
+#
+# Assemble the release payload from an already-built ./alloyctl binary.
+#
+# Shared by the Release workflow (which then hashes and signs the result)
+# and by CI's package job (which installs the staged tarball to prove it works),
+# so the two can never drift apart.
+#
+# Usage: scripts/stage-release <version> [outdir]
+#   <version>  version string without the leading 'v' (e.g. 0.1.0)
+#   [outdir]   staging directory, default 'release'
+#
+# Produces under <outdir>:
+#   alloyctl-<version>-linux-x86_64/         unpacked payload
+#   alloyctl-<version>-linux-x86_64.tar.gz   the tarball
+#   alloyctl                                 bare binary asset
+set -eu
+
+ver="${1:?usage: stage-release <version> [outdir]}"
+out="${2:-release}"
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT"
+
+if [ ! -x alloyctl ]; then
+	echo "stage-release: ./alloyctl not built; run make first" >&2
+	exit 1
+fi
+
+dist="alloyctl-${ver}-linux-x86_64"
+rm -rf "$out"
+mkdir -p "$out/$dist"
+
+cp alloyctl "$out/$dist/"
+cp dist/install.sh "$out/$dist/"
+cp dist/udev/70-alloyctl-uinput.rules "$out/$dist/"
+chmod +x "$out/$dist/install.sh"
+cp README.rst LICENSE VERSION "$out/$dist/"
+
+tar -czf "$out/${dist}.tar.gz" -C "$out" "$dist"
+cp alloyctl "$out/alloyctl"
+
+echo "staged $out/${dist}.tar.gz"

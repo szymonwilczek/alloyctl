@@ -129,7 +129,7 @@ collect_changed_files() {
 check_commit_subjects() {
 	local rc=0
 	local commit subject
-	local re='^(feat|fix)!?: .+'
+	local re='^(feat|fix|ci|docs)!?: .+'
 
 	for commit in "$@"; do
 		subject=$(commit_subject "$commit")
@@ -143,7 +143,7 @@ check_commit_subjects() {
 		pass "commit subject style"
 	else
 		fail "commit subject style" \
-			"use a feat: or fix: subject (optionally feat!: / fix!: for a breaking change)."
+			"use a feat: or fix: or docs: or ci: subject (optionally feat!: / fix!: for a breaking change)."
 	fi
 }
 
