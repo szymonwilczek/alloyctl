@@ -16,6 +16,8 @@ Supported hardware
 
    * - Device
      - USB ID
+   * - SteelSeries Aerox 3 Wireless *(2.4 GHz receiver)*
+     - ``1038:1838``
    * - SteelSeries Rival 3 Gen 2
      - ``1038:1870``
    * - SteelSeries Rival 3
