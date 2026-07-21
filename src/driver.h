@@ -62,6 +62,13 @@ struct alloy_led_zone {
 #define ALLOY_CAP_FX_GLOBAL (1u << 8) /* one effect device-wide only */
 
 /*
+ * Wireless devices carry a rechargeable pack and report its charge through ops->battery.
+ * This is the marker of the wireless driver family.
+ * Wired mice leave it clear.
+ */
+#define ALLOY_CAP_BATTERY (1u << 9)
+
+/*
  * Per-zone effect rate knobs.
  * Frequency is how many cycles one period packs, speed is the tempo the
  * animation runs at; both are unitless steps the driver maps best-effort.
@@ -146,6 +153,15 @@ struct alloy_driver_ops {
 	/* optional: NUL-terminated firmware version string */
 	int (*firmware_version)(struct alloy_device *dev, char *buf,
 				size_t len);
+
+	/*
+	 * Optional (wireless devices, ALLOY_CAP_BATTERY):
+	 * Read the battery gauge.
+	 * Fills *percent (0-100) and *charging (0 or 1) and returns 0 on success.
+	 * Negative when the device reports no valid level - e.g 2.4 GHz receiver
+	 * whose mouse is asleep or not linked answers with an idle marker, not a charge.
+	 */
+	int (*battery)(struct alloy_device *dev, int *percent, int *charging);
 
 	/*
 	 * Optional:
