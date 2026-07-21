@@ -84,6 +84,15 @@ struct tui {
 	char status[128];
 	char firmware[48];
 
+	/*
+	 * Wireless battery gauge (ALLOY_CAP_BATTERY):
+	 * battery_pct < 0 means no reading (mouse asleep or unlinked).
+	 * Refreshed on slow cadence keyed off battery_next_ms.
+	 */
+	int battery_pct;
+	int battery_charging;
+	long battery_next_ms;
+
 	int quit;
 };
 
@@ -98,6 +107,7 @@ int tui_save(struct tui *t);
 void tui_revert(struct tui *t);
 void tui_accel_changed(struct tui *t);
 void tui_accel_set_enabled(struct tui *t, int on);
+void tui_poll_battery(struct tui *t);
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
 int tui_dpi_preset_limit(const struct tui *t);
 int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx);

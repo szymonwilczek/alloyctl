@@ -132,6 +132,28 @@ static void tui_poll_device_events(struct tui *t)
 }
 
 /*
+ * Refresh the wireless battery gauge on slow cadence - the query is device round-trip,
+ * so it runs every few seconds rather than every frame.
+ * battery_pct is left negative when the receiver reports no reading
+ * (the mouse is asleep or unlinked), so the footer shows "--" instead of bogus 0%
+ */
+void tui_poll_battery(struct tui *t)
+{
+	long now;
+
+	if (!(t->drv->caps & ALLOY_CAP_BATTERY) || !t->drv->ops->battery)
+		return;
+
+	now = tui_now_ms();
+	if (now < t->battery_next_ms)
+		return;
+	t->battery_next_ms = now + 8000;
+
+	if (t->drv->ops->battery(t->dev, &t->battery_pct, &t->battery_charging))
+		t->battery_pct = -1;
+}
+
+/*
  * Pointer-transform value changed (acceleration/deceleration/angle snapping).
  * Push it to running daemon for live preview by rewriting the config it watches
  * and poking it to re-read.
@@ -366,6 +388,7 @@ int alloy_tui_run(struct alloy_device *dev)
 	t.dev = dev;
 	t.drv = dev->drv;
 	t.live_preview = 1;
+	t.battery_pct = -1; /* unknown until the first poll */
 
 	used_defaults = alloy_state_load(t.drv, &t.baseline);
 	tui_fx_global_normalize(&t, &t.baseline);
@@ -408,6 +431,7 @@ int alloy_tui_run(struct alloy_device *dev)
 	 */
 	while (!t.quit) {
 		tui_poll_device_events(&t);
+		tui_poll_battery(&t);
 		timeout(TUI_ILLUM_FRAME_MS);
 		if (t.view == VIEW_ILLUM) {
 			tui_illum_draw(&t);

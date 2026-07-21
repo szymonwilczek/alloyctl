@@ -527,6 +527,27 @@ static void draw_footer(struct tui *t)
 	if (t->firmware[0])
 		mvprintw(r->y + 1, 24, "fw %s", t->firmware);
 
+	if (t->drv->caps & ALLOY_CAP_BATTERY) {
+		int bx = 24 +
+			 (t->firmware[0] ? 4 + (int)strlen(t->firmware) : 0);
+		int clr;
+
+		if (t->battery_pct < 0)
+			clr = CLR_DISABLED; /* asleep / unlinked */
+		else if (t->battery_pct <= 20)
+			clr = CLR_ACCENT; /* low: stands out */
+		else
+			clr = CLR_INFO;
+
+		attron(COLOR_PAIR(clr));
+		if (t->battery_pct < 0)
+			mvprintw(r->y + 1, bx, "BAT --");
+		else
+			mvprintw(r->y + 1, bx, "BAT %d%%%s", t->battery_pct,
+				 t->battery_charging ? " CHG" : "");
+		attroff(COLOR_PAIR(clr));
+	}
+
 	x = COLS - 22;
 	if (focused && sel == FOOTER_REVERT)
 		attron(COLOR_PAIR(CLR_SELECTED));
