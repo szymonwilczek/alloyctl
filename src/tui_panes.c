@@ -173,14 +173,88 @@ static void draw_actions_pane(struct tui *t)
 }
 
 /*
- * Every lighting control lives in the illumination view;
- * center pane is just the mouse portrait and the way in.
- * Portrait renders through the zone markup, so its marked characters animate
- * with the configured effect and track color live, matching the preview.
+ * Wireless status strip:
+ * 2.4 GHz and Bluetooth link logos (lit in their own color when connected,
+ * dimmed to grey otherwise) and a drawn battery whose fill is banded
+ * green -> white -> yellow -> red as it drains.
+ * Shown only for drivers that report a battery (ALLOY_CAP_BATTERY).
+ * Wired mice never see it.
  */
+static void draw_device_status(struct tui *t, const struct rect *r)
+{
+	int rf_on = t->battery_pct >= 0; /* receiver has a linked mouse */
+	int cap = 10;
+	int x = r->x + 3;
+	int y = r->y + 1;
+	int fill;
+	int band;
+	int i;
+
+	tui_draw_pane_box(r->y, r->x, r->h, r->w, "DEVICE", 0);
+
+	/* 2.4 GHz signal logo */
+	attron(rf_on ? COLOR_PAIR(CLR_LINK_RF) | A_BOLD :
+		       COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+	mvaddstr(y, x, "▂▄▆ 2.4G");
+	attrset(A_NORMAL);
+
+	/* Bluetooth rune logo */
+	attron(t->bt_present ? COLOR_PAIR(CLR_LINK_BT) | A_BOLD :
+			       COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+	mvaddstr(y, x + 13, "ᛒ BT");
+	attrset(A_NORMAL);
+
+	y = r->y + 3;
+	if (!rf_on) {
+		/* battery is only readable over the 2.4 GHz link */
+		attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+		mvaddstr(y, x,
+			 t->bt_present ? "battery  -- (on Bluetooth)" :
+					 "battery  -- (no 2.4G link)");
+		attrset(A_NORMAL);
+		return;
+	}
+
+	if (t->battery_pct > 75)
+		band = CLR_BAT_HIGH;
+	else if (t->battery_pct > 50)
+		band = CLR_BAT_GOOD;
+	else if (t->battery_pct > 25)
+		band = CLR_BAT_MID;
+	else
+		band = CLR_BAT_LOW;
+
+	fill = (t->battery_pct * cap + 50) / 100;
+
+	attron(COLOR_PAIR(CLR_FRAME));
+	mvaddstr(y, x, "[");
+	attrset(A_NORMAL);
+	for (i = 0; i < cap; i++) {
+		if (i < fill)
+			attron(COLOR_PAIR(band) | A_BOLD);
+		else
+			attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+		addstr(i < fill ? "█" : "░");
+		attrset(A_NORMAL);
+	}
+	attron(COLOR_PAIR(CLR_FRAME));
+	addstr("]▮");
+	attrset(A_NORMAL);
+
+	attron(COLOR_PAIR(band) | A_BOLD);
+	printw(" %d%%", t->battery_pct);
+	attrset(A_NORMAL);
+	if (t->battery_charging) {
+		attron(COLOR_PAIR(CLR_BAT_HIGH) | A_BOLD);
+		addstr(" CHG");
+		attrset(A_NORMAL);
+	}
+}
+
 static void draw_center_pane(struct tui *t)
 {
-	const struct rect *r = &layout[PANE_CENTER];
+	const struct rect *full = &layout[PANE_CENTER];
+	struct rect r = *full;
 	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
 					      alloy_default_mouse_art;
 	int focused = t->focus == PANE_CENTER;
@@ -189,16 +263,26 @@ static void draw_center_pane(struct tui *t)
 	int y;
 	int x;
 
-	draw_box(r, t->drv->name, focused);
+	/* carve DEVICE status box off the top of the column for wireless mice */
+	if (t->drv->caps & ALLOY_CAP_BATTERY) {
+		struct rect dev = *full;
+
+		dev.h = 5;
+		draw_device_status(t, &dev);
+		r.y = full->y + dev.h;
+		r.h = full->h - dev.h;
+	}
+
+	draw_box(&r, t->drv->name, focused);
 
 	tui_art_measure(art, &art_lines, &art_width);
-	y = r->y + ALLOY_MAX(1, (r->h - 4 - art_lines) / 2);
-	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
-	tui_art_draw(t, art, y, x, r->y + r->h - 4, -1);
+	y = r.y + ALLOY_MAX(1, (r.h - 4 - art_lines) / 2);
+	x = r.x + ALLOY_MAX(1, (r.w - art_width) / 2);
+	tui_art_draw(t, art, y, x, r.y + r.h - 4, -1);
 
 	/* gateway to the illumination view, centered under the art */
-	y = r->y + r->h - 3;
-	x = r->x + (r->w - 16) / 2;
+	y = r.y + r.h - 3;
+	x = r.x + (r.w - 16) / 2;
 	if (focused)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	else
@@ -526,27 +610,6 @@ static void draw_footer(struct tui *t)
 
 	if (t->firmware[0])
 		mvprintw(r->y + 1, 24, "fw %s", t->firmware);
-
-	if (t->drv->caps & ALLOY_CAP_BATTERY) {
-		int bx = 24 +
-			 (t->firmware[0] ? 4 + (int)strlen(t->firmware) : 0);
-		int clr;
-
-		if (t->battery_pct < 0)
-			clr = CLR_DISABLED; /* asleep / unlinked */
-		else if (t->battery_pct <= 20)
-			clr = CLR_ACCENT; /* low: stands out */
-		else
-			clr = CLR_INFO;
-
-		attron(COLOR_PAIR(clr));
-		if (t->battery_pct < 0)
-			mvprintw(r->y + 1, bx, "BAT --");
-		else
-			mvprintw(r->y + 1, bx, "BAT %d%%%s", t->battery_pct,
-				 t->battery_charging ? " CHG" : "");
-		attroff(COLOR_PAIR(clr));
-	}
 
 	x = COLS - 22;
 	if (focused && sel == FOOTER_REVERT)

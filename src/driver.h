@@ -239,6 +239,15 @@ struct alloy_driver {
 	 */
 	int event_interface;
 
+	/*
+	 * Wireless devices only:
+	 * HID product id this mouse enumerates as over Bluetooth (bus 0x05),
+	 * used purely to light the connection indicator when the mouse is paired
+	 * to the host over BT.
+	 * 0 = the driver does not track a Bluetooth link.
+	 */
+	uint16_t bt_product_id;
+
 	/* Vendor report payload size;
 	 * 0 selects the 64-byte default */
 	uint16_t report_size;

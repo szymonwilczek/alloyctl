@@ -54,6 +54,14 @@ enum tui_color {
 	CLR_BUTTON,
 	CLR_BUTTON_HOT,
 	CLR_INFO, /* static native tint for art guide chars ($i) */
+	/* wireless DEVICE section: battery bands (full -> empty) and link logos */
+	CLR_BAT_HIGH, /* green: plenty */
+	CLR_BAT_GOOD, /* white: comfortable */
+	CLR_BAT_MID, /* yellow: getting low */
+	CLR_BAT_LOW, /* red: nearly empty */
+	CLR_LINK_BT, /* blue: Bluetooth connected */
+	CLR_LINK_RF, /* white: 2.4 GHz connected */
+	CLR_LINK_OFF, /* dim: link inactive */
 	CLR_ZONE_BASE, /* CLR_ZONE_BASE + zone index, dynamic RGB */
 	CLR_PICKER_PREVIEW = CLR_ZONE_BASE + ALLOY_MAX_LED_ZONES,
 	CLR_PICKER_SWATCH, /* + swatch index */
@@ -91,6 +99,7 @@ struct tui {
 	 */
 	int battery_pct;
 	int battery_charging;
+	int bt_present; /* mouse currently paired to the host over Bluetooth */
 	long battery_next_ms;
 
 	int quit;

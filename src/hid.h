@@ -33,6 +33,14 @@ struct alloy_hid_dev {
  */
 int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface);
 
+/*
+ * Report whether any hidraw node on the given bus type (e.g. 0x05 Bluetooth)
+ * exposes the given product id, regardless of vendor or interface.
+ * Bluetooth re-brands the vendor id, so only bus and product are matched.
+ * Returns 1 if present, 0 otherwise.
+ */
+int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id);
+
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size);
 void alloy_hid_close(struct alloy_hid_dev *dev);

@@ -151,6 +151,10 @@ void tui_poll_battery(struct tui *t)
 
 	if (t->drv->ops->battery(t->dev, &t->battery_pct, &t->battery_charging))
 		t->battery_pct = -1;
+
+	/* Bluetooth link: mouse shows up on bus 0x05 while paired over BT */
+	t->bt_present = t->drv->bt_product_id &&
+			alloy_hid_present_bus(0x05, t->drv->bt_product_id);
 }
 
 /*
@@ -278,6 +282,13 @@ static void tui_init_colors(struct tui *t)
 	init_pair(CLR_BUTTON, COLOR_BLACK, COLOR_WHITE);
 	init_pair(CLR_BUTTON_HOT, COLOR_BLACK, COLOR_GREEN);
 	init_pair(CLR_INFO, COLOR_CYAN, -1);
+	init_pair(CLR_BAT_HIGH, COLOR_GREEN, -1);
+	init_pair(CLR_BAT_GOOD, COLOR_WHITE, -1);
+	init_pair(CLR_BAT_MID, COLOR_YELLOW, -1);
+	init_pair(CLR_BAT_LOW, COLOR_RED, -1);
+	init_pair(CLR_LINK_BT, COLOR_BLUE, -1);
+	init_pair(CLR_LINK_RF, COLOR_WHITE, -1);
+	init_pair(CLR_LINK_OFF, COLOR_WHITE, -1); /* rendered dim for grey */
 
 	tui_zone_color_pairs(t);
 }

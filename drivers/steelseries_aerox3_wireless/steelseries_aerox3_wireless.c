@@ -602,6 +602,7 @@ static const struct alloy_driver steelseries_aerox3_wireless = {
 	.product_id = 0x1838,
 	.interface = 3,
 	.event_interface = 4,
+	.bt_product_id = 0x183A, /* product id the mouse shows over Bluetooth */
 	.dpi = {
 		.min = A3WL_DPI_MIN,
 		.max = A3WL_DPI_MAX,

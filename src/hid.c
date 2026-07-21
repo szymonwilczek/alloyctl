@@ -100,6 +100,51 @@ int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface)
 	return hid_find_node(vendor_id, product_id, interface, NULL, 0);
 }
 
+int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id)
+{
+	char path[288];
+	struct dirent *ent;
+	DIR *dir;
+	int found = 0;
+
+	dir = opendir("/sys/class/hidraw");
+	if (!dir)
+		return 0;
+
+	while ((ent = readdir(dir))) {
+		unsigned int bus = 0;
+		unsigned int vid = 0;
+		unsigned int pid = 0;
+		char buf[256];
+		FILE *f;
+
+		if (strncmp(ent->d_name, "hidraw", 6))
+			continue;
+
+		snprintf(path, sizeof(path),
+			 "/sys/class/hidraw/%s/device/uevent", ent->d_name);
+		f = fopen(path, "re");
+		if (!f)
+			continue;
+		while (fgets(buf, sizeof(buf), f)) {
+			if (strncmp(buf, "HID_ID=", 7))
+				continue;
+			if (sscanf(buf + 7, "%x:%x:%x", &bus, &vid, &pid) ==
+				    3 &&
+			    (uint16_t)bus == bustype &&
+			    (uint16_t)pid == product_id)
+				found = 1;
+			break;
+		}
+		fclose(f);
+		if (found)
+			break;
+	}
+	closedir(dir);
+
+	return found;
+}
+
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size)
 {
