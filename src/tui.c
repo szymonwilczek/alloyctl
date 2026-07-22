@@ -53,18 +53,34 @@ void tui_apply(struct tui *t,
 static void tui_apply_all_impl(struct tui *t, int with_dpi)
 {
 	const struct alloy_driver_ops *ops = t->drv->ops;
+	/*
+	 * while High-Efficiency is on, the mode owns polling, the illumination
+	 * level and the LED colors (it forces 125 Hz and blanks the LEDs)
+	 * do not push the user's values for those here or save/revert would fight
+	 * the mode and undo it;
+	 * the rest of the config still applies normally
+	 */
+	int high_eff = t->cfg.high_efficiency != 0;
 
 	if (with_dpi)
 		tui_apply(t, ops->apply_dpi, "dpi");
-	tui_apply(t, ops->apply_polling, "polling");
-	tui_apply(t, ops->apply_colors, "colors");
-	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
+	if (!high_eff)
+		tui_apply(t, ops->apply_polling, "polling");
+	if (!high_eff)
+		tui_apply(t, ops->apply_colors, "colors");
+	if ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) && !high_eff)
 		tui_apply(t, ops->apply_brightness, "brightness");
 	tui_apply(t, ops->apply_buttons, "buttons");
 	if (t->drv->caps & ALLOY_CAP_BATTERY)
 		tui_apply(t, ops->apply_sleep, "sleep");
-	if (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
-		tui_apply(t, ops->apply_high_efficiency, "high-efficiency");
+
+	/*
+	 * High-Efficiency itself is deliberately NOT re-pushed here:
+	 * toggling it drops the 2.4 GHz link for second, so pushing it on every
+	 * save / revert / startup sync would stall those paths.
+	 * It is applied on its own toggle (see set_higheff); later save just
+	 * commits the live state, which already carries the mode.
+	 */
 }
 
 void tui_apply_all(struct tui *t)

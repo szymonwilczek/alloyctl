@@ -75,7 +75,17 @@ static void adjust_dim(struct tui *t, int delta)
 		tui_apply(t, t->drv->ops->apply_brightness, "dim timer");
 }
 
-/* High-Efficiency Mode toggle (its own op; forces a device-defined bundle) */
+/*
+ * High-Efficiency Mode toggle.
+ * Unlike the other steppers this is a deliberate hardware mode switch that GG
+ * applies the instant it is clicked, so it is pushed immediately regardless of
+ * the live-preview flag.
+ * The op forces the device bundle (0x68 + LEDs off + 125 Hz) and blocks until
+ * the link, which the toggle briefly drops, comes back - so a following save
+ * finds a live link.
+ * It is not re-pushed by tui_apply_all; later save just commits the live state,
+ * which already carries the mode.
+ */
 static void set_higheff(struct tui *t, int on)
 {
 	on = on ? 1 : 0;
@@ -83,9 +93,9 @@ static void set_higheff(struct tui *t, int on)
 		return;
 	t->cfg.high_efficiency = (uint8_t)on;
 	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_high_efficiency,
-			  "high-efficiency");
+	tui_apply(t, t->drv->ops->apply_high_efficiency, "high-efficiency");
+	tui_status(t, on ? "high-efficiency on (link re-synced)" :
+			   "high-efficiency off (link re-synced)");
 }
 
 static void adjust_dpi(struct tui *t, int preset, int delta)
