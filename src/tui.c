@@ -171,6 +171,20 @@ void tui_poll_battery(struct tui *t)
 }
 
 /*
+ * Whether to offer the PAIR button: the driver can bind a mouse to its receiver
+ * and nothing is currently linked (no 2.4 GHz battery reading, not on Bluetooth).
+ * This is a proxy - a paired-but-powered-off mouse looks the same as an unpaired
+ * one from the host - and stands in until a real "is a mouse bound?" query is
+ * reverse-engineered from the receiver. Good enough to surface the button
+ * exactly when there is no mouse to talk to.
+ */
+int tui_device_needs_pairing(const struct tui *t)
+{
+	return (t->drv->caps & ALLOY_CAP_PAIRING) && t->drv->ops->pair &&
+	       t->battery_pct < 0 && !t->bt_present;
+}
+
+/*
  * Pointer-transform value changed (acceleration/deceleration/angle snapping).
  * Push it to running daemon for live preview by rewriting the config it watches
  * and poking it to re-read.

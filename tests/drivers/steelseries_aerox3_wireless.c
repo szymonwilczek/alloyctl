@@ -55,6 +55,20 @@ ALLOY_TEST(test_registry)
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0);
 	ASSERT_TRUE(drv->ops->apply_high_efficiency != NULL);
 	ASSERT_TRUE(drv->ops->apply_sleep != NULL);
+	ASSERT_TRUE((drv->caps & ALLOY_CAP_PAIRING) != 0);
+	ASSERT_TRUE(drv->ops->pair != NULL);
+}
+
+ALLOY_TEST(test_pair_stub_pending)
+{
+	struct alloy_device dev;
+	const struct alloy_driver *drv = a3wl();
+
+	memset(&dev, 0, sizeof(dev));
+	dev.hid.fd = 42;
+	dev.drv = drv;
+
+	ASSERT_EQ(drv->ops->pair(&dev), ALLOY_PAIR_UNIMPLEMENTED);
 }
 
 ALLOY_TEST(test_dpi_packet)

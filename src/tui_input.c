@@ -275,6 +275,11 @@ void tui_handle_key(struct tui *t, int ch)
 	case 's':
 		tui_save(t);
 		return;
+	case 'p':
+		/* PAIR button in the DEVICE box: only when a mouse can be bound */
+		if (tui_device_needs_pairing(t))
+			tui_modal_pair(t);
+		return;
 	case '\t':
 		focus_step(t, 1);
 		return;

@@ -498,6 +498,12 @@ wireless TUI work:
   then held CPI while flicking to 2.4 GHz) only completes while SteelSeries GG is
   running, which means GG puts the *receiver* into a bind/listen mode over USB;
   the mouse-side gesture alone is not enough. The pairing opcode has not been
-  captured yet, so alloyctl cannot pair a new mouse -- only drive one the
-  receiver is already bound to. Reverse engineering it needs a USBPcap capture of
-  GG's "connect a new device" flow on Windows (cross-check the gort818 notes).
+  captured yet. alloyctl carries the capability (``ALLOY_CAP_PAIRING``), a PAIR
+  button in the DEVICE box and a two-step wizard modeled on the GG flow, but the
+  ``ops->pair`` hook is a stub that returns ``ALLOY_PAIR_UNIMPLEMENTED`` -- so the
+  wizard walks the user through the gesture yet cannot yet complete the bind, and
+  only a mouse the receiver already knows can be driven. Reverse engineering the
+  opcode needs a USBPcap capture of GG's "connect a new device" flow on Windows
+  (cross-check the gort818 notes); the bind confirmation is likely the
+  ``bc 01`` link-up on the event interface. Landing it is a one-function change
+  in ``a3wl_pair``.

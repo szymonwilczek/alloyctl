@@ -78,6 +78,21 @@ struct alloy_led_zone {
 #define ALLOY_CAP_HIGH_EFFICIENCY (1u << 10)
 
 /*
+ * Driver can bind a new mouse to its own 2.4 GHz receiver (ops->pair).
+ * Implies the wireless family, so it is only ever set alongside ALLOY_CAP_BATTERY.
+ */
+#define ALLOY_CAP_PAIRING (1u << 11)
+
+/*
+ * ops->pair sentinel.
+ * The receiver bind opcode has not been reverse-engineered yet, so the stub returns
+ * this instead of 0 and the UI reports the gap honestly rather than faking successful pair.
+ * Drop it once ops->pair sends the real command.
+ * Positive so it is distinct from 0 (started) and the negative errors.
+ */
+#define ALLOY_PAIR_UNIMPLEMENTED 1
+
+/*
  * Wireless power knobs (the ALLOY_CAP_BATTERY family).
  * Ranges are inclusive.
  * sleep_min: idle minutes before the mouse sleeps, 0 = never.
@@ -215,6 +230,20 @@ struct alloy_driver_ops {
 	 * whose mouse is asleep or not linked answers with an idle marker, not a charge.
 	 */
 	int (*battery)(struct alloy_device *dev, int *percent, int *charging);
+
+	/*
+	 * Optional (ALLOY_CAP_PAIRING):
+	 * begin binding a new mouse to the 2.4 GHz receiver - put the dongle into
+	 * pairing/listen mode over USB so a mouse doing the CPI + 2.4 GHz gesture
+	 * binds to it.
+	 * This host-side step is what GG performs on "Begin Pairing";
+	 * Mouse gesture alone does not complete the bind.
+	 * Returns 0 once the request is accepted, ALLOY_PAIR_UNIMPLEMENTED while the
+	 * opcode is still unmapped, negative on error.
+	 * Whether a mouse actually bound is observed separately,
+	 * via the link/battery coming up afterwards.
+	 */
+	int (*pair)(struct alloy_device *dev);
 
 	/*
 	 * Optional:

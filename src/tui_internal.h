@@ -134,6 +134,7 @@ void tui_revert(struct tui *t);
 void tui_accel_changed(struct tui *t);
 void tui_accel_set_enabled(struct tui *t, int on);
 void tui_poll_battery(struct tui *t);
+int tui_device_needs_pairing(const struct tui *t);
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
 int tui_dpi_preset_limit(const struct tui *t);
 int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx);
@@ -149,6 +150,7 @@ void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
 void tui_modal_message(const char *title, const char *text);
 void tui_modal_confirm_quit(struct tui *t);
 void tui_modal_remap(struct tui *t, int button);
+void tui_modal_pair(struct tui *t);
 void tui_modal_frame(int h, int w, int *py, int *px, const char *title);
 
 /* tui_colorpicker.c */

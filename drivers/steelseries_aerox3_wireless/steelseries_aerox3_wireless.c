@@ -562,6 +562,26 @@ static int a3wl_battery(struct alloy_device *dev, int *percent, int *charging)
 	return 0;
 }
 
+/*
+ * Dongle pairing.
+ * Binding fresh mouse (mouse OFF, hold CPI, flick to 2.4 GHz) only completes while
+ * GG is running, which means GG puts the *receiver* into a bind/listen mode over USB
+ * - the mouse-side gesture alone is not enough.
+ * That USB opcode has not been captured yet
+ * (see the pairing entry under "Open questions" in
+ * Documentation/protocol/steelseries-aerox3-wireless.rst),
+ * so this reports the gap honestly instead of pretending to pair.
+ *
+ * TODO: once the bind command is reverse-engineered, send it here (with the
+ * usual alloy_hid_cmd wake-retry) and return 0 / negative; then drop the
+ * ALLOY_PAIR_UNIMPLEMENTED path and update the driver test.
+ */
+static int a3wl_pair(struct alloy_device *dev)
+{
+	(void)dev;
+	return ALLOY_PAIR_UNIMPLEMENTED;
+}
+
 static const uint16_t a3wl_polling_rates[] = { 1000, 500, 250, 125 };
 
 /*
@@ -598,6 +618,7 @@ static const struct alloy_driver_ops a3wl_ops = {
 	.save = a3wl_save,
 	.firmware_version = a3wl_firmware_version,
 	.battery = a3wl_battery,
+	.pair = a3wl_pair,
 	.parse_event = a3wl_parse_event,
 };
 
@@ -622,8 +643,8 @@ static const struct alloy_driver steelseries_aerox3_wireless = {
 	.num_buttons = ALLOY_ARRAY_SIZE(a3wl_buttons),
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
 		ALLOY_CAP_BATTERY | ALLOY_CAP_HIGH_EFFICIENCY |
-		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
-		ALLOY_CAP_FX_STARTUP,
+		ALLOY_CAP_PAIRING | ALLOY_CAP_FX_RAINBOW |
+		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP,
 	.fx_names = a3wl_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(a3wl_fx_names),
 	.ascii_art = alloy_art_steelseries_aerox3_wireless,

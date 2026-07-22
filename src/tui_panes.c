@@ -213,6 +213,20 @@ static void draw_device_status(struct tui *t, const struct rect *r)
 
 	y = r->y + 3;
 	if (!rf_on) {
+		/*
+		 * No mouse on the 2.4 GHz link.
+		 * If the receiver can bind one, offer the PAIR button (opened with 'p');
+		 * otherwise just note that the battery is only readable over the 2.4 GHz link
+		 */
+		if (tui_device_needs_pairing(t)) {
+			attron(COLOR_PAIR(CLR_BUTTON) | A_BOLD);
+			mvaddstr(y, x, " [p] PAIR ");
+			attrset(A_NORMAL);
+			attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+			addstr("  no mouse paired");
+			attrset(A_NORMAL);
+			return;
+		}
 		/* battery is only readable over the 2.4 GHz link */
 		attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
 		mvaddstr(y, x,
