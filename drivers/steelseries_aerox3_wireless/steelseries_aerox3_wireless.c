@@ -41,7 +41,7 @@
 #define A3WL_CMD_REACTIVE 0x66 /* wired 0x26 */
 #define A3WL_CMD_STARTUP_FX 0x67 /* wired 0x27 */
 #define A3WL_CMD_HIGHEFF 0x68 /* wired 0x28: High-Efficiency power saver */
-#define A3WL_CMD_SLEEP 0x69 /* wired 0x29 (not driven yet) */
+#define A3WL_CMD_SLEEP 0x69 /* wired 0x29: idle sleep timer */
 #define A3WL_CMD_BUTTONS 0x6A /* wired 0x2A */
 #define A3WL_CMD_POLLING 0x6B /* wired 0x2B */
 #define A3WL_CMD_DPI 0x6D /* wired 0x2D */
