@@ -244,25 +244,41 @@ lighting apply -- the same engine ordering as the Rival 3 Gen 2.
 The GG "High-Efficiency Mode" battery saver ("extend battery life with automatic
 settings"). Reverse engineered from a Windows GG USB capture: toggling the mode
 does **not** send a single self-contained opcode -- GG emits a three-command
-bundle, and the ``0x68`` flag is only one part of it. Captured, mode turned on::
+bundle, in this order, and the ``0x68`` flag is only one part of it. Captured,
+mode turned on::
 
-   63 00 01 01 00 00 00 00   ; illumination level forced to 0 (LEDs blanked)
    68 01                     ; High-Efficiency flag on
+   63 00 01 01 00 00 00 00   ; illumination level forced to 0 (LEDs blanked)
    6b 03                     ; polling forced to 125 Hz
 
 and turned off again, the two forced registers are restored to the user's
-values (here 1000 Hz and full brightness)::
+values (here full brightness and 1000 Hz)::
 
-   63 0f 01 01 00 ...        ; brightness restored
    68 00                     ; flag off
+   63 0f 01 01 00 ...        ; brightness restored
    6b 00                     ; 1000 Hz restored
 
 So the mode *is* the bundle: the firmware does not drop polling or lighting on
-its own from the flag, the host drives the saver. alloyctl mirrors this exactly
--- enabling forces 125 Hz and blanks the LEDs alongside ``0x68 0x01``; disabling
-sends ``0x68 0x00`` and re-pushes the polling rate and brightness from the live
-config. The dedicated flag ``0x68`` is what the earlier probing could not
-isolate (the whole ``0x60``--``0x6F`` block ACKs), now pinned by the capture.
+its own from the flag, the host drives the saver. alloyctl mirrors the order
+exactly -- flag, then LEDs off / brightness restore, then polling.
+
+**Toggling drops the 2.4 GHz link.** All three commands ACK while the link is
+still up, then the mouse re-negotiates power and the link idles for about a
+second (the config interface answers ``40 ff`` throughout) before it re-links
+with a ``0xBC 0x01`` wake. This is inherent -- the official GG build disconnects
+the same way -- not a bug. GG, and alloyctl, therefore **wait for the
+``0xBC 0x01`` re-link before the next command**: sending into the idle window
+would burn the whole per-command wake-retry budget and stall. In particular GG
+defers its ``0x51`` save until after the re-link, and alloyctl blocks in the
+apply until the wake lands.
+
+Because pushing ``0x68`` disconnects the mouse each time, alloyctl sends the
+bundle **only when the toggle changes**, never as part of the blanket
+save/revert re-push; a later ``0x51`` save simply commits the live state, which
+already carries the mode (and, while the mode is on, its forced 125 Hz / LEDs-off
+registers rather than the user's values). The dedicated flag ``0x68`` is what the
+earlier probing could not isolate (the whole ``0x60``--``0x6F`` block ACKs), now
+pinned by the capture.
 
 ``0x69`` -- sleep timer (wired ``0x29``, wireless only)
 -------------------------------------------------------
