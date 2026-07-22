@@ -78,6 +78,18 @@ struct alloy_led_zone {
 #define ALLOY_CAP_HIGH_EFFICIENCY (1u << 10)
 
 /*
+ * Wireless power knobs (the ALLOY_CAP_BATTERY family).
+ * Ranges are inclusive.
+ * sleep_min: idle minutes before the mouse sleeps, 0 = never.
+ * illum_dim_s: idle seconds before the LEDs dim, 0 = off.
+ * Both are inert on wired mice, which leave the driving ops NULL.
+ */
+#define ALLOY_SLEEP_MIN 0
+#define ALLOY_SLEEP_MAX 20
+#define ALLOY_SLEEP_STEP 1
+#define ALLOY_ILLUM_DIM_MAX 1200
+
+/*
  * Per-zone effect rate knobs.
  * Frequency is how many cycles one period packs, speed is the tempo the
  * animation runs at; both are unitless steps the driver maps best-effort.
@@ -130,6 +142,16 @@ struct alloy_config {
 	/* only meaningful with ALLOY_CAP_HIGH_EFFICIENCY; 0 = off, 1 = on */
 	uint8_t high_efficiency;
 
+	/*
+	 * Wireless power knobs (ALLOY_CAP_BATTERY family).
+	 * Inert on wired mice.
+	 * illum_smart rides the illumination command (apply_brightness);
+	 * sleep_min goes out through apply_sleep.
+	 */
+	uint8_t illum_smart; /* 0/1: blank LEDs while the mouse moves */
+	uint16_t illum_dim_s; /* dim LEDs after N s idle, 0..1200; 0 = off */
+	uint8_t sleep_min; /* sleep after N min idle, 0..20; 0 = never */
+
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
 	/*
@@ -169,6 +191,14 @@ struct alloy_driver_ops {
 	 */
 	int (*apply_high_efficiency)(struct alloy_device *dev,
 				     const struct alloy_config *cfg);
+
+	/*
+	 * Optional (wireless, ALLOY_CAP_BATTERY family):
+	 * push the idle sleep timer from cfg->sleep_min.
+	 * Wired mice leave NULL.
+	 */
+	int (*apply_sleep)(struct alloy_device *dev,
+			   const struct alloy_config *cfg);
 
 	/* commit live configuration to onboard flash */
 	int (*save)(struct alloy_device *dev);

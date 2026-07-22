@@ -127,6 +127,7 @@ size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf);
+size_t a3wl_build_sleep(const struct alloy_config *cfg, uint8_t *buf);
 int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 size_t a3wl_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
@@ -265,21 +266,41 @@ size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 
 /*
  * Unified illumination command: 0x63 <level> 0x01 <smart> 0x00 <dim0 dim1 dim2>.
- * Only brightness (the 4-bit level) is driven here; smart mode and the dim
- * timer are wireless-power features the host does not manage yet, so they go
- * out disabled. They reset on sleep regardless.
+ * Brightness is the 4-bit level; smart mode (blank the LEDs while moving) and
+ * the idle dim timer (3-byte little-endian ms) are the wireless-power fields.
+ * All three reset on sleep, so the host re-pushes them on apply.
  */
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
 {
+	uint16_t dim_s = ALLOY_MIN(cfg->illum_dim_s, ALLOY_ILLUM_DIM_MAX);
+	uint32_t dim_ms = (uint32_t)dim_s * 1000u;
+
 	buf[0] = A3WL_CMD_ILLUM;
 	buf[1] = a3wl_brightness_to_wire(cfg->brightness);
 	buf[2] = 0x01; /* apply-illumination flag (constant in GG captures) */
-	buf[3] = 0x00; /* smart mode off */
+	buf[3] = cfg->illum_smart ? 0x01 : 0x00;
 	buf[4] = 0x00;
-	buf[5] = 0x00; /* dim timer off (3-byte little-endian ms) */
-	buf[6] = 0x00;
-	buf[7] = 0x00;
+	buf[5] = (uint8_t)(dim_ms & 0xFF);
+	buf[6] = (uint8_t)((dim_ms >> 8) & 0xFF);
+	buf[7] = (uint8_t)((dim_ms >> 16) & 0xFF);
 	return 8;
+}
+
+/*
+ * Sleep timer: 0x69 <t0 t1 t2>, idle time before the mouse sleeps as a 3-byte
+ * little-endian millisecond count (cfg->sleep_min minutes, 0 = never).
+ * Captured: 5 min -> 69 e0 93 04 (0x000493E0 = 300000 ms).
+ */
+size_t a3wl_build_sleep(const struct alloy_config *cfg, uint8_t *buf)
+{
+	uint8_t min = ALLOY_MIN(cfg->sleep_min, ALLOY_SLEEP_MAX);
+	uint32_t ms = (uint32_t)min * 60000u;
+
+	buf[0] = A3WL_CMD_SLEEP;
+	buf[1] = (uint8_t)(ms & 0xFF);
+	buf[2] = (uint8_t)((ms >> 8) & 0xFF);
+	buf[3] = (uint8_t)((ms >> 16) & 0xFF);
+	return 4;
 }
 
 /* wire ids of the 5-byte action fields, in config order */
@@ -467,6 +488,14 @@ static int a3wl_apply_high_efficiency(struct alloy_device *dev,
 	return ret ? -1 : 0;
 }
 
+static int a3wl_apply_sleep(struct alloy_device *dev,
+			    const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_sleep(cfg, buf));
+}
+
 static int a3wl_save(struct alloy_device *dev)
 {
 	static const uint8_t cmd[] = { A3WL_CMD_SAVE, 0x00 };
@@ -560,6 +589,7 @@ static const struct alloy_driver_ops a3wl_ops = {
 	.apply_brightness = a3wl_apply_brightness,
 	.apply_buttons = a3wl_apply_buttons,
 	.apply_high_efficiency = a3wl_apply_high_efficiency,
+	.apply_sleep = a3wl_apply_sleep,
 	.save = a3wl_save,
 	.firmware_version = a3wl_firmware_version,
 	.battery = a3wl_battery,

@@ -25,6 +25,7 @@ size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf);
+size_t a3wl_build_sleep(const struct alloy_config *cfg, uint8_t *buf);
 int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 static const struct alloy_driver *a3wl(void)
@@ -53,6 +54,7 @@ ALLOY_TEST(test_registry)
 	ASSERT_TRUE(drv->ops->battery != NULL);
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0);
 	ASSERT_TRUE(drv->ops->apply_high_efficiency != NULL);
+	ASSERT_TRUE(drv->ops->apply_sleep != NULL);
 }
 
 ALLOY_TEST(test_dpi_packet)
@@ -275,6 +277,64 @@ ALLOY_TEST(test_brightness_packet)
 	cfg.brightness = 255; /* clamps to 100% -> full */
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x0F);
+
+	/* smart mode rides byte 3 of the same command */
+	cfg.brightness = 100;
+	cfg.illum_smart = 1;
+	a3wl_build_brightness(&cfg, buf);
+	ASSERT_EQ(buf[3], 0x01);
+
+	/* dim timer: seconds -> 3-byte little-endian ms (30 s = 30000 = 0x7530) */
+	cfg.illum_smart = 0;
+	cfg.illum_dim_s = 30;
+	a3wl_build_brightness(&cfg, buf);
+	ASSERT_EQ(buf[5], 0x30);
+	ASSERT_EQ(buf[6], 0x75);
+	ASSERT_EQ(buf[7], 0x00);
+
+	/* dim timer clamps to the 1200 s ceiling (1200 s = 1200000 = 0x124F80) */
+	cfg.illum_dim_s = 5000;
+	a3wl_build_brightness(&cfg, buf);
+	ASSERT_EQ(buf[5], 0x80);
+	ASSERT_EQ(buf[6], 0x4F);
+	ASSERT_EQ(buf[7], 0x12);
+}
+
+ALLOY_TEST(test_sleep_packet)
+{
+	struct alloy_config cfg;
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	a3wl()->config_defaults(a3wl(), &cfg);
+
+	/* 5 min: captured 69 e0 93 04 (0x000493E0 = 300000 ms) */
+	cfg.sleep_min = 5;
+	ASSERT_EQ(a3wl_build_sleep(&cfg, buf), 4);
+	ASSERT_EQ(buf[0], 0x69);
+	ASSERT_EQ(buf[1], 0xE0);
+	ASSERT_EQ(buf[2], 0x93);
+	ASSERT_EQ(buf[3], 0x04);
+
+	/* 20 min ceiling: 0x00124F80 = 1200000 ms -> 69 80 4f 12 */
+	cfg.sleep_min = 20;
+	a3wl_build_sleep(&cfg, buf);
+	ASSERT_EQ(buf[1], 0x80);
+	ASSERT_EQ(buf[2], 0x4F);
+	ASSERT_EQ(buf[3], 0x12);
+
+	/* 0 = never: 69 00 00 00 */
+	cfg.sleep_min = 0;
+	a3wl_build_sleep(&cfg, buf);
+	ASSERT_EQ(buf[1], 0x00);
+	ASSERT_EQ(buf[2], 0x00);
+	ASSERT_EQ(buf[3], 0x00);
+
+	/* out-of-range minutes clamp to the 20 min ceiling */
+	cfg.sleep_min = 200;
+	a3wl_build_sleep(&cfg, buf);
+	ASSERT_EQ(buf[1], 0x80);
+	ASSERT_EQ(buf[2], 0x4F);
+	ASSERT_EQ(buf[3], 0x12);
 }
 
 ALLOY_TEST(test_buttons_packet)

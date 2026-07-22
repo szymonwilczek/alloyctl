@@ -128,4 +128,13 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 	cfg->deceleration = 0;
 	cfg->angle_snapping = 0;
 	cfg->accel_enabled = 0;
+
+	/*
+	 * Wireless power defaults (inert on wired mice, which never push them):
+	 * mirror the GG out-of-box 5-minute sleep timer;
+	 * smart mode and the LED dim timer stay off
+	 */
+	cfg->illum_smart = 0;
+	cfg->illum_dim_s = 0;
+	cfg->sleep_min = 5;
 }
