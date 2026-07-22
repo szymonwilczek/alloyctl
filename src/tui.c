@@ -171,6 +171,44 @@ void tui_poll_battery(struct tui *t)
 }
 
 /*
+ * Is there a mouse we can actually talk to right now?
+ * Wired mice are always reachable; wireless receiver (ALLOY_CAP_BATTERY) only counts
+ * once 2.4 GHz battery reading or Bluetooth link says a mouse is on the other end.
+ * Used to gate the startup handshake so bare dongle does not block the UI.
+ */
+static int tui_device_linked(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
+		return 1;
+	return t->battery_pct >= 0 || t->bt_present;
+}
+
+/*
+ * One-shot device handshake:
+ * Read the firmware string and push the working config to the mouse.
+ * Deferred until mouse is reachable, because on bare 2.4 GHz receiver every
+ * command burns the full wake-retry budget (~seconds each) waiting for echo
+ * that never comes.
+ * Safe to call every frame: it runs the work exactly once, when the link first
+ * appears (including right after fresh pair), and is no-op otherwise.
+ */
+static void tui_sync_device(struct tui *t)
+{
+	if (t->device_synced || !tui_device_linked(t))
+		return;
+
+	if (t->drv->ops->firmware_version &&
+	    (t->drv->caps & ALLOY_CAP_FIRMWARE_VERSION)) {
+		if (t->drv->ops->firmware_version(t->dev, t->firmware,
+						  sizeof(t->firmware)))
+			t->firmware[0] = '\0';
+	}
+
+	tui_apply_all_impl(t, 0);
+	t->device_synced = 1;
+}
+
+/*
  * Whether to offer the PAIR button: the driver can bind a mouse to its receiver
  * and nothing is currently linked (no 2.4 GHz battery reading, not on Bluetooth).
  * This is a proxy - a paired-but-powered-off mouse looks the same as an unpaired
@@ -438,13 +476,6 @@ int alloy_tui_run(struct alloy_device *dev)
 	t.accel_running =
 		alloy_accel_is_running(t.drv->vendor_id, t.drv->product_id);
 
-	if (t.drv->ops->firmware_version &&
-	    (t.drv->caps & ALLOY_CAP_FIRMWARE_VERSION)) {
-		if (t.drv->ops->firmware_version(dev, t.firmware,
-						 sizeof(t.firmware)))
-			t.firmware[0] = '\0';
-	}
-
 	setlocale(LC_ALL, "");
 	initscr();
 	cbreak();
@@ -455,11 +486,9 @@ int alloy_tui_run(struct alloy_device *dev)
 		tui_init_colors(&t);
 
 	/*
-	 * make the mouse state match the working config so what the user sees
-	 * on screen is what the hardware runs - except the active CPI level,
-	 * which the mouse owns and we must not clobber at launch (#41)
 	 */
-	tui_apply_all_impl(&t, 0);
+	tui_poll_battery(&t);
+	tui_sync_device(&t);
 	tui_status(&t, used_defaults ?
 			       "no saved baseline - using driver defaults" :
 			       "baseline loaded from disk");
@@ -473,6 +502,7 @@ int alloy_tui_run(struct alloy_device *dev)
 	while (!t.quit) {
 		tui_poll_device_events(&t);
 		tui_poll_battery(&t);
+		tui_sync_device(&t);
 		timeout(TUI_ILLUM_FRAME_MS);
 		if (t.view == VIEW_ILLUM) {
 			tui_illum_draw(&t);

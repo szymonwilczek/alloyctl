@@ -119,6 +119,13 @@ struct tui {
 	int bt_present; /* mouse currently paired to the host over Bluetooth */
 	long battery_next_ms;
 
+	/*
+	 * One-shot device handshake (firmware read + initial config push) done lazily
+	 * once a mouse is actually reachable, so bare 2.4 GHz receiver does not stall
+	 * startup on the per-command wake-retry budget.
+	 */
+	int device_synced;
+
 	int quit;
 };
 
