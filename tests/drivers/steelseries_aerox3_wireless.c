@@ -428,14 +428,15 @@ ALLOY_TEST(test_high_efficiency_bundle)
 
 	memset(&dev, 0, sizeof(dev));
 	dev.hid.fd = 42;
+	dev.ev.fd = -1; /* no event interface: skip the re-link wait */
 	dev.drv = drv;
 	drv->config_defaults(drv, &cfg);
 	cfg.polling_hz = 1000;
 	cfg.brightness = 100;
 
 	/*
-	 * Enabling mirrors the GG bundle:
-	 * flag on, polling forced to 125 Hz (0x6B 0x03) and LEDs blanked (0x63 level 0)
+	 * Enabling mirrors the GG bundle order:
+	 * flag on, LEDs blanked (0x63 level 0), then polling forced to 125 Hz (0x6B 0x03)
 	 */
 	mock_hid_reset();
 	cfg.high_efficiency = 1;
@@ -443,23 +444,23 @@ ALLOY_TEST(test_high_efficiency_bundle)
 	ASSERT_EQ(mock_hid.num_cmds, 3);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x01);
-	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x6B);
-	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x03); /* 125 Hz */
-	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x63);
-	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x00); /* brightness 0 */
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x63);
+	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x00); /* brightness 0 */
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x6B);
+	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x03); /* 125 Hz */
 
-	/* disabling clears the flag and restores polling/brightness from cfg */
+	/* disabling clears the flag and restores brightness/polling from cfg */
 	mock_hid_reset();
 	cfg.high_efficiency = 0;
 	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 3);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x00);
-	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x6B);
-	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x00); /* 1000 Hz restored */
-	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x63);
-	ASSERT_EQ(mock_hid.cmds[2].payload[1],
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x63);
+	ASSERT_EQ(mock_hid.cmds[1].payload[1],
 		  0x0F); /* full brightness restored */
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x6B);
+	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x00); /* 1000 Hz restored */
 }
 
 ALLOY_TEST(test_cpi_level_event)

@@ -83,3 +83,11 @@ int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
 	return alloy_hid_cmd_read_want(dev, payload, len, -1, resp, resp_len,
 				       ALLOY_HID_ATTEMPTS_CMD);
 }
+
+int alloy_hid_poll(struct alloy_hid_dev *dev, uint8_t *buf, size_t len)
+{
+	(void)dev;
+	(void)buf;
+	(void)len;
+	return 0; /* no unsolicited events in tests */
+}

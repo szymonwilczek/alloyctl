@@ -24,6 +24,8 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "driver.h"
 #include "art_steelseries_aerox3_wireless.h"
@@ -62,6 +64,17 @@
  */
 #define A3WL_HIGHEFF_POLLING_HZ 125
 #define A3WL_HIGHEFF_BRIGHTNESS 0
+
+/*
+ * Toggling High-Efficiency drops the 2.4 GHz link for ~1 s while the mouse
+ * re-negotiates power (inherent - GG shows the same), then it re-links with
+ * 0xBC 0x01 event.
+ * Wait for that wake before returning so the next command (the 0x51 save, or any apply)
+ * does not hammer the idle link and stall;
+ * GG defers its post-toggle save the same way.
+ */
+#define A3WL_RELINK_TIMEOUT_MS 2500
+#define A3WL_RELINK_POLL_MS 20
 
 #define A3WL_DPI_MIN 100
 #define A3WL_DPI_MAX 18000
@@ -461,15 +474,48 @@ static int a3wl_apply_buttons(struct alloy_device *dev,
 	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_buttons(cfg, buf));
 }
 
+static long a3wl_now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/*
+ * Block (bounded) until the link comes back after a High-Efficiency toggle,
+ * i.e. until a 0xBC 0x01 wake lands on the event interface.
+ * Discards the 0xBC 0x00 sleep edge and the 0x12 battery push that ride alongside it.
+ * Stale event fd (the interface can re-enumerate too) or the timeout just ends the wait;
+ * The caller proceeds best-effort.
+ */
+static void a3wl_wait_relink(struct alloy_device *dev)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	long deadline = a3wl_now_ms() + A3WL_RELINK_TIMEOUT_MS;
+
+	if (dev->ev.fd < 0)
+		return;
+
+	while (a3wl_now_ms() < deadline) {
+		int n = alloy_hid_poll(&dev->ev, buf, sizeof(buf));
+
+		if (n >= 2 && buf[0] == A3WL_EVT_POWER && buf[1] == 0x01)
+			return; /* re-linked */
+		usleep(A3WL_RELINK_POLL_MS * 1000);
+	}
+}
+
 /*
  * High-Efficiency Mode is not a single opcode but the register bundle GG emits,
  * mirrored here byte-for-byte from the hardware capture:
- * enabling sets the 0x68 flag, forces polling to 125 Hz (0x6B 0x03) and blanks
- * the LEDs (0x63 level 0);
- * Disabling clears the flag and restores the user's polling and brightness
- * straight from cfg.
- * That is how the firmware implements the mode - the flag alone changes nothing,
- * the host drives the saver.
+ * Enabling sets the 0x68 flag, blanks the LEDs (0x63 level 0) and forces polling
+ * to 125 Hz (0x6B 0x03), in that order;
+ * Disabling clears the flag and restores the user's brightness and polling from cfg.
+ * The flag alone changes nothing - the host drives the saver.
+ * All three ACK before the link drops;
+ * a3wl_wait_relink then waits for the mouse to come back so the caller's next command
+ * finds a live link.
  */
 static int a3wl_apply_high_efficiency(struct alloy_device *dev,
 				      const struct alloy_config *cfg)
@@ -485,8 +531,10 @@ static int a3wl_apply_high_efficiency(struct alloy_device *dev,
 
 	ret |= alloy_hid_cmd(&dev->hid, buf,
 			     a3wl_build_high_efficiency(cfg, buf));
-	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(&eff, buf));
 	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_brightness(&eff, buf));
+	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(&eff, buf));
+
+	a3wl_wait_relink(dev);
 
 	return ret ? -1 : 0;
 }
