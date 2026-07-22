@@ -61,6 +61,33 @@ static void set_smart(struct tui *t, int on)
 		tui_apply(t, t->drv->ops->apply_brightness, "smart mode");
 }
 
+/*
+ * Dim Timer stepper.
+ * Like smart mode it is part of the 0x63 illumination command,
+ * so it rides the brightness apply.
+ */
+static void adjust_dim(struct tui *t, int delta)
+{
+	t->cfg.illum_dim_s = (uint16_t)ALLOY_CLAMP(
+		(int)t->cfg.illum_dim_s + delta, 0, ALLOY_ILLUM_DIM_MAX);
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_brightness, "dim timer");
+}
+
+/* High-Efficiency Mode toggle (its own op; forces a device-defined bundle) */
+static void set_higheff(struct tui *t, int on)
+{
+	on = on ? 1 : 0;
+	if (t->cfg.high_efficiency == on)
+		return;
+	t->cfg.high_efficiency = (uint8_t)on;
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_high_efficiency,
+			  "high-efficiency");
+}
+
 static void adjust_dpi(struct tui *t, int preset, int delta)
 {
 	const struct alloy_driver *drv = t->drv;
@@ -184,8 +211,14 @@ static void pane_adjust(struct tui *t, int dir, int big)
 		if (sel == POWER_SLEEP)
 			adjust_sleep(t, dir * (big ? ALLOY_SLEEP_STEP * 5 :
 						     ALLOY_SLEEP_STEP));
-		else /* POWER_SMART: h/l flips the toggle by direction */
+		else if (sel == POWER_SMART)
+			/* h/l flips the toggle by direction */
 			set_smart(t, dir > 0);
+		else if (sel == POWER_DIM)
+			adjust_dim(t, dir * (big ? ALLOY_ILLUM_DIM_STEP * 4 :
+						   ALLOY_ILLUM_DIM_STEP));
+		else /* POWER_HIGHEFF: h/l flips the toggle by direction */
+			set_higheff(t, dir > 0);
 		break;
 	case PANE_TUNING:
 		switch (sel) {
@@ -233,6 +266,8 @@ static void pane_activate(struct tui *t)
 	case PANE_POWER:
 		if (sel == POWER_SMART)
 			set_smart(t, !t->cfg.illum_smart);
+		else if (sel == POWER_HIGHEFF)
+			set_higheff(t, !t->cfg.high_efficiency);
 		break;
 	case PANE_TUNING:
 		if (sel == 3)

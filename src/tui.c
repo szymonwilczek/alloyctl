@@ -63,6 +63,8 @@ static void tui_apply_all_impl(struct tui *t, int with_dpi)
 	tui_apply(t, ops->apply_buttons, "buttons");
 	if (t->drv->caps & ALLOY_CAP_BATTERY)
 		tui_apply(t, ops->apply_sleep, "sleep");
+	if (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
+		tui_apply(t, ops->apply_high_efficiency, "high-efficiency");
 }
 
 void tui_apply_all(struct tui *t)
@@ -323,9 +325,19 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one item per preset plus CREATE below the limit */
 		return t->cfg.dpi_count +
 		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
-	case PANE_POWER:
-		/* wireless-only pane; empty (and skipped) on wired mice */
-		return (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_COUNT : 0;
+	case PANE_POWER: {
+		/*
+		 * Wireless-only pane.
+		 * Empty (and skipped) on wired mice.
+		 * SLEEP/SMART/DIM ride ALLOY_CAP_BATTERY;
+		 * trailing HIGHEFF item appears only with ALLOY_CAP_HIGH_EFFICIENCY.
+		 */
+		int n = (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_HIGHEFF : 0;
+
+		if (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
+			n++;
+		return n;
+	}
 	case PANE_TUNING:
 		/* acceleration, deceleration, angle snapping, engine, polling */
 		return 5;

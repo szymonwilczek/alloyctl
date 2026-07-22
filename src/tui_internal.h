@@ -29,10 +29,17 @@ enum tui_pane {
 	PANE_COUNT,
 };
 
-/* Items in the POWER pane, top to bottom */
+/*
+ * Items in the POWER pane, top to bottom.
+ * SLEEP/SMART/DIM come with ALLOY_CAP_BATTERY;
+ * HIGHEFF is last and present only with ALLOY_CAP_HIGH_EFFICIENCY,
+ * so its absence never shifts the other indices (see tui_pane_item_count).
+ */
 enum tui_power_item {
 	POWER_SLEEP, /* Battery Saver: inactivity sleep timer stepper */
-	POWER_SMART, /* Smart Illum: idle-dim toggle */
+	POWER_SMART, /* Smart Illum: blank LEDs while moving, toggle */
+	POWER_DIM, /* Dim Timer: dim LEDs after N s idle, stepper */
+	POWER_HIGHEFF, /* High-Efficiency Mode toggle */
 	POWER_COUNT,
 };
 

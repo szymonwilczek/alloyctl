@@ -35,7 +35,7 @@ struct rect {
 static struct rect layout[PANE_COUNT];
 
 /* height of the POWER box carved off the bottom of the CPI LEVELS column */
-#define POWER_H 9
+#define POWER_H 11
 
 static void compute_layout(const struct tui *t)
 {
@@ -394,37 +394,67 @@ static void draw_levels_pane(struct tui *t)
  * and Smart Illum toggles the idle lighting dim.
  * Shown only for drivers that report a battery (ALLOY_CAP_BATTERY).
  */
+/* one POWER-pane label, highlighted when it is the focused item */
+static void draw_power_label(int y, int x, const char *s, int selected)
+{
+	if (selected)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, x, "%s", s);
+	if (selected)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+}
+
+/* ON/OFF value row for a POWER-pane toggle */
+static void draw_power_toggle(int y, int x, int on)
+{
+	attron(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+	mvprintw(y, x, "< %s >", on ? "ON " : "OFF");
+	attroff(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+}
+
 static void draw_power_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_POWER];
 	int focused = t->focus == PANE_POWER;
 	int sel = t->cursor[PANE_POWER];
-	int on = t->cfg.illum_smart;
+	int has_higheff = (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0;
 	int y = r->y + 1;
 
 	draw_box(r, "POWER", focused);
 
-	if (focused && sel == POWER_SLEEP)
-		attron(COLOR_PAIR(CLR_SELECTED));
-	mvprintw(y, r->x + 2, "Battery Saver");
-	if (focused && sel == POWER_SLEEP)
-		attroff(COLOR_PAIR(CLR_SELECTED));
+	/* Battery Saver: inactivity sleep timer */
+	draw_power_label(y, r->x + 2, "Battery Saver",
+			 focused && sel == POWER_SLEEP);
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 	if (t->cfg.sleep_min)
 		mvprintw(y + 1, r->x + 4, "< %2d min >", t->cfg.sleep_min);
 	else
-		mvprintw(y + 1, r->x + 4, "<  Off  >");
+		mvprintw(y + 1, r->x + 4, "<  Off   >");
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 
-	y += 3;
-	if (focused && sel == POWER_SMART)
-		attron(COLOR_PAIR(CLR_SELECTED));
-	mvprintw(y, r->x + 2, "Smart Illum");
-	if (focused && sel == POWER_SMART)
-		attroff(COLOR_PAIR(CLR_SELECTED));
-	attron(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
-	mvprintw(y + 1, r->x + 4, "< %s >", on ? "ON " : "OFF");
-	attroff(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+	/* Smart Illum: blank the LEDs while moving */
+	y += 2;
+	draw_power_label(y, r->x + 2, "Smart Illum",
+			 focused && sel == POWER_SMART);
+	draw_power_toggle(y + 1, r->x + 4, t->cfg.illum_smart);
+
+	/* Dim Timer: dim the LEDs after N seconds idle */
+	y += 2;
+	draw_power_label(y, r->x + 2, "Dim Timer", focused && sel == POWER_DIM);
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	if (t->cfg.illum_dim_s)
+		mvprintw(y + 1, r->x + 4, "< %4d s >", t->cfg.illum_dim_s);
+	else
+		mvprintw(y + 1, r->x + 4, "<  Off   >");
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+
+	/* High-Efficiency Mode: only for drivers that advertise it */
+	if (has_higheff) {
+		y += 2;
+		draw_power_label(y, r->x + 2, "High-Efficiency",
+				 focused && sel == POWER_HIGHEFF);
+		draw_power_toggle(y + 1, r->x + 4, t->cfg.high_efficiency);
+	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(r->y + r->h - 2, r->x + 2, "h/l: Adjust  Enter: Toggle");

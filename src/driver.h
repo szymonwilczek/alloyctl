@@ -103,6 +103,7 @@ struct alloy_led_zone {
 #define ALLOY_SLEEP_MAX 20
 #define ALLOY_SLEEP_STEP 1
 #define ALLOY_ILLUM_DIM_MAX 1200
+#define ALLOY_ILLUM_DIM_STEP 15
 
 /*
  * Per-zone effect rate knobs.
