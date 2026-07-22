@@ -59,7 +59,7 @@ ALLOY_TEST(test_registry)
 	ASSERT_TRUE(drv->ops->pair != NULL);
 }
 
-ALLOY_TEST(test_pair_stub_pending)
+ALLOY_TEST(test_pair_sends_bind)
 {
 	struct alloy_device dev;
 	const struct alloy_driver *drv = a3wl();
@@ -68,7 +68,25 @@ ALLOY_TEST(test_pair_stub_pending)
 	dev.hid.fd = 42;
 	dev.drv = drv;
 
-	ASSERT_EQ(drv->ops->pair(&dev), ALLOY_PAIR_UNIMPLEMENTED);
+	/*
+	 * Pairing replays the GG "connect a new device" USB trace:
+	 * 0x3b and 0x11 preamble (echoed) then the 0x01 bind trigger,
+	 * all as single-byte reports on the config interface.
+	 * 0x01 is fire-and-forget - it is not echoed and the receiver re-enumerates -
+	 * so completed final write reports success.
+	 */
+	mock_hid_reset();
+	ASSERT_EQ(drv->ops->pair(&dev), 0);
+	ASSERT_EQ(mock_hid.num_cmds, 3);
+	ASSERT_EQ(mock_hid.cmds[0].len, 1);
+	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x3B);
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x11);
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x01);
+
+	/* write failure propagates as an error, not a phantom pair */
+	mock_hid_reset();
+	mock_hid.fail_cmds = 1;
+	ASSERT_TRUE(drv->ops->pair(&dev) < 0);
 }
 
 ALLOY_TEST(test_dpi_packet)

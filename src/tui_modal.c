@@ -132,10 +132,10 @@ void tui_modal_confirm_quit(struct tui *t)
  *   2. INSTRUCT	Walk through the mouse-side gesture (OFF, hold CPI, flick to
  *			2.4 GHz) and, on Enter, kick off pairing via ops->pair.
  *
- * The receiver bind opcode is not reverse-engineered yet, so ops->pair reports
- * ALLOY_PAIR_UNIMPLEMENTED and the wizard says so honestly rather than faking
- * success. The button, stages and key flow are all wired, so landing the opcode
- * is a one-function change in the driver.
+ * On Enter, ops->pair puts the receiver into bind mode; success means the write
+ * went out, not that a mouse bound - the link/battery coming up afterwards is the
+ * real confirmation. A driver whose bind opcode is still unmapped may report
+ * ALLOY_PAIR_UNIMPLEMENTED, which the wizard surfaces honestly.
  */
 enum pair_stage {
 	PAIR_STAGE_PROBE,

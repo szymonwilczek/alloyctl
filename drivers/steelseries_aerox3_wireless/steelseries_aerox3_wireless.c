@@ -47,6 +47,9 @@
 #define A3WL_CMD_DPI 0x6D /* wired 0x2D */
 #define A3WL_CMD_FIRMWARE 0x90 /* not flagged; bare ASCII reply */
 #define A3WL_CMD_BATTERY 0xD2 /* wired 0x92 */
+#define A3WL_CMD_PAIR 0x01 /* receiver bind trigger; unflagged, no echo */
+#define A3WL_CMD_PAIR_ARM_A 0x3B /* pairing preamble 1 (unflagged, echoed) */
+#define A3WL_CMD_PAIR_ARM_B 0x11 /* pairing preamble 2 (unflagged, echoed) */
 
 /* unsolicited events, delivered on the vendor event interface (4) */
 #define A3WL_EVT_CPI_LEVEL 0xAD /* active CPI-level switch */
@@ -567,19 +570,33 @@ static int a3wl_battery(struct alloy_device *dev, int *percent, int *charging)
  * Binding fresh mouse (mouse OFF, hold CPI, flick to 2.4 GHz) only completes while
  * GG is running, which means GG puts the *receiver* into a bind/listen mode over USB
  * - the mouse-side gesture alone is not enough.
- * That USB opcode has not been captured yet
- * (see the pairing entry under "Open questions" in
- * Documentation/protocol/steelseries-aerox3-wireless.rst),
- * so this reports the gap honestly instead of pretending to pair.
+ * GG USB trace of "connect a new device" shows GG sends three unflagged reports to the receiver in order:
+ *	0x3b, then 0x11, then 0x01.
+ * The first two are echoed (the receiver ACKs them like any command, even with no mouse bound yet) and read
+ * as a preamble that arms the bind; 0x01 is the trigger that drops the link, enters bind mode and re-enumerates
+ * the dongle a second or two later once a mouse doing the CPI + 2.4 GHz gesture binds to it.
+ * Sending only 0x01 was not enough on hardware, so the full sequence is replayed.
  *
- * TODO: once the bind command is reverse-engineered, send it here (with the
- * usual alloy_hid_cmd wake-retry) and return 0 / negative; then drop the
- * ALLOY_PAIR_UNIMPLEMENTED path and update the driver test.
+ * The 0x3b/0x11 preamble goes through alloy_hid_cmd so each step waits for its
+ * echo before the next - matching GG's pacing and making sure the firmware
+ * finished one step before starting the next; a missing echo is not fatal, we
+ * still fire the trigger. 0x01 itself is never echoed (the node is about to
+ * disappear in the re-enumeration), so it is a fire-and-forget write. A completed
+ * write is all we can confirm here; the actual bind surfaces afterwards as the
+ * link / battery coming back up (bc 01 on the event interface).
  */
 static int a3wl_pair(struct alloy_device *dev)
 {
-	(void)dev;
-	return ALLOY_PAIR_UNIMPLEMENTED;
+	static const uint8_t arm_a[] = { A3WL_CMD_PAIR_ARM_A };
+	static const uint8_t arm_b[] = { A3WL_CMD_PAIR_ARM_B };
+	static const uint8_t bind[] = { A3WL_CMD_PAIR };
+
+	/* -1 is a hard I/O error / device gone; -2 (no echo) is tolerated */
+	if (alloy_hid_cmd(&dev->hid, arm_a, sizeof(arm_a)) == -1)
+		return -1;
+	if (alloy_hid_cmd(&dev->hid, arm_b, sizeof(arm_b)) == -1)
+		return -1;
+	return alloy_hid_send(&dev->hid, bind, sizeof(bind));
 }
 
 static const uint16_t a3wl_polling_rates[] = { 1000, 500, 250, 125 };
