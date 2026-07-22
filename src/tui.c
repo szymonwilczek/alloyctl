@@ -61,6 +61,8 @@ static void tui_apply_all_impl(struct tui *t, int with_dpi)
 	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
 		tui_apply(t, ops->apply_brightness, "brightness");
 	tui_apply(t, ops->apply_buttons, "buttons");
+	if (t->drv->caps & ALLOY_CAP_BATTERY)
+		tui_apply(t, ops->apply_sleep, "sleep");
 }
 
 void tui_apply_all(struct tui *t)
@@ -258,6 +260,9 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one item per preset plus CREATE below the limit */
 		return t->cfg.dpi_count +
 		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
+	case PANE_POWER:
+		/* wireless-only pane; empty (and skipped) on wired mice */
+		return (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_COUNT : 0;
 	case PANE_TUNING:
 		/* acceleration, deceleration, angle snapping, engine, polling */
 		return 5;

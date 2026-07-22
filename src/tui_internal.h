@@ -18,9 +18,22 @@ enum tui_pane {
 	PANE_ACTIONS,
 	PANE_CENTER,
 	PANE_LEVELS,
+	/*
+	 * Wireless power controls, carved off the bottom of the CPI LEVELS column.
+	 * Present only for drivers with ALLOY_CAP_BATTERY, otherwise it holds
+	 * no items and pane navigation skips over it.
+	 */
+	PANE_POWER,
 	PANE_TUNING,
 	PANE_FOOTER,
 	PANE_COUNT,
+};
+
+/* Items in the POWER pane, top to bottom */
+enum tui_power_item {
+	POWER_SLEEP, /* Battery Saver: inactivity sleep timer stepper */
+	POWER_SMART, /* Smart Illum: idle-dim toggle */
+	POWER_COUNT,
 };
 
 /* Top-level screens; ILLUMINATION button switches between them */

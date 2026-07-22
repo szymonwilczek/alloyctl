@@ -35,6 +35,32 @@ static void adjust_snap(struct tui *t, int delta)
 	tui_accel_changed(t);
 }
 
+/* Battery Saver stepper: the device sleep timer in minutes (0 = never) */
+static void adjust_sleep(struct tui *t, int delta)
+{
+	t->cfg.sleep_min = (uint8_t)ALLOY_CLAMP(
+		t->cfg.sleep_min + delta, ALLOY_SLEEP_MIN, ALLOY_SLEEP_MAX);
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_sleep, "sleep");
+}
+
+/*
+ * Smart Illum toggle.
+ * It is byte 3 of the 0x63 illumination command, so it rides the brightness
+ * apply rather than an op of its own.
+ */
+static void set_smart(struct tui *t, int on)
+{
+	on = on ? 1 : 0;
+	if (t->cfg.illum_smart == on)
+		return;
+	t->cfg.illum_smart = (uint8_t)on;
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_brightness, "smart mode");
+}
+
 static void adjust_dpi(struct tui *t, int preset, int delta)
 {
 	const struct alloy_driver *drv = t->drv;
@@ -154,6 +180,13 @@ static void pane_adjust(struct tui *t, int dir, int big)
 			adjust_dpi(t, sel,
 				   dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
+	case PANE_POWER:
+		if (sel == POWER_SLEEP)
+			adjust_sleep(t, dir * (big ? ALLOY_SLEEP_STEP * 5 :
+						     ALLOY_SLEEP_STEP));
+		else /* POWER_SMART: h/l flips the toggle by direction */
+			set_smart(t, dir > 0);
+		break;
 	case PANE_TUNING:
 		switch (sel) {
 		case 0:
@@ -197,6 +230,10 @@ static void pane_activate(struct tui *t)
 	case PANE_CENTER:
 		tui_illum_enter(t);
 		break;
+	case PANE_POWER:
+		if (sel == POWER_SMART)
+			set_smart(t, !t->cfg.illum_smart);
+		break;
 	case PANE_TUNING:
 		if (sel == 3)
 			tui_accel_set_enabled(t, !t->accel_running);
@@ -215,6 +252,15 @@ static void pane_activate(struct tui *t)
 	}
 }
 
+/* step focus by dir, skipping panes that hold no items (e.g. POWER on wired) */
+static void focus_step(struct tui *t, int dir)
+{
+	do {
+		t->focus = (enum tui_pane)((t->focus + dir + PANE_COUNT) %
+					   PANE_COUNT);
+	} while (tui_pane_item_count(t, t->focus) == 0);
+}
+
 void tui_handle_key(struct tui *t, int ch)
 {
 	int count;
@@ -230,11 +276,10 @@ void tui_handle_key(struct tui *t, int ch)
 		tui_save(t);
 		return;
 	case '\t':
-		t->focus = (enum tui_pane)((t->focus + 1) % PANE_COUNT);
+		focus_step(t, 1);
 		return;
 	case KEY_BTAB:
-		t->focus = (enum tui_pane)((t->focus + PANE_COUNT - 1) %
-					   PANE_COUNT);
+		focus_step(t, -1);
 		return;
 	case KEY_RESIZE:
 		return;

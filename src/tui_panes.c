@@ -34,18 +34,25 @@ struct rect {
 
 static struct rect layout[PANE_COUNT];
 
-static void compute_layout(void)
+/* height of the POWER box carved off the bottom of the CPI LEVELS column */
+#define POWER_H 9
+
+static void compute_layout(const struct tui *t)
 {
 	int main_h = LINES - 3;
 	int left_w = COLS * 24 / 100;
 	int sens_w = COLS * 22 / 100;
 	int tune_w = COLS * 24 / 100;
 	int center_w = COLS - left_w - sens_w - tune_w;
+	int sens_x = left_w + center_w;
+	/* wireless mice give the bottom of the sensitivity column to POWER */
+	int power_h = (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_H : 0;
+	int levels_h = main_h - power_h;
 
 	layout[PANE_ACTIONS] = (struct rect){ 0, 0, main_h, left_w };
 	layout[PANE_CENTER] = (struct rect){ 0, left_w, main_h, center_w };
-	layout[PANE_LEVELS] =
-		(struct rect){ 0, left_w + center_w, main_h, sens_w };
+	layout[PANE_LEVELS] = (struct rect){ 0, sens_x, levels_h, sens_w };
+	layout[PANE_POWER] = (struct rect){ levels_h, sens_x, power_h, sens_w };
 	layout[PANE_TUNING] =
 		(struct rect){ 0, left_w + center_w + sens_w, main_h, tune_w };
 	layout[PANE_FOOTER] = (struct rect){ LINES - 3, 0, 2, COLS };
@@ -368,6 +375,49 @@ static void draw_levels_pane(struct tui *t)
 }
 
 /*
+ * Wireless power controls, sat under the CPI LEVELS column:
+ * Battery Saver is the inactivity sleep-timer stepper (Off..20 min)
+ * and Smart Illum toggles the idle lighting dim.
+ * Shown only for drivers that report a battery (ALLOY_CAP_BATTERY).
+ */
+static void draw_power_pane(struct tui *t)
+{
+	const struct rect *r = &layout[PANE_POWER];
+	int focused = t->focus == PANE_POWER;
+	int sel = t->cursor[PANE_POWER];
+	int on = t->cfg.illum_smart;
+	int y = r->y + 1;
+
+	draw_box(r, "POWER", focused);
+
+	if (focused && sel == POWER_SLEEP)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, r->x + 2, "Battery Saver");
+	if (focused && sel == POWER_SLEEP)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	if (t->cfg.sleep_min)
+		mvprintw(y + 1, r->x + 4, "< %2d min >", t->cfg.sleep_min);
+	else
+		mvprintw(y + 1, r->x + 4, "<  Off  >");
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+
+	y += 3;
+	if (focused && sel == POWER_SMART)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, r->x + 2, "Smart Illum");
+	if (focused && sel == POWER_SMART)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+	attron(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+	mvprintw(y + 1, r->x + 4, "< %s >", on ? "ON " : "OFF");
+	attroff(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(r->y + r->h - 2, r->x + 2, "h/l: Adjust  Enter: Toggle");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+}
+
+/*
  * Square wave of the polling rate, drawn with real edges:
  * top-row plateaus for the high level, bottom-row plateaus for the low level,
  * vertical lines joining them.
@@ -648,12 +698,14 @@ void tui_draw(struct tui *t)
 		return;
 	}
 
-	compute_layout();
+	compute_layout(t);
 	tui_zone_color_pairs(t);
 
 	draw_actions_pane(t);
 	draw_center_pane(t);
 	draw_levels_pane(t);
+	if (t->drv->caps & ALLOY_CAP_BATTERY)
+		draw_power_pane(t);
 	draw_tuning_pane(t);
 	draw_footer(t);
 
