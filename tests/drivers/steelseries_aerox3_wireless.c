@@ -24,6 +24,7 @@ size_t a3wl_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf);
 int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 static const struct alloy_driver *a3wl(void)
@@ -50,6 +51,8 @@ ALLOY_TEST(test_registry)
 	ASSERT_EQ(drv->num_fx, 2); /* steady + rainbow, per zone */
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_BATTERY) != 0);
 	ASSERT_TRUE(drv->ops->battery != NULL);
+	ASSERT_TRUE((drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0);
+	ASSERT_TRUE(drv->ops->apply_high_efficiency != NULL);
 }
 
 ALLOY_TEST(test_dpi_packet)
@@ -305,6 +308,66 @@ ALLOY_TEST(test_buttons_packet)
 	cfg.buttons[4].type = ALLOY_ACT_DISABLED;
 	a3wl_build_buttons(&cfg, buf);
 	ASSERT_EQ(buf[1 + 0x14], 0x00);
+}
+
+ALLOY_TEST(test_high_efficiency_packet)
+{
+	struct alloy_config cfg;
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+
+	a3wl()->config_defaults(a3wl(), &cfg);
+
+	/* enable flag: 0x68 0x01 (captured with the mode toggled on) */
+	cfg.high_efficiency = 1;
+	ASSERT_EQ(a3wl_build_high_efficiency(&cfg, buf), 2);
+	ASSERT_EQ(buf[0], 0x68);
+	ASSERT_EQ(buf[1], 0x01);
+
+	cfg.high_efficiency = 0;
+	a3wl_build_high_efficiency(&cfg, buf);
+	ASSERT_EQ(buf[1], 0x00);
+}
+
+ALLOY_TEST(test_high_efficiency_bundle)
+{
+	struct alloy_device dev;
+	const struct alloy_driver *drv = a3wl();
+	struct alloy_config cfg;
+
+	memset(&dev, 0, sizeof(dev));
+	dev.hid.fd = 42;
+	dev.drv = drv;
+	drv->config_defaults(drv, &cfg);
+	cfg.polling_hz = 1000;
+	cfg.brightness = 100;
+
+	/*
+	 * Enabling mirrors the GG bundle:
+	 * flag on, polling forced to 125 Hz (0x6B 0x03) and LEDs blanked (0x63 level 0)
+	 */
+	mock_hid_reset();
+	cfg.high_efficiency = 1;
+	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
+	ASSERT_EQ(mock_hid.num_cmds, 3);
+	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
+	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x01);
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x6B);
+	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x03); /* 125 Hz */
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x63);
+	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x00); /* brightness 0 */
+
+	/* disabling clears the flag and restores polling/brightness from cfg */
+	mock_hid_reset();
+	cfg.high_efficiency = 0;
+	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
+	ASSERT_EQ(mock_hid.num_cmds, 3);
+	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
+	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x00);
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x6B);
+	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x00); /* 1000 Hz restored */
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x63);
+	ASSERT_EQ(mock_hid.cmds[2].payload[1],
+		  0x0F); /* full brightness restored */
 }
 
 ALLOY_TEST(test_cpi_level_event)

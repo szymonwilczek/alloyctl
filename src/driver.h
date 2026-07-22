@@ -69,6 +69,15 @@ struct alloy_led_zone {
 #define ALLOY_CAP_BATTERY (1u << 9)
 
 /*
+ * Wireless power-saver toggle:
+ * Firmware trades runtime features for battery life.
+ * Driven through ops->apply_high_efficiency.
+ * Only meaningful alongside ALLOY_CAP_BATTERY.
+ * Wired mice leave it clear.
+ */
+#define ALLOY_CAP_HIGH_EFFICIENCY (1u << 10)
+
+/*
  * Per-zone effect rate knobs.
  * Frequency is how many cycles one period packs, speed is the tempo the
  * animation runs at; both are unitless steps the driver maps best-effort.
@@ -118,6 +127,9 @@ struct alloy_config {
 	/* only meaningful with ALLOY_CAP_FX_STARTUP */
 	uint8_t startup_fx; /* enum alloy_startup_fx */
 
+	/* only meaningful with ALLOY_CAP_HIGH_EFFICIENCY; 0 = off, 1 = on */
+	uint8_t high_efficiency;
+
 	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
 	/*
@@ -146,6 +158,17 @@ struct alloy_driver_ops {
 				const struct alloy_config *cfg);
 	int (*apply_buttons)(struct alloy_device *dev,
 			     const struct alloy_config *cfg);
+
+	/*
+	 * Optional (ALLOY_CAP_HIGH_EFFICIENCY):
+	 * drive the wireless power-saver toggle from cfg->high_efficiency.
+	 * Mode is device-defined bundle, so enabling it may also force other
+	 * registers (polling, brightness).
+	 * Disabling restores them from cfg.
+	 * Wired mice leave this NULL.
+	 */
+	int (*apply_high_efficiency)(struct alloy_device *dev,
+				     const struct alloy_config *cfg);
 
 	/* commit live configuration to onboard flash */
 	int (*save)(struct alloy_device *dev);

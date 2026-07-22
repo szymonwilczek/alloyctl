@@ -5,7 +5,8 @@
  * First wireless driver in the tree.
  *
  * Besides the usual DPI / polling / lighting / button configuration it reads
- * the battery gauge (ALLOY_CAP_BATTERY).
+ * the battery gauge (ALLOY_CAP_BATTERY) and drives the High-Efficiency power
+ * saver (ALLOY_CAP_HIGH_EFFICIENCY).
  * Everything else is the familiar 64-byte SteelSeries vendor protocol with one
  * twist: in receiver mode every command byte carries the 0x40 "wireless" flag
  * (verified on hardware - the wired opcodes 0x21/0x92 stay silent while their
@@ -39,6 +40,7 @@
 	0x63 /* wired 0x23: brightness + smart mode + dim timer */
 #define A3WL_CMD_REACTIVE 0x66 /* wired 0x26 */
 #define A3WL_CMD_STARTUP_FX 0x67 /* wired 0x27 */
+#define A3WL_CMD_HIGHEFF 0x68 /* wired 0x28: High-Efficiency power saver */
 #define A3WL_CMD_SLEEP 0x69 /* wired 0x29 (not driven yet) */
 #define A3WL_CMD_BUTTONS 0x6A /* wired 0x2A */
 #define A3WL_CMD_POLLING 0x6B /* wired 0x2B */
@@ -46,8 +48,17 @@
 #define A3WL_CMD_FIRMWARE 0x90 /* not flagged; bare ASCII reply */
 #define A3WL_CMD_BATTERY 0xD2 /* wired 0x92 */
 
-/* unsolicited CPI-level event, delivered on the vendor event interface (4) */
-#define A3WL_EVT_CPI_LEVEL 0xAD
+/* unsolicited events, delivered on the vendor event interface (4) */
+#define A3WL_EVT_CPI_LEVEL 0xAD /* active CPI-level switch */
+#define A3WL_EVT_POWER 0xBC /* 0xBC <01 wake/link | 00 sleep/unlink> */
+#define A3WL_EVT_BATTERY 0x12 /* 0x12 <lvl>: battery push, 0xD2 encoding */
+
+/*
+ * High-Efficiency forces these two registers while it is on;
+ * exact bundle GG emits (verified on hardware, see a3wl_apply_high_efficiency).
+ */
+#define A3WL_HIGHEFF_POLLING_HZ 125
+#define A3WL_HIGHEFF_BRIGHTNESS 0
 
 #define A3WL_DPI_MIN 100
 #define A3WL_DPI_MAX 18000
@@ -115,6 +126,7 @@ size_t a3wl_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
+size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf);
 int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 size_t a3wl_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
@@ -317,6 +329,19 @@ size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 }
 
 /*
+ * High-Efficiency Mode enable flag: 0x68 <enable>.
+ * This is only the mode's flag byte;
+ * Full power-saver behaviour is the register bundle
+ * applied in a3wl_apply_high_efficiency.
+ */
+size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf)
+{
+	buf[0] = A3WL_CMD_HIGHEFF;
+	buf[1] = cfg->high_efficiency ? 0x01 : 0x00;
+	return 2;
+}
+
+/*
  * CPI-level switch notification, captured on hardware (fw 1.3.1):
  *
  *   0xAD <count> <active> <wire1> ... <wireN>
@@ -325,6 +350,13 @@ size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
  * including physical CPI-button presses. <active> is 0-based and the wire
  * bytes repeat the level table in the 0x6D sensor encoding.
  * Only the active index is taken over; host stays the source of truth for the values.
+ *
+ * The interface also streams two status events that do not map to struct
+ * alloy_config, so they are recognized and ignored here (they carry no
+ * value the config owns): the power notification 0xBC <01 wake | 00 sleep>
+ * and the unsolicited battery push 0x12 <level>. Link state and charge are
+ * surfaced host-side through ops->battery, which the UI polls; the wake edge
+ * is also what prompts the host to re-push the non-persistent lighting.
  */
 int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
 {
@@ -403,6 +435,36 @@ static int a3wl_apply_buttons(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
 	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_buttons(cfg, buf));
+}
+
+/*
+ * High-Efficiency Mode is not a single opcode but the register bundle GG emits,
+ * mirrored here byte-for-byte from the hardware capture:
+ * enabling sets the 0x68 flag, forces polling to 125 Hz (0x6B 0x03) and blanks
+ * the LEDs (0x63 level 0);
+ * Disabling clears the flag and restores the user's polling and brightness
+ * straight from cfg.
+ * That is how the firmware implements the mode - the flag alone changes nothing,
+ * the host drives the saver.
+ */
+static int a3wl_apply_high_efficiency(struct alloy_device *dev,
+				      const struct alloy_config *cfg)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	struct alloy_config eff = *cfg;
+	int ret = 0;
+
+	if (cfg->high_efficiency) {
+		eff.polling_hz = A3WL_HIGHEFF_POLLING_HZ;
+		eff.brightness = A3WL_HIGHEFF_BRIGHTNESS;
+	}
+
+	ret |= alloy_hid_cmd(&dev->hid, buf,
+			     a3wl_build_high_efficiency(cfg, buf));
+	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(&eff, buf));
+	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_brightness(&eff, buf));
+
+	return ret ? -1 : 0;
 }
 
 static int a3wl_save(struct alloy_device *dev)
@@ -497,6 +559,7 @@ static const struct alloy_driver_ops a3wl_ops = {
 	.apply_colors = a3wl_apply_colors,
 	.apply_brightness = a3wl_apply_brightness,
 	.apply_buttons = a3wl_apply_buttons,
+	.apply_high_efficiency = a3wl_apply_high_efficiency,
 	.save = a3wl_save,
 	.firmware_version = a3wl_firmware_version,
 	.battery = a3wl_battery,
@@ -522,8 +585,9 @@ static const struct alloy_driver steelseries_aerox3_wireless = {
 	.buttons = a3wl_buttons,
 	.num_buttons = ALLOY_ARRAY_SIZE(a3wl_buttons),
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
-		ALLOY_CAP_BATTERY | ALLOY_CAP_FX_RAINBOW |
-		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP,
+		ALLOY_CAP_BATTERY | ALLOY_CAP_HIGH_EFFICIENCY |
+		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
+		ALLOY_CAP_FX_STARTUP,
 	.fx_names = a3wl_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(a3wl_fx_names),
 	.ascii_art = alloy_art_steelseries_aerox3_wireless,
