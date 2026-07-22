@@ -80,6 +80,9 @@ enum tui_color {
 	CLR_PICKER_SWATCH, /* + swatch index */
 };
 
+/* consecutive idle battery polls tolerated before the gauge blanks to "--" */
+#define TUI_BATTERY_MAX_MISSES 3
+
 struct tui {
 	struct alloy_device *dev;
 	const struct alloy_driver *drv;
@@ -112,6 +115,7 @@ struct tui {
 	 */
 	int battery_pct;
 	int battery_charging;
+	int battery_misses; /* consecutive failed polls; blanks the gauge past a threshold */
 	int bt_present; /* mouse currently paired to the host over Bluetooth */
 	long battery_next_ms;
 

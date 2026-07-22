@@ -19,11 +19,14 @@
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "hid.h"
 
 #define ALLOY_HID_ACK_TIMEOUT_MS 400
+/* pause between wake attempts, so sleeping link has moment to come back */
+#define ALLOY_HID_RETRY_DELAY_MS 40
 
 static int uevent_matches(const char *path, uint16_t vendor_id,
 			  uint16_t product_id, int interface)
@@ -152,11 +155,34 @@ int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 
 	dev->fd = -1;
 	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
+	dev->vendor_id = vendor_id;
+	dev->product_id = product_id;
+	dev->interface = interface;
 
 	if (!hid_find_node(vendor_id, product_id, interface, node,
 			   sizeof(node)))
 		return -1;
 
+	dev->fd = open(node, O_RDWR | O_CLOEXEC);
+	return dev->fd < 0 ? -1 : 0;
+}
+
+/*
+ * Re-open hidraw node after the receiver re-enumerates and the old fd goes stale.
+ * Re-runs discovery because the node number typically changes.
+ * Returns 0 on fresh fd, -1 when the device is gone.
+ */
+static int hid_reopen(struct alloy_hid_dev *dev)
+{
+	char node[288];
+
+	if (dev->fd >= 0) {
+		close(dev->fd);
+		dev->fd = -1;
+	}
+	if (!hid_find_node(dev->vendor_id, dev->product_id, dev->interface,
+			   node, sizeof(node)))
+		return -1;
 	dev->fd = open(node, O_RDWR | O_CLOEXEC);
 	return dev->fd < 0 ? -1 : 0;
 }
@@ -243,34 +269,118 @@ static void hid_drain(struct alloy_hid_dev *dev)
 		;
 }
 
-int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
-		       size_t len, uint8_t *resp, size_t resp_len)
+static long hid_now_ms(void)
 {
-	int ret;
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/*
+ * Receiver's "mouse asleep / not linked" reply.
+ * On the config interface it arrives instead of the command echo whenever
+ * the 2.4 GHz link has idled, and is also pushed unsolicited while idle -
+ * so it must be skipped, not mistaken for rejected command.
+ */
+static int hid_is_idle_marker(const uint8_t *resp, int n)
+{
+	return n >= 2 && resp[0] == 0x40 && resp[1] == 0xFF;
+}
+
+/*
+ * Read reports until one whose first byte is @want arrives
+ * (want < 0 accepts any report that is not the idle marker),
+ * discarding the idle marker and any unrelated report (e.g. a stray event)
+ * that lands first, within an overall deadline.
+ * Reading single report is not enough:
+ * config interface interleaves idle markers with echoes, so the first report
+ * back is not necessarily the ACK.
+ * Returns the matching report length, -1 on I/O error, -2 on deadline.
+ */
+static int hid_read_matching(struct alloy_hid_dev *dev, int want, uint8_t *resp,
+			     size_t resp_len, int deadline_ms)
+{
+	long deadline = hid_now_ms() + deadline_ms;
+	long remaining;
+
+	while ((remaining = deadline - hid_now_ms()) > 0) {
+		int n = hid_read_report(dev, resp, resp_len, (int)remaining);
+
+		if (n == -2)
+			return -2; /* poll timed out */
+		if (n < 0)
+			return -1; /* I/O error */
+		if (hid_is_idle_marker(resp, n))
+			continue; /* mouse asleep/unlinked, keep waiting */
+		if (want >= 0 && (n < 1 || resp[0] != (uint8_t)want))
+			continue; /* not our echo, skip stray report */
+		return n;
+	}
+	return -2;
+}
+
+int alloy_hid_cmd_read_want(struct alloy_hid_dev *dev, const uint8_t *payload,
+			    size_t len, int want, uint8_t *resp,
+			    size_t resp_len, int attempts)
+{
+	int i;
 
 	if (!len)
 		return -1;
+	if (attempts < 1)
+		attempts = 1;
 
-	hid_drain(dev);
+	for (i = 0; i < attempts; i++) {
+		int n;
 
-	ret = hid_write_report(dev, payload, len);
-	if (ret)
-		return ret;
+		if (dev->fd < 0 && hid_reopen(dev))
+			return -1;
 
-	return hid_read_report(dev, resp, resp_len, ALLOY_HID_ACK_TIMEOUT_MS);
+		hid_drain(dev);
+
+		if (hid_write_report(dev, payload, len)) {
+			/* stale node after re-enumeration: re-open and retry */
+			if (hid_reopen(dev))
+				return -1;
+			continue;
+		}
+
+		n = hid_read_matching(dev, want, resp, resp_len,
+				      ALLOY_HID_ACK_TIMEOUT_MS);
+		if (n > 0)
+			return n; /* got the echo / reply */
+		if (n == -1) {
+			/* node likely went away mid-exchange: re-open and retry */
+			if (hid_reopen(dev))
+				return -1;
+			continue;
+		}
+		/* n == -2: idle marker / silence, the mouse is asleep - nudge again */
+		usleep(ALLOY_HID_RETRY_DELAY_MS * 1000);
+	}
+	return -2;
+}
+
+int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
+		       size_t len, uint8_t *resp, size_t resp_len)
+{
+	return alloy_hid_cmd_read_want(dev, payload, len, -1, resp, resp_len,
+				       ALLOY_HID_ATTEMPTS_CMD);
 }
 
 int alloy_hid_cmd(struct alloy_hid_dev *dev, const uint8_t *payload, size_t len)
 {
 	uint8_t resp[ALLOY_HID_REPORT_SIZE];
-	int ret;
+	int n;
 
-	ret = alloy_hid_cmd_read(dev, payload, len, resp, sizeof(resp));
-	if (ret < 0)
-		return ret;
+	if (!len)
+		return -1;
 
-	/* ACK echoes the command byte */
-	if (ret < 1 || resp[0] != payload[0])
-		return -2;
-	return 0;
+	/* ACK echoes the command byte; wake the link hard for config writes */
+	n = alloy_hid_cmd_read_want(dev, payload, len, payload[0], resp,
+				    sizeof(resp), ALLOY_HID_ATTEMPTS_CMD);
+	if (n > 0)
+		return 0;
+	return n; /* -1 I/O error, -2 no ACK */
 }

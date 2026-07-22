@@ -538,12 +538,17 @@ static int a3wl_battery(struct alloy_device *dev, int *percent, int *charging)
 	uint8_t b;
 	int lvl;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
 	/*
-	 * linked mouse echoes 0xD2 <byte>;
-	 * idle receiver with no mouse answers with the 0x40 0xFF idle marker,
-	 * which fails this check
+	 * match the 0xD2 echo explicitly and keep the retry budget light:
+	 * this is background poll, so sleeping mouse that never answers must not
+	 * stall the render loop
+	 * few wake attempts recover merely-idle link; unlinked receiver only ever
+	 * emits the 0x40 0xFF idle marker, which hid_read_matching skips,
+	 * so the call returns "no reading" instead of bogus level
 	 */
+	n = alloy_hid_cmd_read_want(&dev->hid, cmd, sizeof(cmd),
+				    A3WL_CMD_BATTERY, resp, sizeof(resp),
+				    ALLOY_HID_ATTEMPTS_POLL);
 	if (n < 2 || resp[0] != A3WL_CMD_BATTERY)
 		return -1;
 

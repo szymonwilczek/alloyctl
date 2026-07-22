@@ -151,8 +151,19 @@ void tui_poll_battery(struct tui *t)
 		return;
 	t->battery_next_ms = now + 8000;
 
-	if (t->drv->ops->battery(t->dev, &t->battery_pct, &t->battery_charging))
-		t->battery_pct = -1;
+	/*
+	 * single idle poll is not proof the mouse is gone - 2.4 GHz link micro-sleeps
+	 * between reports
+	 * leep the last reading across couple of misses so the gauge stays put instead
+	 * of flickering to "--", and only declare "no link" once the misses persist
+	 */
+	if (t->drv->ops->battery(t->dev, &t->battery_pct,
+				 &t->battery_charging)) {
+		if (++t->battery_misses >= TUI_BATTERY_MAX_MISSES)
+			t->battery_pct = -1;
+	} else {
+		t->battery_misses = 0;
+	}
 
 	/* Bluetooth link: mouse shows up on bus 0x05 while paired over BT */
 	t->bt_present = t->drv->bt_product_id &&

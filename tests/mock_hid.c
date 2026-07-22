@@ -65,11 +65,21 @@ int alloy_hid_cmd(struct alloy_hid_dev *dev, const uint8_t *payload, size_t len)
 	return mock_hid.fail_cmds ? -2 : 0;
 }
 
-int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
-		       size_t len, uint8_t *resp, size_t resp_len)
+int alloy_hid_cmd_read_want(struct alloy_hid_dev *dev, const uint8_t *payload,
+			    size_t len, int want, uint8_t *resp,
+			    size_t resp_len, int attempts)
 {
+	(void)want;
+	(void)attempts;
 	alloy_hid_cmd(dev, payload, len);
 	memcpy(resp, mock_hid.next_response,
 	       ALLOY_MIN(resp_len, sizeof(mock_hid.next_response)));
 	return mock_hid.next_response_len;
+}
+
+int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
+		       size_t len, uint8_t *resp, size_t resp_len)
+{
+	return alloy_hid_cmd_read_want(dev, payload, len, -1, resp, resp_len,
+				       ALLOY_HID_ATTEMPTS_CMD);
 }
