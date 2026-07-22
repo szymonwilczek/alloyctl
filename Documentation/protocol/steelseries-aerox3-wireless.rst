@@ -406,6 +406,31 @@ mouse-button bindings) revert to defaults, and the polling rate is forced to
 power budget than the 2.4 GHz link, so the firmware drops the bandwidth-hungry
 and battery-hungry features and caps the poll rate to preserve battery.
 
+USB wired (cable) mode
+======================
+
+Plugging the mouse in by **cable** does not route it through this driver.
+On the cable the mouse enumerates directly as ``1038:183A`` -- the same USB
+product id it uses over Bluetooth, **not** the ``1038:1838`` receiver id this
+driver binds to. alloyctl therefore does not detect the cabled Aerox at all,
+and none of the wireless configuration (including the DEVICE/POWER sections of
+the TUI) is available in that mode:
+
+* **Detection** -- ``0x183A`` is not a registered driver (it appears in the tree
+  only as ``bt_product_id``, used to light the Bluetooth indicator), so device
+  enumeration skips it.
+* **Protocol** -- this driver is built entirely around the receiver's wireless
+  protocol (every opcode OR ``0x40``, config on interface 3, battery via
+  ``0xD2``). The wired ``0x183A`` endpoint speaks the un-flagged wired opcode
+  set on different interfaces; the flagged commands would go unacknowledged.
+* **Semantics** -- the POWER settings describe running off the battery. On the
+  cable the mouse is bus-powered and charging, so the sleep timer is moot and
+  the gauge reports charging rather than a discharge level.
+
+**Configuring the wireless features requires the 2.4 GHz receiver.** Supporting
+the cabled mouse would be a separate wired-Aerox driver for ``0x183A`` with its
+own opcode set and no ``ALLOY_CAP_BATTERY``; it is out of scope here.
+
 Read-back
 =========
 
