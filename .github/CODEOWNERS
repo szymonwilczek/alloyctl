@@ -19,6 +19,9 @@
 /drivers/steelseries_rival3/	@szymonwilczek
 /drivers/steelseries_rival3_gen2/	@szymonwilczek
 /tests/drivers/steelseries_rival3.c	@szymonwilczek
+/drivers/steelseries_aerox3_wireless/	@szymonwilczek
 /tests/drivers/steelseries_rival3_gen2.c	@szymonwilczek
+/tests/drivers/steelseries_aerox3_wireless.c	@szymonwilczek
 /Documentation/protocol/steelseries-rival3.rst	@szymonwilczek
 /Documentation/protocol/steelseries-rival3-gen2.rst	@szymonwilczek
+/Documentation/protocol/steelseries-aerox3-wireless.rst	@szymonwilczek

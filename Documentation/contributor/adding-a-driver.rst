@@ -176,3 +176,35 @@ Ground rules
 * **Style.** ``make format`` before committing; CI enforces it.
 * **Commits.** ``feat:``/``fix:`` prefix, a body explaining the why, and your
   ``Signed-off-by:`` (DCO). See :doc:`contributing`.
+
+Wireless drivers
+================
+
+Wireless mice are supported and form their own driver family, distinguished by a
+battery gauge. The reference is
+:ghsrc:`drivers/steelseries_aerox3_wireless/steelseries_aerox3_wireless.c`; its
+protocol write-up is :doc:`../protocol/steelseries-aerox3-wireless`.
+
+A wireless driver differs from a wired one in a few ways:
+
+#. **Battery.** Set the ``ALLOY_CAP_BATTERY`` capability and implement
+   ``ops->battery``, which fills ``*percent`` (0--100) and ``*charging`` and
+   returns ``0``, or a negative value when the device reports no valid level --
+   e.g. a 2.4 GHz receiver whose mouse is asleep or unlinked answers with an
+   idle marker, not a charge. Report that honestly rather than faking ``0 %``.
+#. **The receiver is not the mouse.** The USB receiver enumerates even with no
+   mouse linked, and it typically re-enumerates as the mouse sleeps and wakes.
+   Keep the transport resilient to the config node briefly disappearing, and do
+   not assume a setting written once sticks across a sleep.
+#. **Non-persistent state.** Some settings (LED colors on the Aerox 3 Wireless)
+   are dropped on sleep and not even kept by the save command; the host must
+   re-apply them. The live-preview reapplies lighting on change, which covers
+   this for the TUI.
+#. **Bluetooth.** If the mouse also pairs over Bluetooth, note that it usually
+   exposes no vendor configuration interface there, so the driver only manages
+   it over the 2.4 GHz receiver. Document the reduced Bluetooth mode rather than
+   pretending to drive it.
+
+Only the 2.4 GHz receiver's USB id belongs in the driver's ``product_id``; the
+wired-mode and Bluetooth ids are different and, where the opcodes differ, a
+separate driver.
