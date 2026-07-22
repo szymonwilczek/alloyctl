@@ -214,6 +214,36 @@ mask sent while it is off is ignored), so alloyctl derives it as "any rainbow
 zone OR the startup choice wants rainbow" and sends ``0x67`` first in every
 lighting apply -- the same engine ordering as the Rival 3 Gen 2.
 
+``0x68`` -- High-Efficiency Mode (wired ``0x28``)
+-------------------------------------------------
+
+::
+
+   0x68 <enable>   ; 0x01 on, 0x00 off
+
+The GG "High-Efficiency Mode" battery saver ("extend battery life with automatic
+settings"). Reverse engineered from a Windows GG USB capture: toggling the mode
+does **not** send a single self-contained opcode -- GG emits a three-command
+bundle, and the ``0x68`` flag is only one part of it. Captured, mode turned on::
+
+   63 00 01 01 00 00 00 00   ; illumination level forced to 0 (LEDs blanked)
+   68 01                     ; High-Efficiency flag on
+   6b 03                     ; polling forced to 125 Hz
+
+and turned off again, the two forced registers are restored to the user's
+values (here 1000 Hz and full brightness)::
+
+   63 0f 01 01 00 ...        ; brightness restored
+   68 00                     ; flag off
+   6b 00                     ; 1000 Hz restored
+
+So the mode *is* the bundle: the firmware does not drop polling or lighting on
+its own from the flag, the host drives the saver. alloyctl mirrors this exactly
+-- enabling forces 125 Hz and blanks the LEDs alongside ``0x68 0x01``; disabling
+sends ``0x68 0x00`` and re-pushes the polling rate and brightness from the live
+config. The dedicated flag ``0x68`` is what the earlier probing could not
+isolate (the whole ``0x60``--``0x6F`` block ACKs), now pinned by the capture.
+
 ``0x69`` -- sleep timer (wired ``0x29``, wireless only)
 -------------------------------------------------------
 
@@ -314,6 +344,41 @@ presses. ``active`` is 0-based, the wire bytes repeat the level table in the
 alloyctl listens here to keep the ACTIVE level indicator in sync with the
 hardware button, exactly as on the Rival 3 Gen 2.
 
+``0xBC`` -- power state notification
+------------------------------------
+
+::
+
+   0xBC <state>   ; 0x01 wake / link, 0x00 sleep / unlink
+
+Emitted when the linked mouse changes power state: ``0xBC 0x01`` when it wakes or
+(re)links to the receiver, ``0xBC 0x00`` when it sleeps or drops off. Captured
+across a 30 s sleep-timer cycle: the mouse idled out (``bc 00``), config queries
+answered the ``40 ff`` idle marker for the whole nap, then a nudge woke it
+(``bc 01``). The wake edge is what prompts the host to re-push the
+non-persistent lighting, which the live-preview reapply already does.
+
+``0x12`` -- unsolicited battery level
+-------------------------------------
+
+::
+
+   0x12 <b>
+
+A device-initiated battery report, same byte encoding as the ``0xD2`` query
+(bit7 charging, ``((b & 0x7F) - 1) * 5`` = level %). Pushed right after a
+``0xBC 0x01`` wake. Captured ``12 13`` -> ``0x13`` = 90 %. alloyctl does not
+need to key off it -- the UI polls ``0xD2`` on a timer -- but it confirms the
+gauge without a round-trip.
+
+``0x80`` -- device-name marker
+------------------------------
+
+At the sleep boundary the interface also emits a one-off ``0x80`` report
+carrying the ASCII device name (captured ``80 "Wireless Device"``). It conveys
+no configuration and alloyctl ignores it; noted here so it is not mistaken for a
+command echo.
+
 ``40 ff`` -- receiver idle marker
 ---------------------------------
 
@@ -355,18 +420,22 @@ As on every other supported mouse, these have no onboard command and are
 implemented host-side by the pointer-transform daemon; see
 :doc:`../architecture/pointer-transform`.
 
+Resolved by the Windows GG capture
+==================================
+
+The two items previously open here were pinned from a SteelSeries GG USB capture
+on Windows (see the ``0x68`` command and the ``0xBC`` / ``0x12`` events above):
+
+* **High-Efficiency Mode** is the ``0x68`` flag driven as a three-command bundle
+  (``0x68`` + forced 125 Hz ``0x6B`` + blanked ``0x63``). This is the opcode the
+  earlier ``0x60``--``0x6F`` probing could not discriminate.
+* The wake/sleep handshake is the ``0xBC`` power notification (``01`` wake/link,
+  ``00`` sleep/unlink), with an unsolicited ``0x12`` battery push after wake and
+  a one-off ``0x80`` device-name marker at the sleep edge.
+
 Open questions / not yet reverse engineered
 ===========================================
 
-* **High-Efficiency Mode** (a GG battery-saver toggle, "extend battery life with
-  automatic settings") was not identified. Because the whole ``0x60``--``0x6F``
-  block ACKs regardless of function and the toggle has no observable effect on
-  Linux, it cannot be pinned down without a SteelSeries GG USB capture on
-  Windows. During probing, sending ``0x00`` across the unmapped opcodes of that
-  block (``0x60``, ``0x64``, ``0x65``, ``0x68``, ``0x6C``, ``0x6E``, ``0x6F``)
-  left the illumination stuck off until a power cycle, so one of them is a
-  plausible illumination-master / High-Efficiency control -- a lead for a future
-  capture.
-* The receiver's frequent re-enumeration and the ``40 ff`` idle marker are
-  documented empirically; the exact wake/sleep handshake (the ``bc 01``/``bc 00``
-  power notifications seen in the gort818 captures) is not yet mapped.
+* The ``0x63`` illumination command's smart-mode and dim-timer fields are
+  observed in GG captures but not yet driven by alloyctl (slated for a later TUI
+  addition); the sleep timer ``0x69`` is likewise documented but not pushed yet.
