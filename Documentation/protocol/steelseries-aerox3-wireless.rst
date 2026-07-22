@@ -86,7 +86,9 @@ makes the ACK a reliable "command accepted" signal.
 
 The whole ``0x60``--``0x6F`` block echoes, so an ACK there confirms only that
 the opcode is inside the recognized range, not that each byte drives a distinct
-feature (see the open questions at the end).
+feature. This is why isolating ``0x68`` (High-Efficiency Mode) took a Windows GG
+capture rather than blind probing -- the ACK alone could not tell it apart from
+the unused opcodes in the block.
 
 Commands (output reports, interface 3)
 ======================================
@@ -187,9 +189,9 @@ A single unified command carries three illumination settings::
 * ``dim0..2`` -- dim-timer idle timeout, 3-byte little-endian milliseconds
   (0--1200 s, ``0`` = off); the LEDs dim after this idle time.
 
-alloyctl currently drives only ``level`` (with ``smart`` and the dim timer sent
-disabled); the two power-management fields are wireless features slated for a
-later TUI addition.
+alloyctl drives all three: ``level`` from the brightness slider, ``smart`` from
+the illumination smart-mode toggle, and the dim timer from its idle-seconds
+setting (clamped to the 1200 s ceiling, sent as little-endian ms).
 
 ``0x66`` -- reactive color (wired ``0x26``)
 -------------------------------------------
@@ -257,8 +259,8 @@ Captured: 5 min = 300000 ms::
 
    69 e0 93 04            ; 0x000493E0 little-endian
 
-Driven by alloyctl only as a future wireless-power setting; the driver does not
-push it yet.
+Driven by alloyctl through ops->apply_sleep, cfg->sleep_min minutes converted to
+the little-endian ms count (0 = never), clamped to the 20 min ceiling.
 
 ``0x6A`` -- button mapping (wired ``0x2A``)
 -------------------------------------------
@@ -436,6 +438,8 @@ on Windows (see the ``0x68`` command and the ``0xBC`` / ``0x12`` events above):
 Open questions / not yet reverse engineered
 ===========================================
 
-* The ``0x63`` illumination command's smart-mode and dim-timer fields are
-  observed in GG captures but not yet driven by alloyctl (slated for a later TUI
-  addition); the sleep timer ``0x69`` is likewise documented but not pushed yet.
+Every configuration opcode and event this receiver exposes is now identified,
+driven and documented above. Nothing on the 2.4 GHz vendor protocol remains
+open. The only capability the mouse has that alloyctl does not manage is
+Bluetooth mode, which offers no vendor configuration interface at all (see
+`Bluetooth mode`_).
