@@ -480,30 +480,45 @@ on Windows (see the ``0x68`` command and the ``0xBC`` / ``0x12`` events above):
   ``00`` sleep/unlink), with an unsolicited ``0x12`` battery push after wake and
   a one-off ``0x80`` device-name marker at the sleep edge.
 
+Pairing (dongle bind)
+=====================
+
+Binding a fresh mouse to the receiver (mouse switched OFF, then held CPI while
+flicking to 2.4 GHz) only completes while the host puts the *receiver* into a
+bind/listen mode over USB -- the mouse-side gesture alone is not enough. This is
+the host step SteelSeries GG performs on "connect a new device".
+
+Captured from a USBPcap trace of that GG flow, the trigger is a sequence of
+three unflagged output reports on interface 3, in order::
+
+  3b 00 00 ... 00        (preamble 1, echoed as 3b 00 ...)
+  11 00 00 ... 00        (preamble 2, echoed as 11 00 ...)
+  01 00 00 ... 00        (bind trigger, not echoed)
+
+None carry the ``0x40`` wireless flag the configuration opcodes use -- these talk
+to the receiver's own bind logic, not the mouse. The ``0x3b`` and ``0x11``
+preamble are acknowledged like any command (the receiver echoes them even with no
+mouse bound yet) and arm the bind. ``0x01`` is the trigger and is **not** echoed:
+the receiver drops the link, enters bind mode and re-enumerates a second or two
+later once a mouse binds to it. ``a3wl_pair`` replays all three -- ``0x3b`` /
+``0x11`` via the echo-synced command path (so each is processed before the next),
+``0x01`` fire-and-forget. Sending ``0x01`` alone was **not** enough on hardware;
+the preamble is required.
+
+The bind is confirmed out-of-band: after the receiver re-enumerates, a ``0xbc``
+query returns ``bc 01 ...`` (link up; ``bc 00`` is link down) and the ``0xD2``
+battery gauge reads a real level.
+
 Open questions / not yet reverse engineered
 ===========================================
 
 Every configuration opcode and event this receiver exposes is now identified,
-driven and documented above; nothing on the 2.4 GHz *config* surface remains
-open. What is left is on the transport and pairing side, surfaced by the
-wireless TUI work:
+driven and documented above, including dongle pairing (see
+`Pairing (dongle bind)`_). One transport refinement is left:
 
-* The ``0xBC`` wake/sleep notification is decoded (see
-  `0xBC -- power state notification`_), but the config transport does not yet
-  gate on it: it works around an idle link with a blind wake-retry (re-send
-  until the echo arrives). Gating writes on the ``0xBC 0x01`` wake edge would
-  let the host *know* the mouse is awake and replace the retry loop with an
-  event-driven flush.
-* **Dongle pairing.** Binding a fresh mouse to the receiver (mouse switched OFF,
-  then held CPI while flicking to 2.4 GHz) only completes while SteelSeries GG is
-  running, which means GG puts the *receiver* into a bind/listen mode over USB;
-  the mouse-side gesture alone is not enough. The pairing opcode has not been
-  captured yet. alloyctl carries the capability (``ALLOY_CAP_PAIRING``), a PAIR
-  button in the DEVICE box and a two-step wizard modeled on the GG flow, but the
-  ``ops->pair`` hook is a stub that returns ``ALLOY_PAIR_UNIMPLEMENTED`` -- so the
-  wizard walks the user through the gesture yet cannot yet complete the bind, and
-  only a mouse the receiver already knows can be driven. Reverse engineering the
-  opcode needs a USBPcap capture of GG's "connect a new device" flow on Windows
-  (cross-check the gort818 notes); the bind confirmation is likely the
-  ``bc 01`` link-up on the event interface. Landing it is a one-function change
-  in ``a3wl_pair``.
+* The ``0xBC`` wake/sleep notification is decoded (see `0xBC -- power state
+  notification`_) and a ``0xbc`` query confirms a pairing bind, but the config
+  transport does not yet gate on it: it works around an idle link with a blind
+  wake-retry (re-send until the echo arrives). Consuming the *unsolicited*
+  ``0xBC 0x01`` wake edge would let the host *know* the mouse is awake and
+  replace the retry loop with an event-driven flush.
