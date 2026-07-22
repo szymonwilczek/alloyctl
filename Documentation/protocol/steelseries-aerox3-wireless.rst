@@ -90,6 +90,24 @@ feature. This is why isolating ``0x68`` (High-Efficiency Mode) took a Windows GG
 capture rather than blind probing -- the ACK alone could not tell it apart from
 the unused opcodes in the block.
 
+Waking the link
+---------------
+
+The ACK only arrives while the 2.4 GHz link is awake. After a second or two
+with no mouse motion the link micro-sleeps, and until it wakes the config
+interface answers **every** query with the ``40 ff`` idle marker (below)
+instead of the echo -- it also pushes that marker unsolicited. A command sent
+in that window is not rejected; the mouse is simply not listening yet. The
+transport therefore treats a missing/idle response as "asleep, try again": it
+re-sends the command a few times (a wake nudge is enough to bring the link
+back), and it reads *until* the echo arrives rather than trusting the first
+report, since an idle marker can land ahead of the ACK. Only after the whole
+retry budget elapses is the command reported as unacknowledged. Background
+polls (battery) use a shorter budget than config writes so a genuinely absent
+mouse cannot stall the UI. This is the standard every wireless driver in the
+tree inherits from the transport layer -- individual drivers do not re-implement
+it.
+
 Commands (output reports, interface 3)
 ======================================
 
@@ -385,8 +403,10 @@ command echo.
 ---------------------------------
 
 When the mouse is asleep or not linked, config-interface queries answer with a
-report beginning ``40 ff ...`` instead of the expected echo. The battery op
-keys off this to report "no reading" rather than a bogus 0 %.
+report beginning ``40 ff ...`` instead of the expected echo. The transport
+skips this marker and re-sends the command to wake the link (see *Waking the
+link* above); once the retries are exhausted the battery op keys off the marker
+to report "no reading" rather than a bogus 0 %.
 
 Bluetooth mode
 ==============
@@ -464,7 +484,20 @@ Open questions / not yet reverse engineered
 ===========================================
 
 Every configuration opcode and event this receiver exposes is now identified,
-driven and documented above. Nothing on the 2.4 GHz vendor protocol remains
-open. The only capability the mouse has that alloyctl does not manage is
-Bluetooth mode, which offers no vendor configuration interface at all (see
-`Bluetooth mode`_).
+driven and documented above; nothing on the 2.4 GHz *config* surface remains
+open. What is left is on the transport and pairing side, surfaced by the
+wireless TUI work:
+
+* The ``0xBC`` wake/sleep notification is decoded (see
+  `0xBC -- power state notification`_), but the config transport does not yet
+  gate on it: it works around an idle link with a blind wake-retry (re-send
+  until the echo arrives). Gating writes on the ``0xBC 0x01`` wake edge would
+  let the host *know* the mouse is awake and replace the retry loop with an
+  event-driven flush.
+* **Dongle pairing.** Binding a fresh mouse to the receiver (mouse switched OFF,
+  then held CPI while flicking to 2.4 GHz) only completes while SteelSeries GG is
+  running, which means GG puts the *receiver* into a bind/listen mode over USB;
+  the mouse-side gesture alone is not enough. The pairing opcode has not been
+  captured yet, so alloyctl cannot pair a new mouse -- only drive one the
+  receiver is already bound to. Reverse engineering it needs a USBPcap capture of
+  GG's "connect a new device" flow on Windows (cross-check the gort818 notes).
