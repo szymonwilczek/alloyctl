@@ -111,6 +111,39 @@ jobs:
           test ! -e "$root/usr/bin/alloyctl"
           test ! -e "$root/usr/lib/udev/rules.d/70-alloyctl-uinput.rules"
           echo "uninstall: both removed"
+      - name: Install nfpm
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' \
+            | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+      - name: Build the .deb, .rpm and PKGBUILD and check their contents
+        run: |
+          set -eu
+          ver="$(cat VERSION)"
+          scripts/build-packages "$ver" release
+          deb="release/alloyctl_${ver}_amd64.deb"
+          rpm="release/alloyctl-${ver}.x86_64.rpm"
+
+          # both packages must carry the binary and both udev rules
+          for f in /usr/bin/alloyctl \
+            /usr/lib/udev/rules.d/70-alloyctl-uinput.rules \
+            /usr/lib/udev/rules.d/71-alloyctl-hidraw.rules; do
+            dpkg-deb -c "$deb" | grep -q " \.$f\$" \
+              || { echo "deb missing $f" >&2; exit 1; }
+            rpm -qlp "$rpm" | grep -qx "$f" \
+              || { echo "rpm missing $f" >&2; exit 1; }
+          done
+          echo "deb/rpm: binary and both udev rules present"
+
+          # AUR recipe's checksum must match the staged tarball
+          sha=$(sha256sum "release/alloyctl-${ver}-linux-x86_64.tar.gz" \
+            | cut -d' ' -f1)
+          grep -q "sha256sums=('${sha}')" release/PKGBUILD \
+            || { echo "PKGBUILD checksum does not match tarball" >&2; exit 1; }
+          grep -q "sha256sums = ${sha}" release/.SRCINFO \
+            || { echo ".SRCINFO checksum does not match tarball" >&2; exit 1; }
+          echo "PKGBUILD/.SRCINFO: checksum matches tarball"
 
   codeowners:
     # .github/CODEOWNERS is generated from MAINTAINERS

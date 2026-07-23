@@ -98,6 +98,31 @@ location. Two rules are placed:
   **pointer-transform daemon** (host-side acceleration/deceleration/angle
   snapping), whose autostart entry also wants the binary at a stable path.
 
+From a distribution package (recommended -- your package manager tracks
+updates and removals). Every release attaches a ``.deb``, an ``.rpm`` and an
+AUR ``PKGBUILD``; all place the binary and both udev rules and reload udev:
+
+.. code-block:: sh
+
+   sudo apt install ./alloyctl_<version>_amd64.deb      # Debian / Ubuntu
+   sudo dnf install ./alloyctl-<version>.x86_64.rpm     # Fedora / RHEL
+   sudo zypper install ./alloyctl-<version>.x86_64.rpm  # openSUSE
+   # Arch: build the attached PKGBUILD, or use the AUR 'alloyctl-bin' package
+   makepkg -si                                          # from the PKGBUILD's dir
+
+On NixOS, use the flake -- it builds from source and installs the udev rules
+the supported way:
+
+.. code-block:: nix
+
+   # flake.nix inputs: alloyctl.url = "github:szymonwilczek/alloyctl";
+   # in a NixOS module:
+   imports = [ inputs.alloyctl.nixosModules.default ];
+   programs.alloyctl.enable = true;
+
+Or run it ad hoc: ``nix run github:szymonwilczek/alloyctl``. Gentoo users can
+build the ebuild under ``dist/gentoo/`` from an overlay.
+
 From a release download (no source tree):
 
 .. code-block:: sh

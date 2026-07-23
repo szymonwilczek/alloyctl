@@ -1,0 +1,32 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# Packit (https://packit.dev) builds dist/rpm/alloyctl.spec on Fedora COPR.
+# It creates the source archive from the git tag (upstream_tag_template),
+# so no Source0 download is needed at build time.
+specfile_path: dist/rpm/alloyctl.spec
+upstream_package_name: alloyctl
+downstream_package_name: alloyctl
+upstream_tag_template: v{version}
+
+# keep the spec (and this config) in the generated SRPM / dist-git
+files_to_sync:
+  - src: dist/rpm/alloyctl.spec
+    dest: alloyctl.spec
+  - .packit.yaml
+
+jobs:
+  # smoke-build the spec on pull requests so packaging breakage is caught early
+  - job: copr_build
+    trigger: pull_request
+    targets:
+      - fedora-all
+      - epel-9
+
+  # build into the project's COPR repo on every released tag
+  - job: copr_build
+    trigger: release
+    owner: szymon-wilczek
+    project: alloyctl
+    targets:
+      - fedora-all
+      - epel-9
