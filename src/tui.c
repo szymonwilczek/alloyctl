@@ -68,7 +68,8 @@ static void tui_apply_all_impl(struct tui *t, int with_dpi)
 		tui_apply(t, ops->apply_polling, "polling");
 	if (!high_eff)
 		tui_apply(t, ops->apply_colors, "colors");
-	if ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) && !high_eff)
+	if ((t->drv->caps & (ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_BATTERY)) &&
+	    !high_eff)
 		tui_apply(t, ops->apply_brightness, "brightness");
 	tui_apply(t, ops->apply_buttons, "buttons");
 	if (t->drv->caps & ALLOY_CAP_BATTERY)
