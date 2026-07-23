@@ -162,13 +162,20 @@ void tui_poll_battery(struct tui *t)
 {
 	long now;
 
-	if (!(t->drv->caps & ALLOY_CAP_BATTERY) || !t->drv->ops->battery)
+	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
 		return;
 
 	now = tui_now_ms();
 	if (now < t->battery_next_ms)
 		return;
 	t->battery_next_ms = now + 8000;
+
+	/* Bluetooth link: mouse shows up on bus 0x05 while paired over BT */
+	t->bt_present = t->drv->bt_product_id &&
+			alloy_hid_present_bus(0x05, t->drv->bt_product_id);
+
+	if (!t->drv->ops->battery)
+		return;
 
 	/*
 	 * single idle poll is not proof the mouse is gone - 2.4 GHz link micro-sleeps
@@ -183,10 +190,6 @@ void tui_poll_battery(struct tui *t)
 	} else {
 		t->battery_misses = 0;
 	}
-
-	/* Bluetooth link: mouse shows up on bus 0x05 while paired over BT */
-	t->bt_present = t->drv->bt_product_id &&
-			alloy_hid_present_bus(0x05, t->drv->bt_product_id);
 }
 
 /*
@@ -198,6 +201,13 @@ void tui_poll_battery(struct tui *t)
 static int tui_device_linked(const struct tui *t)
 {
 	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
+		return 1;
+	/*
+	 * Bluetooth driver binds its hidraw node only while the mouse is actually
+	 * connected, so once it is open the link is up - there is no bare-receiver
+	 * case to wait out.
+	 */
+	if (t->drv->bustype == 0x05)
 		return 1;
 	return t->battery_pct >= 0 || t->bt_present;
 }
@@ -336,8 +346,13 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
-		/* ILLUMINATION button is all the pane offers */
-		return 1;
+		/*
+		 * ILLUMINATION gateway is all the pane offers, and it only makes
+		 * sense when the device has LED zones to edit.
+		 * Without them the pane holds nothing selectable and navigation
+		 * skips it
+		 */
+		return t->drv->num_zones ? 1 : 0;
 	case PANE_LEVELS:
 		/* one item per preset plus CREATE below the limit */
 		return t->cfg.dpi_count +
@@ -356,8 +371,12 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		return n;
 	}
 	case PANE_TUNING:
-		/* acceleration, deceleration, angle snapping, engine, polling */
-		return 5;
+		/*
+		 * acceleration, deceleration, angle snapping, engine, and -
+		 * only when the device exposes polling rates - the polling rate.
+		 * Bluetooth locks polling out, so that row drops off the bottom.
+		 */
+		return t->drv->num_polling_rates ? 5 : 4;
 	case PANE_FOOTER:
 		return FOOTER_COUNT;
 	default:

@@ -301,16 +301,22 @@ static void draw_center_pane(struct tui *t)
 	x = r.x + ALLOY_MAX(1, (r.w - art_width) / 2);
 	tui_art_draw(t, art, y, x, r.y + r.h - 4, -1);
 
-	/* gateway to the illumination view, centered under the art */
-	y = r.y + r.h - 3;
-	x = r.x + (r.w - 16) / 2;
-	if (focused)
-		attron(COLOR_PAIR(CLR_SELECTED));
-	else
-		attron(COLOR_PAIR(CLR_BUTTON));
-	mvprintw(y, x, "  ILLUMINATION  ");
-	attroff(COLOR_PAIR(CLR_SELECTED));
-	attroff(COLOR_PAIR(CLR_BUTTON));
+	/*
+	 * gateway to the illumination view, centered under the art -
+	 * only for devices with LED zones
+	 * (see tui_pane_item_count: the pane is unfocusable without them)
+	 */
+	if (t->drv->num_zones) {
+		y = r.y + r.h - 3;
+		x = r.x + (r.w - 16) / 2;
+		if (focused)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		else
+			attron(COLOR_PAIR(CLR_BUTTON));
+		mvprintw(y, x, "  ILLUMINATION  ");
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON));
+	}
 }
 
 static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
@@ -656,12 +662,19 @@ static void draw_tuning_pane(struct tui *t)
 	attroff(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
 	y += 2;
 
+	/*
+	 * Polling rate, only for devices that expose it
+	 * (Bluetooth locks it out, so the row is absent there -
+	 * see tui_pane_item_count for PANE_TUNING).
+	 */
+	if (!t->drv->num_polling_rates)
+		return;
+
 	mvprintw(y, r->x + 2, "POLLING RATE");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
 	draw_poll_wave(y, r->x + 3, r->w - 6, 3, t->cfg.polling_hz,
-		       t->drv->num_polling_rates ? t->drv->polling_rates[0] :
-						   t->cfg.polling_hz);
+		       t->drv->polling_rates[0]);
 	attroff(COLOR_PAIR(CLR_ACCENT));
 	y += 4; /* chart height + blank line before the stepper */
 
