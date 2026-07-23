@@ -2,6 +2,8 @@
 #
 # Source RPM spec for COPR / Fedora dist-git.
 # This is the from-source build channel.
+%global debug_package %{nil}
+
 Name:           alloyctl
 Version:        0.1.0
 Release:        1%{?dist}
@@ -47,5 +49,5 @@ exposes. One portable binary, community-driven per-mouse drivers.
 %{_udevrulesdir}/71-alloyctl-hidraw.rules
 
 %changelog
-* Fri Jul 24 2026 Szymon Wilczek <swilczek.lx@gmail.com> - 0.1.0-1
+* Mon Jul 20 2026 Szymon Wilczek <swilczek.lx@gmail.com> - 0.1.0-1
 - Initial COPR/Fedora packaging.
