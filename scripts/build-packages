@@ -11,8 +11,11 @@
 #
 # Produces under <outdir>:
 #   alloyctl_<version>_amd64.deb    Debian/Ubuntu package (nfpm)
-#   alloyctl-<version>.x86_64.rpm   Fedora/RHEL package (nfpm)
+#   alloyctl-<version>.x86_64.rpm   Fedora/RHEL/openSUSE package (nfpm)
 #   PKGBUILD                        AUR recipe, checksum pinned to the tarball
+#   .SRCINFO                        AUR metadata, rendered alongside PKGBUILD so
+#                                   the recipe can be pushed to the AUR without
+#                                   makepkg (unavailable on the CI runner)
 #
 # Requires: nfpm on PATH.
 # Usage: scripts/build-packages <version> [outdir]
@@ -55,12 +58,18 @@ nfpm package --config dist/nfpm.yaml --packager deb \
 nfpm package --config dist/nfpm.yaml --packager rpm \
 	--target "$out/alloyctl-${ver}.x86_64.rpm"
 
-# render the AUR recipe, pinning the checksum to the tarball just staged
+# render the AUR recipe and its metadata, pinning the checksum to the tarball
+# just staged;
+# PKGBUILD.in and .SRCINFO.in carry the same fields and are kept in sync by hand
+# (CI asserts both checksums match the tarball)
 sha=$(sha256sum "$tarball" | cut -d' ' -f1)
-sed -e "s/@VERSION@/${ver}/g" -e "s/@SHA256@/${sha}/g" \
-	dist/aur/PKGBUILD.in >"$out/PKGBUILD"
+for tmpl in PKGBUILD .SRCINFO; do
+	sed -e "s/@VERSION@/${ver}/g" -e "s/@SHA256@/${sha}/g" \
+		"dist/aur/${tmpl}.in" >"$out/${tmpl}"
+done
 
 echo "built:"
 echo "  $out/alloyctl_${ver}_amd64.deb"
 echo "  $out/alloyctl-${ver}.x86_64.rpm"
 echo "  $out/PKGBUILD"
+echo "  $out/.SRCINFO"
