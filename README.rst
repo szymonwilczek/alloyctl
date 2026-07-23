@@ -98,6 +98,17 @@ location. Two rules are placed:
   **pointer-transform daemon** (host-side acceleration/deceleration/angle
   snapping), whose autostart entry also wants the binary at a stable path.
 
+From a distribution package (recommended -- your package manager tracks
+updates and removals). Every release attaches a ``.deb``, an ``.rpm`` and an
+AUR ``PKGBUILD``; all place the binary and both udev rules and reload udev:
+
+.. code-block:: sh
+
+   sudo apt install ./alloyctl_<version>_amd64.deb      # Debian / Ubuntu
+   sudo dnf install ./alloyctl-<version>.x86_64.rpm     # Fedora / RHEL
+   # Arch: build the attached PKGBUILD, or use the AUR 'alloyctl-bin' package
+   makepkg -si                                          # from the PKGBUILD's dir
+
 From a release download (no source tree):
 
 .. code-block:: sh
