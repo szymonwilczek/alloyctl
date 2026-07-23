@@ -202,13 +202,13 @@ static void draw_device_status(struct tui *t, const struct rect *r)
 	/* 2.4 GHz signal logo */
 	attron(rf_on ? COLOR_PAIR(CLR_LINK_RF) | A_BOLD :
 		       COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
-	mvaddstr(y, x, "▂▄▆ 2.4G");
+	mvaddstr(y, x, "((o)) 2.4G");
 	attrset(A_NORMAL);
 
-	/* Bluetooth rune logo */
+	/* Bluetooth logo */
 	attron(t->bt_present ? COLOR_PAIR(CLR_LINK_BT) | A_BOLD :
 			       COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
-	mvaddstr(y, x + 13, "ᛒ BT");
+	mvaddstr(y, x + 13, ">B< BT");
 	attrset(A_NORMAL);
 
 	y = r->y + 3;
