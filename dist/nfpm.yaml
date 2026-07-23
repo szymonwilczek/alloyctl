@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: GPL-2.0-only
+#
+# nfpm (https://nfpm.goreleaser.com) config that turns the single portable alloyctl
+# binary into native .deb and .rpm packages - one description, both formats.
+#
+# Version comes from the environment so the VERSION file stays the single source
+# of truth; scripts/build-packages sets it.
+#
+# 71-alloyctl-hidraw.rules file is generated from the binary's driver registry into
+# build/pkg/ before packaging (also done by scripts/build-packages), never hand-kept.
+#
+# Runtime only needs the ncursesw library the TUI links against; its package name
+# differs per distro, hence the per-format overrides below.
+
+name: alloyctl
+arch: amd64
+platform: linux
+version: ${ALLOYCTL_VERSION}
+section: utils
+priority: optional
+maintainer: Szymon Wilczek <swilczek.lx@gmail.com>
+description: |
+  Linux CLI/TUI to control SteelSeries mice.
+  Full-screen terminal replacement for SteelSeries Engine: DPI, polling
+  rate, lighting, button mapping and more, for every setting the hardware
+  really exposes. One portable binary, community-driven per-mouse drivers.
+vendor: alloyctl
+homepage: https://github.com/szymonwilczek/alloyctl
+license: GPL-2.0-only
+
+contents:
+  - src: ./alloyctl
+    dst: /usr/bin/alloyctl
+    file_info:
+      mode: 0755
+  - src: ./dist/udev/70-alloyctl-uinput.rules
+    dst: /usr/lib/udev/rules.d/70-alloyctl-uinput.rules
+    file_info:
+      mode: 0644
+  - src: ./build/pkg/71-alloyctl-hidraw.rules
+    dst: /usr/lib/udev/rules.d/71-alloyctl-hidraw.rules
+    file_info:
+      mode: 0644
+  - src: ./README.rst
+    dst: /usr/share/doc/alloyctl/README.rst
+    file_info:
+      mode: 0644
+  - src: ./LICENSE
+    dst: /usr/share/doc/alloyctl/LICENSE
+    file_info:
+      mode: 0644
+
+scripts:
+  postinstall: ./dist/scripts/postinstall.sh
+  postremove: ./dist/scripts/postremove.sh
+
+overrides:
+  deb:
+    depends:
+      - libncursesw6
+  rpm:
+    depends:
+      - ncurses-libs
