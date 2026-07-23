@@ -40,6 +40,13 @@ struct alloy_hid_dev {
 	uint16_t vendor_id;
 	uint16_t product_id;
 	int interface;
+	/*
+	 * First byte written on every report: the HID report number.
+	 * 0 (unnumbered) for the USB/2.4 GHz path where mice use a single report.
+	 * Bluetooth speaks HID-over-GATT, where the vendor channel is a numbered
+	 * Output report, so alloy_hid_open_bus sets the real report id here.
+	 */
+	uint8_t report_id;
 };
 
 /*
@@ -59,6 +66,19 @@ int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id);
 
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size);
+
+/*
+ * Open the single hidraw node a device exposes on the given bus type
+ * (e.g. 0x05 Bluetooth), matched by product id only - Bluetooth re-brands
+ * the vendor id and multiplexes every report through one node, so there is
+ * no interface to match.
+ * @report_id is written as the report number on each send
+ * (the numbered Output report the vendor channel lives on over HID-over-GATT).
+ * Returns 0 on success, -1 when no matching node is present or cannot be opened.
+ */
+int alloy_hid_open_bus(struct alloy_hid_dev *dev, uint16_t bustype,
+		       uint16_t product_id, uint8_t report_id,
+		       size_t report_size);
 void alloy_hid_close(struct alloy_hid_dev *dev);
 
 /*

@@ -29,6 +29,18 @@ int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface)
 	return 0;
 }
 
+int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id)
+{
+	int i;
+
+	(void)bustype;
+	for (i = 0; i < mock_hid.num_present; i++) {
+		if (mock_hid.present[i].product_id == product_id)
+			return 1;
+	}
+	return 0;
+}
+
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 		   uint16_t product_id, int interface, size_t report_size)
 {
@@ -36,6 +48,19 @@ int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 	(void)product_id;
 	(void)interface;
 	dev->fd = 42;
+	dev->report_id = 0;
+	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
+	return 0;
+}
+
+int alloy_hid_open_bus(struct alloy_hid_dev *dev, uint16_t bustype,
+		       uint16_t product_id, uint8_t report_id,
+		       size_t report_size)
+{
+	(void)bustype;
+	(void)product_id;
+	dev->fd = 42;
+	dev->report_id = report_id;
 	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
 	return 0;
 }

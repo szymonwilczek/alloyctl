@@ -103,7 +103,15 @@ int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface)
 	return hid_find_node(vendor_id, product_id, interface, NULL, 0);
 }
 
-int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id)
+/*
+ * Locate the hidraw node device exposes on the given bus type, matched by product id
+ * only (vendor and interface ignored - Bluetooth re-brands the vendor and carries every
+ * report on one node).
+ * On a match, copies "/dev/hidrawN" into node (when non-NULL) and returns 1;
+ * returns 0 when no connected device matches.
+ */
+static int hid_find_node_bus(uint16_t bustype, uint16_t product_id, char *node,
+			     size_t node_len)
 {
 	char path[288];
 	struct dirent *ent;
@@ -140,12 +148,21 @@ int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id)
 			break;
 		}
 		fclose(f);
-		if (found)
+		if (found) {
+			if (node)
+				snprintf(node, node_len, "/dev/%s",
+					 ent->d_name);
 			break;
+		}
 	}
 	closedir(dir);
 
 	return found;
+}
+
+int alloy_hid_present_bus(uint16_t bustype, uint16_t product_id)
+{
+	return hid_find_node_bus(bustype, product_id, NULL, 0);
 }
 
 int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
@@ -158,9 +175,30 @@ int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 	dev->vendor_id = vendor_id;
 	dev->product_id = product_id;
 	dev->interface = interface;
+	dev->report_id = 0; /* USB path: single unnumbered report */
 
 	if (!hid_find_node(vendor_id, product_id, interface, node,
 			   sizeof(node)))
+		return -1;
+
+	dev->fd = open(node, O_RDWR | O_CLOEXEC);
+	return dev->fd < 0 ? -1 : 0;
+}
+
+int alloy_hid_open_bus(struct alloy_hid_dev *dev, uint16_t bustype,
+		       uint16_t product_id, uint8_t report_id,
+		       size_t report_size)
+{
+	char node[288];
+
+	dev->fd = -1;
+	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
+	dev->vendor_id = 0; /* bus re-brands it; unused on this path */
+	dev->product_id = product_id;
+	dev->interface = -1; /* one node carries every report */
+	dev->report_id = report_id;
+
+	if (!hid_find_node_bus(bustype, product_id, node, sizeof(node)))
 		return -1;
 
 	dev->fd = open(node, O_RDWR | O_CLOEXEC);
@@ -222,7 +260,7 @@ static int hid_write_report(struct alloy_hid_dev *dev, const uint8_t *payload,
 		return -1;
 
 	memset(buf, 0, sizeof(buf));
-	buf[0] = 0x00; /* report number: device uses unnumbered reports */
+	buf[0] = dev->report_id; /* report number; 0 = unnumbered (USB path) */
 	memcpy(buf + 1, payload, len);
 
 	n = write(dev->fd, buf, total);

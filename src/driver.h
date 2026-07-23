@@ -270,6 +270,23 @@ struct alloy_driver {
 	int event_interface;
 
 	/*
+	 * HID bus this driver binds on:
+	 * 0 (default) is USB/2.4 GHz - matched and opened by vendor/product on
+	 * the given interface.
+	 * 0x05 is Bluetooth - the mouse speaks HID-over-GATT, so it is matched
+	 * and opened by product_id alone on the single hidraw node the BLE stack
+	 * exposes (vendor and interface do not apply), and config rides the numbered
+	 * Output report named by report_id below.
+	 */
+	uint16_t bustype;
+	/*
+	 * Report number prefixed to every vendor write.
+	 * 0 (default) for the USB path's single unnumbered report;
+	 * the real Output report id for a Bluetooth (bustype 0x05) driver.
+	 */
+	uint8_t report_id;
+
+	/*
 	 * Wireless devices only:
 	 * HID product id this mouse enumerates as over Bluetooth (bus 0x05),
 	 * used purely to light the connection indicator when the mouse is paired
