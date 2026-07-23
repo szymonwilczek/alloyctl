@@ -11,6 +11,9 @@
 #
 # Runtime only needs the ncursesw library the TUI links against; its package name
 # differs per distro, hence the per-format overrides below.
+#
+# rpm uses an rpm boolean dependency so the one .rpm resolves on both Fedora/RHEL
+# (ncurses-libs) and openSUSE/Mageia (libncurses6), which name the same library differently
 
 name: alloyctl
 arch: amd64
@@ -60,4 +63,4 @@ overrides:
       - libncursesw6
   rpm:
     depends:
-      - ncurses-libs
+      - (ncurses-libs or libncurses6)
