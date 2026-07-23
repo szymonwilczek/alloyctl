@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-2.0-only
+# Copyright (C) 2026 Szymon Wilczek
+#
+# Build the native distro packages from an already-built ./alloyctl binary
+# and already-staged release tarball (scripts/stage-release runs first).
+#
+# Shared by the Release workflow (which then hashes and signs the packages)
+# and by CI (which builds them to prove the config still works),
+# so the two can never drift apart - exactly like scripts/stage-release.
+#
+# Produces under <outdir>:
+#   alloyctl_<version>_amd64.deb    Debian/Ubuntu package (nfpm)
+#   alloyctl-<version>.x86_64.rpm   Fedora/RHEL/openSUSE package (nfpm)
+#   PKGBUILD                        AUR recipe, checksum pinned to the tarball
+#   .SRCINFO                        AUR metadata, rendered alongside PKGBUILD so
+#                                   the recipe can be pushed to the AUR without
+#                                   makepkg (unavailable on the CI runner)
+#
+# Requires: nfpm on PATH.
+# Usage: scripts/build-packages <version> [outdir]
+set -eu
+
+ver="${1:?usage: build-packages <version> [outdir]}"
+out="${2:-release}"
+
+ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+cd "$ROOT"
+
+if [ ! -x alloyctl ]; then
+	echo "build-packages: ./alloyctl not built; run make first" >&2
+	exit 1
+fi
+if ! command -v nfpm >/dev/null 2>&1; then
+	echo "build-packages: nfpm not found on PATH" >&2
+	echo "  install from https://nfpm.goreleaser.com" >&2
+	exit 1
+fi
+
+dist="alloyctl-${ver}-linux-x86_64"
+tarball="$out/${dist}.tar.gz"
+if [ ! -f "$tarball" ]; then
+	echo "build-packages: $tarball missing; run scripts/stage-release first" >&2
+	exit 1
+fi
+
+mkdir -p "$out" build/pkg
+
+# per-device hidraw rule ships in the packages too;
+# generate it from the binary's own driver registry so it matches exactly
+# the drivers built in
+./alloyctl --dump-udev >build/pkg/71-alloyctl-hidraw.rules
+
+# nfpm reads the version from the environment, keeping VERSION authoritative
+export ALLOYCTL_VERSION="$ver"
+nfpm package --config dist/nfpm.yaml --packager deb \
+	--target "$out/alloyctl_${ver}_amd64.deb"
+nfpm package --config dist/nfpm.yaml --packager rpm \
+	--target "$out/alloyctl-${ver}.x86_64.rpm"
+
+# render the AUR recipe and its metadata, pinning the checksum to the tarball
+# just staged;
+# PKGBUILD.in and .SRCINFO.in carry the same fields and are kept in sync by hand
+# (CI asserts both checksums match the tarball)
+sha=$(sha256sum "$tarball" | cut -d' ' -f1)
+for tmpl in PKGBUILD .SRCINFO; do
+	sed -e "s/@VERSION@/${ver}/g" -e "s/@SHA256@/${sha}/g" \
+		"dist/aur/${tmpl}.in" >"$out/${tmpl}"
+done
+
+echo "built:"
+echo "  $out/alloyctl_${ver}_amd64.deb"
+echo "  $out/alloyctl-${ver}.x86_64.rpm"
+echo "  $out/PKGBUILD"
+echo "  $out/.SRCINFO"

@@ -46,6 +46,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential libncursesw5-dev pkg-config
 
+      - name: Install nfpm
+        # nfpm builds the .deb and .rpm from dist/nfpm.yaml
+        # its own apt repo is the maintainer-recommended install path
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' \
+            | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
       - name: Confirm the tag matches VERSION
         # check-version-tag fails when the tag (vX.Y.Z) does not equal the VERSION file,
         # so release cannot ship a version that disagrees with its tag
@@ -62,7 +71,11 @@ jobs:
           ver="${TAG#v}"
           dist="alloyctl-${ver}-linux-x86_64"
           scripts/stage-release "$ver" release
-          (cd release && sha256sum alloyctl "${dist}.tar.gz" > SHA256SUMS)
+          scripts/build-packages "$ver" release
+          (cd release && sha256sum \
+            alloyctl "${dist}.tar.gz" \
+            "alloyctl_${ver}_amd64.deb" "alloyctl-${ver}.x86_64.rpm" \
+            PKGBUILD > SHA256SUMS)
           cat release/SHA256SUMS
 
       - name: Install cosign
@@ -99,12 +112,71 @@ jobs:
               ;;
           esac
 
+          body="$(git log -1 --format=%b "$GITHUB_SHA" \
+            | grep -viE '^(signed-off-by|co-authored-by|acked-by|reviewed-by|tested-by|reported-by|cc):')"
           notes="Portable Linux x86_64 build of alloyctl $TAG."
-          notes="$notes Verify with: cosign verify-blob --bundle SHA256SUMS.cosign.bundle SHA256SUMS && sha256sum -c SHA256SUMS."
+          notes="$notes"$'\n\n'"Install: portable tarball, the .deb (Debian/Ubuntu), the .rpm (Fedora/RHEL), or the attached PKGBUILD (Arch/AUR)."
+          if [ -n "$body" ]; then
+            notes="$notes"$'\n\n'"$body"
+          fi
+          notes="$notes"$'\n\n'"Verify with: cosign verify-blob --bundle SHA256SUMS.cosign.bundle SHA256SUMS && sha256sum -c SHA256SUMS."
 
           gh release create "$TAG" \
             release/alloyctl release/*.tar.gz \
+            release/*.deb release/*.rpm release/PKGBUILD \
             release/SHA256SUMS release/SHA256SUMS.cosign.bundle \
             --title "$TAG" \
             --notes "$notes" \
             $prerelease
+
+      - name: Hand the AUR recipe to the publish job
+        if: ${{ !contains(github.ref_name, '-') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: aur-recipe
+          path: |
+            release/PKGBUILD
+            release/.SRCINFO
+          include-hidden-files: true
+
+  publish-aur:
+    name: publish to the AUR
+    needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download the AUR recipe
+        uses: actions/download-artifact@v4
+        with:
+          name: aur-recipe
+          path: recipe
+
+      - name: Push the recipe to the AUR
+        env:
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -eu
+          if [ -z "${AUR_SSH_PRIVATE_KEY:-}" ]; then
+            echo "AUR_SSH_PRIVATE_KEY not set; skipping AUR publish"
+            exit 0
+          fi
+
+          mkdir -p ~/.ssh
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/aur
+          chmod 600 ~/.ssh/aur
+          ssh-keyscan -t ed25519,rsa aur.archlinux.org >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/aur -o IdentitiesOnly=yes"
+
+          git clone ssh://aur@aur.archlinux.org/alloyctl-bin.git aur
+          cp recipe/PKGBUILD recipe/.SRCINFO aur/
+          cd aur
+          git config user.name "alloyctl release bot"
+          git config user.email "swilczek.lx@gmail.com"
+          if git diff --quiet; then
+            echo "AUR already up to date"
+            exit 0
+          fi
+          git add PKGBUILD .SRCINFO
+          git commit -m "Update to ${TAG#v}"
+          git push

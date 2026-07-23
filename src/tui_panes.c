@@ -34,18 +34,25 @@ struct rect {
 
 static struct rect layout[PANE_COUNT];
 
-static void compute_layout(void)
+/* height of the POWER box carved off the bottom of the CPI LEVELS column */
+#define POWER_H 11
+
+static void compute_layout(const struct tui *t)
 {
 	int main_h = LINES - 3;
 	int left_w = COLS * 24 / 100;
 	int sens_w = COLS * 22 / 100;
 	int tune_w = COLS * 24 / 100;
 	int center_w = COLS - left_w - sens_w - tune_w;
+	int sens_x = left_w + center_w;
+	/* wireless mice give the bottom of the sensitivity column to POWER */
+	int power_h = (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_H : 0;
+	int levels_h = main_h - power_h;
 
 	layout[PANE_ACTIONS] = (struct rect){ 0, 0, main_h, left_w };
 	layout[PANE_CENTER] = (struct rect){ 0, left_w, main_h, center_w };
-	layout[PANE_LEVELS] =
-		(struct rect){ 0, left_w + center_w, main_h, sens_w };
+	layout[PANE_LEVELS] = (struct rect){ 0, sens_x, levels_h, sens_w };
+	layout[PANE_POWER] = (struct rect){ levels_h, sens_x, power_h, sens_w };
 	layout[PANE_TUNING] =
 		(struct rect){ 0, left_w + center_w + sens_w, main_h, tune_w };
 	layout[PANE_FOOTER] = (struct rect){ LINES - 3, 0, 2, COLS };
@@ -173,14 +180,102 @@ static void draw_actions_pane(struct tui *t)
 }
 
 /*
- * Every lighting control lives in the illumination view;
- * center pane is just the mouse portrait and the way in.
- * Portrait renders through the zone markup, so its marked characters animate
- * with the configured effect and track color live, matching the preview.
+ * Wireless status strip:
+ * 2.4 GHz and Bluetooth link logos (lit in their own color when connected,
+ * dimmed to grey otherwise) and a drawn battery whose fill is banded
+ * green -> white -> yellow -> red as it drains.
+ * Shown only for drivers that report a battery (ALLOY_CAP_BATTERY).
+ * Wired mice never see it.
  */
+static void draw_device_status(struct tui *t, const struct rect *r)
+{
+	int rf_on = t->battery_pct >= 0; /* receiver has a linked mouse */
+	int cap = 10;
+	int x = r->x + 3;
+	int y = r->y + 1;
+	int fill;
+	int band;
+	int i;
+
+	tui_draw_pane_box(r->y, r->x, r->h, r->w, "DEVICE", 0);
+
+	/* 2.4 GHz signal logo */
+	attron(rf_on ? COLOR_PAIR(CLR_LINK_RF) | A_BOLD :
+		       COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+	mvaddstr(y, x, "((o)) 2.4G");
+	attrset(A_NORMAL);
+
+	/* Bluetooth logo */
+	attron(t->bt_present ? COLOR_PAIR(CLR_LINK_BT) | A_BOLD :
+			       COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+	mvaddstr(y, x + 13, ">B< BT");
+	attrset(A_NORMAL);
+
+	y = r->y + 3;
+	if (!rf_on) {
+		/*
+		 * No mouse on the 2.4 GHz link.
+		 * If the receiver can bind one, offer the PAIR button (opened with 'p');
+		 * otherwise just note that the battery is only readable over the 2.4 GHz link
+		 */
+		if (tui_device_needs_pairing(t)) {
+			attron(COLOR_PAIR(CLR_BUTTON) | A_BOLD);
+			mvaddstr(y, x, " [p] PAIR ");
+			attrset(A_NORMAL);
+			attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+			addstr("  no mouse paired");
+			attrset(A_NORMAL);
+			return;
+		}
+		/* battery is only readable over the 2.4 GHz link */
+		attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+		mvaddstr(y, x,
+			 t->bt_present ? "battery  -- (on Bluetooth)" :
+					 "battery  -- (no 2.4G link)");
+		attrset(A_NORMAL);
+		return;
+	}
+
+	if (t->battery_pct > 75)
+		band = CLR_BAT_HIGH;
+	else if (t->battery_pct > 50)
+		band = CLR_BAT_GOOD;
+	else if (t->battery_pct > 25)
+		band = CLR_BAT_MID;
+	else
+		band = CLR_BAT_LOW;
+
+	fill = (t->battery_pct * cap + 50) / 100;
+
+	attron(COLOR_PAIR(CLR_FRAME));
+	mvaddstr(y, x, "[");
+	attrset(A_NORMAL);
+	for (i = 0; i < cap; i++) {
+		if (i < fill)
+			attron(COLOR_PAIR(band) | A_BOLD);
+		else
+			attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+		addstr(i < fill ? "█" : "░");
+		attrset(A_NORMAL);
+	}
+	attron(COLOR_PAIR(CLR_FRAME));
+	addstr("]▮");
+	attrset(A_NORMAL);
+
+	attron(COLOR_PAIR(band) | A_BOLD);
+	printw(" %d%%", t->battery_pct);
+	attrset(A_NORMAL);
+	if (t->battery_charging) {
+		attron(COLOR_PAIR(CLR_BAT_HIGH) | A_BOLD);
+		addstr(" CHG");
+		attrset(A_NORMAL);
+	}
+}
+
 static void draw_center_pane(struct tui *t)
 {
-	const struct rect *r = &layout[PANE_CENTER];
+	const struct rect *full = &layout[PANE_CENTER];
+	struct rect r = *full;
 	const char *art = t->drv->ascii_art ? t->drv->ascii_art :
 					      alloy_default_mouse_art;
 	int focused = t->focus == PANE_CENTER;
@@ -189,23 +284,39 @@ static void draw_center_pane(struct tui *t)
 	int y;
 	int x;
 
-	draw_box(r, t->drv->name, focused);
+	/* carve DEVICE status box off the top of the column for wireless mice */
+	if (t->drv->caps & ALLOY_CAP_BATTERY) {
+		struct rect dev = *full;
+
+		dev.h = 5;
+		draw_device_status(t, &dev);
+		r.y = full->y + dev.h;
+		r.h = full->h - dev.h;
+	}
+
+	draw_box(&r, t->drv->name, focused);
 
 	tui_art_measure(art, &art_lines, &art_width);
-	y = r->y + ALLOY_MAX(1, (r->h - 4 - art_lines) / 2);
-	x = r->x + ALLOY_MAX(1, (r->w - art_width) / 2);
-	tui_art_draw(t, art, y, x, r->y + r->h - 4, -1);
+	y = r.y + ALLOY_MAX(1, (r.h - 4 - art_lines) / 2);
+	x = r.x + ALLOY_MAX(1, (r.w - art_width) / 2);
+	tui_art_draw(t, art, y, x, r.y + r.h - 4, -1);
 
-	/* gateway to the illumination view, centered under the art */
-	y = r->y + r->h - 3;
-	x = r->x + (r->w - 16) / 2;
-	if (focused)
-		attron(COLOR_PAIR(CLR_SELECTED));
-	else
-		attron(COLOR_PAIR(CLR_BUTTON));
-	mvprintw(y, x, "  ILLUMINATION  ");
-	attroff(COLOR_PAIR(CLR_SELECTED));
-	attroff(COLOR_PAIR(CLR_BUTTON));
+	/*
+	 * gateway to the illumination view, centered under the art -
+	 * only for devices with LED zones
+	 * (see tui_pane_item_count: the pane is unfocusable without them)
+	 */
+	if (t->drv->num_zones) {
+		y = r.y + r.h - 3;
+		x = r.x + (r.w - 16) / 2;
+		if (focused)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		else
+			attron(COLOR_PAIR(CLR_BUTTON));
+		mvprintw(y, x, "  ILLUMINATION  ");
+		attroff(COLOR_PAIR(CLR_SELECTED));
+		attroff(COLOR_PAIR(CLR_BUTTON));
+	}
 }
 
 static void draw_slider(int y, int x, int w, uint16_t min, uint16_t max,
@@ -280,6 +391,79 @@ static void draw_levels_pane(struct tui *t)
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: Adjust  H/L: Fast Adjust");
 	mvprintw(r->y + r->h - 2, r->x + 2, "Enter: Set Active");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+}
+
+/*
+ * Wireless power controls, sat under the CPI LEVELS column:
+ * Battery Saver is the inactivity sleep-timer stepper (Off..20 min)
+ * and Smart Illum toggles the idle lighting dim.
+ * Shown only for drivers that report a battery (ALLOY_CAP_BATTERY).
+ */
+/* one POWER-pane label, highlighted when it is the focused item */
+static void draw_power_label(int y, int x, const char *s, int selected)
+{
+	if (selected)
+		attron(COLOR_PAIR(CLR_SELECTED));
+	mvprintw(y, x, "%s", s);
+	if (selected)
+		attroff(COLOR_PAIR(CLR_SELECTED));
+}
+
+/* ON/OFF value row for a POWER-pane toggle */
+static void draw_power_toggle(int y, int x, int on)
+{
+	attron(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+	mvprintw(y, x, "< %s >", on ? "ON " : "OFF");
+	attroff(COLOR_PAIR(on ? CLR_BUTTON_HOT : CLR_DISABLED) | A_BOLD);
+}
+
+static void draw_power_pane(struct tui *t)
+{
+	const struct rect *r = &layout[PANE_POWER];
+	int focused = t->focus == PANE_POWER;
+	int sel = t->cursor[PANE_POWER];
+	int has_higheff = (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0;
+	int y = r->y + 1;
+
+	draw_box(r, "POWER", focused);
+
+	/* Battery Saver: inactivity sleep timer */
+	draw_power_label(y, r->x + 2, "Battery Saver",
+			 focused && sel == POWER_SLEEP);
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	if (t->cfg.sleep_min)
+		mvprintw(y + 1, r->x + 4, "< %2d min >", t->cfg.sleep_min);
+	else
+		mvprintw(y + 1, r->x + 4, "<  Off   >");
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+
+	/* Smart Illum: blank the LEDs while moving */
+	y += 2;
+	draw_power_label(y, r->x + 2, "Smart Illum",
+			 focused && sel == POWER_SMART);
+	draw_power_toggle(y + 1, r->x + 4, t->cfg.illum_smart);
+
+	/* Dim Timer: dim the LEDs after N seconds idle */
+	y += 2;
+	draw_power_label(y, r->x + 2, "Dim Timer", focused && sel == POWER_DIM);
+	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	if (t->cfg.illum_dim_s)
+		mvprintw(y + 1, r->x + 4, "< %4d s >", t->cfg.illum_dim_s);
+	else
+		mvprintw(y + 1, r->x + 4, "<  Off   >");
+	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+
+	/* High-Efficiency Mode: only for drivers that advertise it */
+	if (has_higheff) {
+		y += 2;
+		draw_power_label(y, r->x + 2, "High-Efficiency",
+				 focused && sel == POWER_HIGHEFF);
+		draw_power_toggle(y + 1, r->x + 4, t->cfg.high_efficiency);
+	}
+
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(r->y + r->h - 2, r->x + 2, "h/l: Adjust  Enter: Toggle");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
@@ -478,12 +662,19 @@ static void draw_tuning_pane(struct tui *t)
 	attroff(COLOR_PAIR(t->accel_running ? CLR_BUTTON_HOT : CLR_DISABLED));
 	y += 2;
 
+	/*
+	 * Polling rate, only for devices that expose it
+	 * (Bluetooth locks it out, so the row is absent there -
+	 * see tui_pane_item_count for PANE_TUNING).
+	 */
+	if (!t->drv->num_polling_rates)
+		return;
+
 	mvprintw(y, r->x + 2, "POLLING RATE");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
 	draw_poll_wave(y, r->x + 3, r->w - 6, 3, t->cfg.polling_hz,
-		       t->drv->num_polling_rates ? t->drv->polling_rates[0] :
-						   t->cfg.polling_hz);
+		       t->drv->polling_rates[0]);
 	attroff(COLOR_PAIR(CLR_ACCENT));
 	y += 4; /* chart height + blank line before the stepper */
 
@@ -553,25 +744,36 @@ static void draw_footer(struct tui *t)
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
-void tui_draw(struct tui *t)
+/*
+ * Paint the whole main screen into the curses virtual screen but do NOT refresh
+ * - the caller decides when to flush.
+ * Modals render the background this way and then draw themselves on top,
+ * so single refresh() composites the two atomically;
+ */
+void tui_render(struct tui *t)
 {
 	erase();
 
 	if (COLS < MIN_COLS || LINES < MIN_LINES) {
 		mvprintw(0, 0, "Terminal too small: need at least %dx%d",
 			 MIN_COLS, MIN_LINES);
-		refresh();
 		return;
 	}
 
-	compute_layout();
+	compute_layout(t);
 	tui_zone_color_pairs(t);
 
 	draw_actions_pane(t);
 	draw_center_pane(t);
 	draw_levels_pane(t);
+	if (t->drv->caps & ALLOY_CAP_BATTERY)
+		draw_power_pane(t);
 	draw_tuning_pane(t);
 	draw_footer(t);
+}
 
+void tui_draw(struct tui *t)
+{
+	tui_render(t);
 	refresh();
 }

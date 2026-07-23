@@ -4,11 +4,13 @@
 # Standalone installer shipped inside the release tarball,
 # so binary download works without cloning the source tree or running `make install`
 #
-# It installs two things:
+# It installs three things:
 #   - the alloyctl binary (which is also the pointer-transform daemon:
 #     the TUI re-executes it with --accel-daemon),
 #   - the udev rule that grants that daemon access to /dev/uinput and
-#     the mouse's evdev node.
+#     the mouse's evdev node,
+#   - udev rule for unprivileged /dev/hidraw* access, generated from the
+#     binary's driver registry ('alloyctl --dump-udev').
 #
 # Autostart entries are per-device and created at runtime when the user
 # enables the engine, so nothing is installed for them here.
@@ -23,6 +25,7 @@ PREFIX="${PREFIX:-/usr/local}"
 DESTDIR="${DESTDIR:-}"
 UDEVDIR="${UDEVDIR:-/usr/lib/udev/rules.d}"
 RULE="70-alloyctl-uinput.rules"
+HIDRAW_RULE="71-alloyctl-hidraw.rules"
 
 action="install"
 while [ $# -gt 0 ]; do
@@ -72,8 +75,9 @@ reload_udev() {
 if [ "$action" = "uninstall" ]; then
 	rm -f "$DESTDIR$BINDIR/alloyctl"
 	rm -f "$DESTDIR$UDEVDIR/$RULE"
+	rm -f "$DESTDIR$UDEVDIR/$HIDRAW_RULE"
 	reload_udev
-	echo "Removed alloyctl and the uinput udev rule."
+	echo "Removed alloyctl and its udev rules."
 	exit 0
 fi
 
@@ -88,10 +92,14 @@ fi
 
 install -Dm755 "$here/alloyctl" "$DESTDIR$BINDIR/alloyctl"
 install -Dm644 "$here/$RULE" "$DESTDIR$UDEVDIR/$RULE"
+install -d "$DESTDIR$UDEVDIR"
+"$here/alloyctl" --dump-udev >"$DESTDIR$UDEVDIR/$HIDRAW_RULE"
+chmod 0644 "$DESTDIR$UDEVDIR/$HIDRAW_RULE"
 reload_udev
 
 echo
-echo "Installed alloyctl to $DESTDIR$BINDIR and the uinput udev rule."
+echo "Installed alloyctl to $DESTDIR$BINDIR and the udev rules"
+echo "($RULE, $HIDRAW_RULE)."
 echo "If udev was not reloaded above, run:"
 echo "  sudo udevadm control --reload && sudo udevadm trigger"
 echo "On non-logind systems, add your user to the 'input' group for"

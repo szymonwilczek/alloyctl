@@ -75,6 +75,15 @@ S:    Maintained
 F:    .github/
 F:    scripts/
 
+STEELSERIES AEROX 3 WIRELESS DRIVER
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
+S:    Maintained
+F:    Documentation/protocol/steelseries-aerox3-wireless-bt.rst
+F:    Documentation/protocol/steelseries-aerox3-wireless.rst
+F:    drivers/steelseries_aerox3_wireless/
+F:    tests/drivers/steelseries_aerox3_wireless.c
+F:    tests/drivers/steelseries_aerox3_wireless_bt.c
+
 STEELSERIES RIVAL 3 GEN 1 DRIVER
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained

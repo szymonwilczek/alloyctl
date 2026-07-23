@@ -41,11 +41,18 @@ int alloy_device_enumerate(const struct alloy_driver **out, int max)
 
 	alloy_for_each_driver(iter)
 	{
-		if (!alloy_hid_present((*iter)->vendor_id, (*iter)->product_id,
-				       (*iter)->interface))
+		const struct alloy_driver *drv = *iter;
+		int present = drv->bustype ?
+				      alloy_hid_present_bus(drv->bustype,
+							    drv->product_id) :
+				      alloy_hid_present(drv->vendor_id,
+							drv->product_id,
+							drv->interface);
+
+		if (!present)
 			continue;
 		if (out && n < max)
-			out[n] = *iter;
+			out[n] = drv;
 		n++;
 	}
 	return n;
@@ -63,6 +70,21 @@ int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 	drv = alloy_driver_find(vendor_id, product_id);
 	if (!drv)
 		return -1;
+
+	if (drv->bustype) {
+		/*
+		 * Bluetooth (HID-over-GATT):
+		 * one node, matched by product id, config on the numbered Output report.
+		 * No separate event interface.
+		 * Device-initiated events are not tracked here!
+		 */
+		if (alloy_hid_open_bus(&dev->hid, drv->bustype, drv->product_id,
+				       drv->report_id, drv->report_size))
+			return -1;
+		dev->drv = drv;
+		return 0;
+	}
+
 	if (alloy_hid_open(&dev->hid, drv->vendor_id, drv->product_id,
 			   drv->interface, drv->report_size))
 		return -1;
@@ -128,4 +150,13 @@ void alloy_config_generic_defaults(const struct alloy_driver *drv,
 	cfg->deceleration = 0;
 	cfg->angle_snapping = 0;
 	cfg->accel_enabled = 0;
+
+	/*
+	 * Wireless power defaults (inert on wired mice, which never push them):
+	 * mirror the GG out-of-box 5-minute sleep timer;
+	 * smart mode and the LED dim timer stay off
+	 */
+	cfg->illum_smart = 0;
+	cfg->illum_dim_s = 0;
+	cfg->sleep_min = 5;
 }

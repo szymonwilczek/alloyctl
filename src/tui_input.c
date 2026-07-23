@@ -35,6 +35,69 @@ static void adjust_snap(struct tui *t, int delta)
 	tui_accel_changed(t);
 }
 
+/* Battery Saver stepper: the device sleep timer in minutes (0 = never) */
+static void adjust_sleep(struct tui *t, int delta)
+{
+	t->cfg.sleep_min = (uint8_t)ALLOY_CLAMP(
+		t->cfg.sleep_min + delta, ALLOY_SLEEP_MIN, ALLOY_SLEEP_MAX);
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_sleep, "sleep");
+}
+
+/*
+ * Smart Illum toggle.
+ * It is byte 3 of the 0x63 illumination command, so it rides the brightness
+ * apply rather than an op of its own.
+ */
+static void set_smart(struct tui *t, int on)
+{
+	on = on ? 1 : 0;
+	if (t->cfg.illum_smart == on)
+		return;
+	t->cfg.illum_smart = (uint8_t)on;
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_brightness, "smart mode");
+}
+
+/*
+ * Dim Timer stepper.
+ * Like smart mode it is part of the 0x63 illumination command,
+ * so it rides the brightness apply.
+ */
+static void adjust_dim(struct tui *t, int delta)
+{
+	t->cfg.illum_dim_s = (uint16_t)ALLOY_CLAMP(
+		(int)t->cfg.illum_dim_s + delta, 0, ALLOY_ILLUM_DIM_MAX);
+	mark_dirty(t);
+	if (t->live_preview)
+		tui_apply(t, t->drv->ops->apply_brightness, "dim timer");
+}
+
+/*
+ * High-Efficiency Mode toggle.
+ * Unlike the other steppers this is a deliberate hardware mode switch that GG
+ * applies the instant it is clicked, so it is pushed immediately regardless of
+ * the live-preview flag.
+ * The op forces the device bundle (0x68 + LEDs off + 125 Hz) and blocks until
+ * the link, which the toggle briefly drops, comes back - so a following save
+ * finds a live link.
+ * It is not re-pushed by tui_apply_all; later save just commits the live state,
+ * which already carries the mode.
+ */
+static void set_higheff(struct tui *t, int on)
+{
+	on = on ? 1 : 0;
+	if (t->cfg.high_efficiency == on)
+		return;
+	t->cfg.high_efficiency = (uint8_t)on;
+	mark_dirty(t);
+	tui_apply(t, t->drv->ops->apply_high_efficiency, "high-efficiency");
+	tui_status(t, on ? "high-efficiency on (link re-synced)" :
+			   "high-efficiency off (link re-synced)");
+}
+
 static void adjust_dpi(struct tui *t, int preset, int delta)
 {
 	const struct alloy_driver *drv = t->drv;
@@ -154,6 +217,19 @@ static void pane_adjust(struct tui *t, int dir, int big)
 			adjust_dpi(t, sel,
 				   dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
+	case PANE_POWER:
+		if (sel == POWER_SLEEP)
+			adjust_sleep(t, dir * (big ? ALLOY_SLEEP_STEP * 5 :
+						     ALLOY_SLEEP_STEP));
+		else if (sel == POWER_SMART)
+			/* h/l flips the toggle by direction */
+			set_smart(t, dir > 0);
+		else if (sel == POWER_DIM)
+			adjust_dim(t, dir * (big ? ALLOY_ILLUM_DIM_STEP * 4 :
+						   ALLOY_ILLUM_DIM_STEP));
+		else /* POWER_HIGHEFF: h/l flips the toggle by direction */
+			set_higheff(t, dir > 0);
+		break;
 	case PANE_TUNING:
 		switch (sel) {
 		case 0:
@@ -197,6 +273,12 @@ static void pane_activate(struct tui *t)
 	case PANE_CENTER:
 		tui_illum_enter(t);
 		break;
+	case PANE_POWER:
+		if (sel == POWER_SMART)
+			set_smart(t, !t->cfg.illum_smart);
+		else if (sel == POWER_HIGHEFF)
+			set_higheff(t, !t->cfg.high_efficiency);
+		break;
 	case PANE_TUNING:
 		if (sel == 3)
 			tui_accel_set_enabled(t, !t->accel_running);
@@ -215,6 +297,15 @@ static void pane_activate(struct tui *t)
 	}
 }
 
+/* step focus by dir, skipping panes that hold no items (e.g. POWER on wired) */
+static void focus_step(struct tui *t, int dir)
+{
+	do {
+		t->focus = (enum tui_pane)((t->focus + dir + PANE_COUNT) %
+					   PANE_COUNT);
+	} while (tui_pane_item_count(t, t->focus) == 0);
+}
+
 void tui_handle_key(struct tui *t, int ch)
 {
 	int count;
@@ -229,12 +320,16 @@ void tui_handle_key(struct tui *t, int ch)
 	case 's':
 		tui_save(t);
 		return;
+	case 'p':
+		/* PAIR button in the DEVICE box: only when a mouse can be bound */
+		if (tui_device_needs_pairing(t))
+			tui_modal_pair(t);
+		return;
 	case '\t':
-		t->focus = (enum tui_pane)((t->focus + 1) % PANE_COUNT);
+		focus_step(t, 1);
 		return;
 	case KEY_BTAB:
-		t->focus = (enum tui_pane)((t->focus + PANE_COUNT - 1) %
-					   PANE_COUNT);
+		focus_step(t, -1);
 		return;
 	case KEY_RESIZE:
 		return;

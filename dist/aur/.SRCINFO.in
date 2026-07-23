@@ -1,0 +1,14 @@
+pkgbase = alloyctl-bin
+	pkgdesc = SteelSeries device configuration TUI for Linux (prebuilt binary)
+	pkgver = @VERSION@
+	pkgrel = 1
+	url = https://github.com/szymonwilczek/alloyctl
+	arch = x86_64
+	license = GPL-2.0-only
+	provides = alloyctl
+	conflicts = alloyctl
+	depends = ncurses
+	source = https://github.com/szymonwilczek/alloyctl/releases/download/v@VERSION@/alloyctl-@VERSION@-linux-x86_64.tar.gz
+	sha256sums = @SHA256@
+
+pkgname = alloyctl-bin

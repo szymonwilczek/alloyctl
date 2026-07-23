@@ -88,7 +88,7 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
 	     $(wildcard tests/drivers/*.c) src/driver.c src/state.c \
-	     src/accel_transform.c $(wildcard drivers/*/*.c)
+	     src/accel_transform.c src/udev.c $(wildcard drivers/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
@@ -184,8 +184,11 @@ check-version-tag:
 		echo "check-version-tag: tag $$tag != v$$ver (VERSION)"; exit 1; \
 	fi
 
-# Install the binary and the udev rule that grants the pointer-transform
-# daemon access to /dev/uinput.
+# Install the binary and two udev rules:
+#   - 70-alloyctl-uinput.rules grants the pointer-transform daemon access to
+#     /dev/uinput and the mouse's evdev node (shipped static),
+#   - 71-alloyctl-hidraw.rules grants unprivileged /dev/hidraw* access, one
+#     match per supported device, generated from the built binary's registry.
 # Autostart entries are created at runtime (per device, when the user enables the engine),
 # so nothing is installed for them here.
 # Reload udev afterwards; the message below says how.
@@ -193,22 +196,36 @@ install: $(BIN)
 	install -Dm755 $(BIN) $(DESTDIR)$(BINDIR)/$(BIN)
 	install -Dm644 dist/udev/70-alloyctl-uinput.rules \
 		$(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
+	install -d $(DESTDIR)$(UDEVDIR)
+	./$(BIN) --dump-udev > $(DESTDIR)$(UDEVDIR)/71-alloyctl-hidraw.rules
 	@echo
-	@echo "Installed $(BIN) to $(DESTDIR)$(BINDIR) and the uinput udev rule."
-	@echo "Activate the rule:  sudo udevadm control --reload && sudo udevadm trigger"
+	@echo "Installed $(BIN) to $(DESTDIR)$(BINDIR) and the udev rules."
+	@echo "  70-alloyctl-uinput.rules  - pointer-transform daemon (/dev/uinput, evdev)"
+	@echo "  71-alloyctl-hidraw.rules  - unprivileged /dev/hidraw* access, per device"
+	@echo "Activate them:  sudo udevadm control --reload && sudo udevadm trigger"
 	@echo "For /dev/input and /dev/uinput access on non-logind systems, add"
 	@echo "your user to the 'input' group:  sudo usermod -aG input \$$USER"
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(BIN)
 	rm -f $(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
+	rm -f $(DESTDIR)$(UDEVDIR)/71-alloyctl-hidraw.rules
+
+# Build the release tarball and the native distro packages (.deb, .rpm)
+# + the AUR PKGBUILD under release/, as the Release workflow does.
+# Needs nfpm on PATH.
+# VERSION drives the version stamped into every artifact.
+packages: $(BIN)
+	scripts/stage-release "$$(cat VERSION)" release
+	scripts/build-packages "$$(cat VERSION)" release
 
 clean:
-	rm -rf build $(BIN)
+	rm -rf build release $(BIN)
 	$(MAKE) -C Documentation clean
 
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
-.PHONY: all install uninstall test test-asan test-ubsan test-tsan test-valgrind \
-	check-format format htmldocs checkdocs docs-serve check-patch \
-	codeowners check-codeowners check-version-tag clean list-drivers
+.PHONY: all install uninstall packages test test-asan test-ubsan test-tsan \
+	test-valgrind check-format format htmldocs checkdocs docs-serve \
+	check-patch codeowners check-codeowners check-version-tag clean \
+	list-drivers

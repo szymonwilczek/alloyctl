@@ -16,3 +16,5 @@ as much as the ones that do.
 
    steelseries-rival3
    steelseries-rival3-gen2
+   steelseries-aerox3-wireless
+   steelseries-aerox3-wireless-bt
