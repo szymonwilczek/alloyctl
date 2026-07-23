@@ -120,6 +120,125 @@ void tui_modal_confirm_quit(struct tui *t)
 	}
 }
 
+/*
+ * Dongle pairing wizard (ALLOY_CAP_PAIRING), modeled on the GG "connect a new device" flow.
+ *
+ * Two stages:
+ *
+ *	1. PROBE	Live-check that the 2.4 GHz receiver is plugged in.
+ *			It has to be (pairing runs through it); re-probed every frame
+ *			so pulling the dongle mid-flow shows up at once.
+ *
+ *   2. INSTRUCT	Walk through the mouse-side gesture (OFF, hold CPI, flick to
+ *			2.4 GHz) and, on Enter, kick off pairing via ops->pair.
+ *
+ * On Enter, ops->pair puts the receiver into bind mode; success means the write
+ * went out, not that a mouse bound - the link/battery coming up afterwards is the
+ * real confirmation. A driver whose bind opcode is still unmapped may report
+ * ALLOY_PAIR_UNIMPLEMENTED, which the wizard surfaces honestly.
+ */
+enum pair_stage {
+	PAIR_STAGE_PROBE,
+	PAIR_STAGE_INSTRUCT,
+};
+
+static void pair_begin(struct tui *t)
+{
+	int ret = t->drv->ops->pair ? t->drv->ops->pair(t->dev) : -1;
+
+	if (ret == ALLOY_PAIR_UNIMPLEMENTED)
+		tui_status(t,
+			   "pairing: receiver bind command not captured yet");
+	else if (ret == 0)
+		tui_status(t,
+			   "pairing started - waiting for the mouse to link");
+	else
+		tui_status(t, "pairing: could not start (receiver error)");
+}
+
+void tui_modal_pair(struct tui *t)
+{
+	const int w = 52;
+	const int h = 11;
+	enum pair_stage stage = PAIR_STAGE_PROBE;
+	int y;
+	int x;
+	int ch;
+
+	for (;;) {
+		int dongle = alloy_hid_present(t->drv->vendor_id,
+					       t->drv->product_id,
+					       t->drv->interface);
+
+		tui_draw(t);
+		tui_modal_frame(h, w, &y, &x, "PAIR A NEW DEVICE");
+
+		if (stage == PAIR_STAGE_PROBE) {
+			mvprintw(y + 2, x + 3,
+				 "Step 1 of 2 - wireless receiver");
+			if (dongle) {
+				attron(COLOR_PAIR(CLR_LINK_RF) | A_BOLD);
+				mvprintw(y + 4, x + 3, "receiver detected");
+				attrset(A_NORMAL);
+				mvprintw(y + 6, x + 3,
+					 "Keep the 2.4 GHz dongle plugged in.");
+			} else {
+				attron(COLOR_PAIR(CLR_BAT_LOW) | A_BOLD);
+				mvprintw(y + 4, x + 3, "receiver NOT found");
+				attrset(A_NORMAL);
+				mvprintw(
+					y + 6, x + 3,
+					"Plug the 2.4 GHz dongle into a USB port.");
+			}
+			attron(COLOR_PAIR(CLR_DISABLED));
+			mvprintw(
+				y + h - 2, x + 2,
+				dongle ?
+					" enter: next   esc: cancel " :
+					" waiting for receiver...   esc: cancel ");
+			attrset(A_NORMAL);
+		} else {
+			mvprintw(y + 2, x + 3,
+				 "Step 2 of 2 - put the mouse in pairing mode");
+			mvprintw(y + 4, x + 3,
+				 "1. Slide the mouse power switch to OFF.");
+			mvprintw(y + 5, x + 3,
+				 "2. Press and hold the CPI button.");
+			mvprintw(y + 6, x + 3,
+				 "3. Holding it, slide the switch to 2.4 GHz");
+			mvprintw(y + 7, x + 3, "   (the LEDs blink white).");
+			attron(COLOR_PAIR(CLR_DISABLED));
+			mvprintw(y + h - 2, x + 2,
+				 " enter: begin pairing   esc: back ");
+			attrset(A_NORMAL);
+		}
+		refresh();
+
+		ch = getch();
+		if (ch == ERR)
+			continue; /* animation tick: re-probe and redraw */
+		switch (ch) {
+		case 27: /* esc */
+			if (stage == PAIR_STAGE_INSTRUCT) {
+				stage = PAIR_STAGE_PROBE;
+				break;
+			}
+			return;
+		case '\n':
+		case KEY_ENTER:
+			if (stage == PAIR_STAGE_PROBE) {
+				if (dongle)
+					stage = PAIR_STAGE_INSTRUCT;
+				break;
+			}
+			pair_begin(t);
+			return;
+		default:
+			break;
+		}
+	}
+}
+
 /* selectable actions offered by remap modal */
 struct remap_choice {
 	const char *label;

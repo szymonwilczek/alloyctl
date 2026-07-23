@@ -55,6 +55,38 @@ ALLOY_TEST(test_registry)
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0);
 	ASSERT_TRUE(drv->ops->apply_high_efficiency != NULL);
 	ASSERT_TRUE(drv->ops->apply_sleep != NULL);
+	ASSERT_TRUE((drv->caps & ALLOY_CAP_PAIRING) != 0);
+	ASSERT_TRUE(drv->ops->pair != NULL);
+}
+
+ALLOY_TEST(test_pair_sends_bind)
+{
+	struct alloy_device dev;
+	const struct alloy_driver *drv = a3wl();
+
+	memset(&dev, 0, sizeof(dev));
+	dev.hid.fd = 42;
+	dev.drv = drv;
+
+	/*
+	 * Pairing replays the GG "connect a new device" USB trace:
+	 * 0x3b and 0x11 preamble (echoed) then the 0x01 bind trigger,
+	 * all as single-byte reports on the config interface.
+	 * 0x01 is fire-and-forget - it is not echoed and the receiver re-enumerates -
+	 * so completed final write reports success.
+	 */
+	mock_hid_reset();
+	ASSERT_EQ(drv->ops->pair(&dev), 0);
+	ASSERT_EQ(mock_hid.num_cmds, 3);
+	ASSERT_EQ(mock_hid.cmds[0].len, 1);
+	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x3B);
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x11);
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x01);
+
+	/* write failure propagates as an error, not a phantom pair */
+	mock_hid_reset();
+	mock_hid.fail_cmds = 1;
+	ASSERT_TRUE(drv->ops->pair(&dev) < 0);
 }
 
 ALLOY_TEST(test_dpi_packet)
@@ -396,14 +428,15 @@ ALLOY_TEST(test_high_efficiency_bundle)
 
 	memset(&dev, 0, sizeof(dev));
 	dev.hid.fd = 42;
+	dev.ev.fd = -1; /* no event interface: skip the re-link wait */
 	dev.drv = drv;
 	drv->config_defaults(drv, &cfg);
 	cfg.polling_hz = 1000;
 	cfg.brightness = 100;
 
 	/*
-	 * Enabling mirrors the GG bundle:
-	 * flag on, polling forced to 125 Hz (0x6B 0x03) and LEDs blanked (0x63 level 0)
+	 * Enabling mirrors the GG bundle order:
+	 * flag on, LEDs blanked (0x63 level 0), then polling forced to 125 Hz (0x6B 0x03)
 	 */
 	mock_hid_reset();
 	cfg.high_efficiency = 1;
@@ -411,23 +444,23 @@ ALLOY_TEST(test_high_efficiency_bundle)
 	ASSERT_EQ(mock_hid.num_cmds, 3);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x01);
-	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x6B);
-	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x03); /* 125 Hz */
-	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x63);
-	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x00); /* brightness 0 */
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x63);
+	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x00); /* brightness 0 */
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x6B);
+	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x03); /* 125 Hz */
 
-	/* disabling clears the flag and restores polling/brightness from cfg */
+	/* disabling clears the flag and restores brightness/polling from cfg */
 	mock_hid_reset();
 	cfg.high_efficiency = 0;
 	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 3);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x00);
-	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x6B);
-	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x00); /* 1000 Hz restored */
-	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x63);
-	ASSERT_EQ(mock_hid.cmds[2].payload[1],
+	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x63);
+	ASSERT_EQ(mock_hid.cmds[1].payload[1],
 		  0x0F); /* full brightness restored */
+	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x6B);
+	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x00); /* 1000 Hz restored */
 }
 
 ALLOY_TEST(test_cpi_level_event)

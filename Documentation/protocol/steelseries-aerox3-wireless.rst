@@ -90,6 +90,24 @@ feature. This is why isolating ``0x68`` (High-Efficiency Mode) took a Windows GG
 capture rather than blind probing -- the ACK alone could not tell it apart from
 the unused opcodes in the block.
 
+Waking the link
+---------------
+
+The ACK only arrives while the 2.4 GHz link is awake. After a second or two
+with no mouse motion the link micro-sleeps, and until it wakes the config
+interface answers **every** query with the ``40 ff`` idle marker (below)
+instead of the echo -- it also pushes that marker unsolicited. A command sent
+in that window is not rejected; the mouse is simply not listening yet. The
+transport therefore treats a missing/idle response as "asleep, try again": it
+re-sends the command a few times (a wake nudge is enough to bring the link
+back), and it reads *until* the echo arrives rather than trusting the first
+report, since an idle marker can land ahead of the ACK. Only after the whole
+retry budget elapses is the command reported as unacknowledged. Background
+polls (battery) use a shorter budget than config writes so a genuinely absent
+mouse cannot stall the UI. This is the standard every wireless driver in the
+tree inherits from the transport layer -- individual drivers do not re-implement
+it.
+
 Commands (output reports, interface 3)
 ======================================
 
@@ -226,25 +244,41 @@ lighting apply -- the same engine ordering as the Rival 3 Gen 2.
 The GG "High-Efficiency Mode" battery saver ("extend battery life with automatic
 settings"). Reverse engineered from a Windows GG USB capture: toggling the mode
 does **not** send a single self-contained opcode -- GG emits a three-command
-bundle, and the ``0x68`` flag is only one part of it. Captured, mode turned on::
+bundle, in this order, and the ``0x68`` flag is only one part of it. Captured,
+mode turned on::
 
-   63 00 01 01 00 00 00 00   ; illumination level forced to 0 (LEDs blanked)
    68 01                     ; High-Efficiency flag on
+   63 00 01 01 00 00 00 00   ; illumination level forced to 0 (LEDs blanked)
    6b 03                     ; polling forced to 125 Hz
 
 and turned off again, the two forced registers are restored to the user's
-values (here 1000 Hz and full brightness)::
+values (here full brightness and 1000 Hz)::
 
-   63 0f 01 01 00 ...        ; brightness restored
    68 00                     ; flag off
+   63 0f 01 01 00 ...        ; brightness restored
    6b 00                     ; 1000 Hz restored
 
 So the mode *is* the bundle: the firmware does not drop polling or lighting on
-its own from the flag, the host drives the saver. alloyctl mirrors this exactly
--- enabling forces 125 Hz and blanks the LEDs alongside ``0x68 0x01``; disabling
-sends ``0x68 0x00`` and re-pushes the polling rate and brightness from the live
-config. The dedicated flag ``0x68`` is what the earlier probing could not
-isolate (the whole ``0x60``--``0x6F`` block ACKs), now pinned by the capture.
+its own from the flag, the host drives the saver. alloyctl mirrors the order
+exactly -- flag, then LEDs off / brightness restore, then polling.
+
+**Toggling drops the 2.4 GHz link.** All three commands ACK while the link is
+still up, then the mouse re-negotiates power and the link idles for about a
+second (the config interface answers ``40 ff`` throughout) before it re-links
+with a ``0xBC 0x01`` wake. This is inherent -- the official GG build disconnects
+the same way -- not a bug. GG, and alloyctl, therefore **wait for the
+``0xBC 0x01`` re-link before the next command**: sending into the idle window
+would burn the whole per-command wake-retry budget and stall. In particular GG
+defers its ``0x51`` save until after the re-link, and alloyctl blocks in the
+apply until the wake lands.
+
+Because pushing ``0x68`` disconnects the mouse each time, alloyctl sends the
+bundle **only when the toggle changes**, never as part of the blanket
+save/revert re-push; a later ``0x51`` save simply commits the live state, which
+already carries the mode (and, while the mode is on, its forced 125 Hz / LEDs-off
+registers rather than the user's values). The dedicated flag ``0x68`` is what the
+earlier probing could not isolate (the whole ``0x60``--``0x6F`` block ACKs), now
+pinned by the capture.
 
 ``0x69`` -- sleep timer (wired ``0x29``, wireless only)
 -------------------------------------------------------
@@ -385,8 +419,10 @@ command echo.
 ---------------------------------
 
 When the mouse is asleep or not linked, config-interface queries answer with a
-report beginning ``40 ff ...`` instead of the expected echo. The battery op
-keys off this to report "no reading" rather than a bogus 0 %.
+report beginning ``40 ff ...`` instead of the expected echo. The transport
+skips this marker and re-sends the command to wake the link (see *Waking the
+link* above); once the retries are exhausted the battery op keys off the marker
+to report "no reading" rather than a bogus 0 %.
 
 Bluetooth mode
 ==============
@@ -405,6 +441,31 @@ mouse-button bindings) revert to defaults, and the polling rate is forced to
 125 Hz. This is not a bug: Bluetooth HID has far less bandwidth and a tighter
 power budget than the 2.4 GHz link, so the firmware drops the bandwidth-hungry
 and battery-hungry features and caps the poll rate to preserve battery.
+
+USB wired (cable) mode
+======================
+
+Plugging the mouse in by **cable** does not route it through this driver.
+On the cable the mouse enumerates directly as ``1038:183A`` -- the same USB
+product id it uses over Bluetooth, **not** the ``1038:1838`` receiver id this
+driver binds to. alloyctl therefore does not detect the cabled Aerox at all,
+and none of the wireless configuration (including the DEVICE/POWER sections of
+the TUI) is available in that mode:
+
+* **Detection** -- ``0x183A`` is not a registered driver (it appears in the tree
+  only as ``bt_product_id``, used to light the Bluetooth indicator), so device
+  enumeration skips it.
+* **Protocol** -- this driver is built entirely around the receiver's wireless
+  protocol (every opcode OR ``0x40``, config on interface 3, battery via
+  ``0xD2``). The wired ``0x183A`` endpoint speaks the un-flagged wired opcode
+  set on different interfaces; the flagged commands would go unacknowledged.
+* **Semantics** -- the POWER settings describe running off the battery. On the
+  cable the mouse is bus-powered and charging, so the sleep timer is moot and
+  the gauge reports charging rather than a discharge level.
+
+**Configuring the wireless features requires the 2.4 GHz receiver.** Supporting
+the cabled mouse would be a separate wired-Aerox driver for ``0x183A`` with its
+own opcode set and no ``ALLOY_CAP_BATTERY``; it is out of scope here.
 
 Read-back
 =========
@@ -435,11 +496,45 @@ on Windows (see the ``0x68`` command and the ``0xBC`` / ``0x12`` events above):
   ``00`` sleep/unlink), with an unsolicited ``0x12`` battery push after wake and
   a one-off ``0x80`` device-name marker at the sleep edge.
 
+Pairing (dongle bind)
+=====================
+
+Binding a fresh mouse to the receiver (mouse switched OFF, then held CPI while
+flicking to 2.4 GHz) only completes while the host puts the *receiver* into a
+bind/listen mode over USB -- the mouse-side gesture alone is not enough. This is
+the host step SteelSeries GG performs on "connect a new device".
+
+Captured from a USBPcap trace of that GG flow, the trigger is a sequence of
+three unflagged output reports on interface 3, in order::
+
+  3b 00 00 ... 00        (preamble 1, echoed as 3b 00 ...)
+  11 00 00 ... 00        (preamble 2, echoed as 11 00 ...)
+  01 00 00 ... 00        (bind trigger, not echoed)
+
+None carry the ``0x40`` wireless flag the configuration opcodes use -- these talk
+to the receiver's own bind logic, not the mouse. The ``0x3b`` and ``0x11``
+preamble are acknowledged like any command (the receiver echoes them even with no
+mouse bound yet) and arm the bind. ``0x01`` is the trigger and is **not** echoed:
+the receiver drops the link, enters bind mode and re-enumerates a second or two
+later once a mouse binds to it. ``a3wl_pair`` replays all three -- ``0x3b`` /
+``0x11`` via the echo-synced command path (so each is processed before the next),
+``0x01`` fire-and-forget. Sending ``0x01`` alone was **not** enough on hardware;
+the preamble is required.
+
+The bind is confirmed out-of-band: after the receiver re-enumerates, a ``0xbc``
+query returns ``bc 01 ...`` (link up; ``bc 00`` is link down) and the ``0xD2``
+battery gauge reads a real level.
+
 Open questions / not yet reverse engineered
 ===========================================
 
 Every configuration opcode and event this receiver exposes is now identified,
-driven and documented above. Nothing on the 2.4 GHz vendor protocol remains
-open. The only capability the mouse has that alloyctl does not manage is
-Bluetooth mode, which offers no vendor configuration interface at all (see
-`Bluetooth mode`_).
+driven and documented above, including dongle pairing (see
+`Pairing (dongle bind)`_). One transport refinement is left:
+
+* The ``0xBC`` wake/sleep notification is decoded (see `0xBC -- power state
+  notification`_) and a ``0xbc`` query confirms a pairing bind, but the config
+  transport does not yet gate on it: it works around an idle link with a blind
+  wake-retry (re-send until the echo arrives). Consuming the *unsolicited*
+  ``0xBC 0x01`` wake edge would let the host *know* the mouse is awake and
+  replace the retry loop with an event-driven flush.

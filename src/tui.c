@@ -53,14 +53,35 @@ void tui_apply(struct tui *t,
 static void tui_apply_all_impl(struct tui *t, int with_dpi)
 {
 	const struct alloy_driver_ops *ops = t->drv->ops;
+	/*
+	 * while High-Efficiency is on, the mode owns polling, the illumination
+	 * level and the LED colors (it forces 125 Hz and blanks the LEDs)
+	 * do not push the user's values for those here or save/revert would fight
+	 * the mode and undo it;
+	 * the rest of the config still applies normally
+	 */
+	int high_eff = t->cfg.high_efficiency != 0;
 
 	if (with_dpi)
 		tui_apply(t, ops->apply_dpi, "dpi");
-	tui_apply(t, ops->apply_polling, "polling");
-	tui_apply(t, ops->apply_colors, "colors");
-	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
+	if (!high_eff)
+		tui_apply(t, ops->apply_polling, "polling");
+	if (!high_eff)
+		tui_apply(t, ops->apply_colors, "colors");
+	if ((t->drv->caps & (ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_BATTERY)) &&
+	    !high_eff)
 		tui_apply(t, ops->apply_brightness, "brightness");
 	tui_apply(t, ops->apply_buttons, "buttons");
+	if (t->drv->caps & ALLOY_CAP_BATTERY)
+		tui_apply(t, ops->apply_sleep, "sleep");
+
+	/*
+	 * High-Efficiency itself is deliberately NOT re-pushed here:
+	 * toggling it drops the 2.4 GHz link for second, so pushing it on every
+	 * save / revert / startup sync would stall those paths.
+	 * It is applied on its own toggle (see set_higheff); later save just
+	 * commits the live state, which already carries the mode.
+	 */
 }
 
 void tui_apply_all(struct tui *t)
@@ -129,6 +150,105 @@ static void tui_poll_device_events(struct tui *t)
 		tui_status(t, "level %u active (mouse button)",
 			   t->cfg.dpi_active + 1);
 	}
+}
+
+/*
+ * Refresh the wireless battery gauge on slow cadence - the query is device round-trip,
+ * so it runs every few seconds rather than every frame.
+ * battery_pct is left negative when the receiver reports no reading
+ * (the mouse is asleep or unlinked), so the footer shows "--" instead of bogus 0%
+ */
+void tui_poll_battery(struct tui *t)
+{
+	long now;
+
+	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
+		return;
+
+	now = tui_now_ms();
+	if (now < t->battery_next_ms)
+		return;
+	t->battery_next_ms = now + 8000;
+
+	/* Bluetooth link: mouse shows up on bus 0x05 while paired over BT */
+	t->bt_present = t->drv->bt_product_id &&
+			alloy_hid_present_bus(0x05, t->drv->bt_product_id);
+
+	if (!t->drv->ops->battery)
+		return;
+
+	/*
+	 * single idle poll is not proof the mouse is gone - 2.4 GHz link micro-sleeps
+	 * between reports
+	 * leep the last reading across couple of misses so the gauge stays put instead
+	 * of flickering to "--", and only declare "no link" once the misses persist
+	 */
+	if (t->drv->ops->battery(t->dev, &t->battery_pct,
+				 &t->battery_charging)) {
+		if (++t->battery_misses >= TUI_BATTERY_MAX_MISSES)
+			t->battery_pct = -1;
+	} else {
+		t->battery_misses = 0;
+	}
+}
+
+/*
+ * Is there a mouse we can actually talk to right now?
+ * Wired mice are always reachable; wireless receiver (ALLOY_CAP_BATTERY) only counts
+ * once 2.4 GHz battery reading or Bluetooth link says a mouse is on the other end.
+ * Used to gate the startup handshake so bare dongle does not block the UI.
+ */
+static int tui_device_linked(const struct tui *t)
+{
+	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
+		return 1;
+	/*
+	 * Bluetooth driver binds its hidraw node only while the mouse is actually
+	 * connected, so once it is open the link is up - there is no bare-receiver
+	 * case to wait out.
+	 */
+	if (t->drv->bustype == 0x05)
+		return 1;
+	return t->battery_pct >= 0 || t->bt_present;
+}
+
+/*
+ * One-shot device handshake:
+ * Read the firmware string and push the working config to the mouse.
+ * Deferred until mouse is reachable, because on bare 2.4 GHz receiver every
+ * command burns the full wake-retry budget (~seconds each) waiting for echo
+ * that never comes.
+ * Safe to call every frame: it runs the work exactly once, when the link first
+ * appears (including right after fresh pair), and is no-op otherwise.
+ */
+static void tui_sync_device(struct tui *t)
+{
+	if (t->device_synced || !tui_device_linked(t))
+		return;
+
+	if (t->drv->ops->firmware_version &&
+	    (t->drv->caps & ALLOY_CAP_FIRMWARE_VERSION)) {
+		if (t->drv->ops->firmware_version(t->dev, t->firmware,
+						  sizeof(t->firmware)))
+			t->firmware[0] = '\0';
+	}
+
+	tui_apply_all_impl(t, 0);
+	t->device_synced = 1;
+}
+
+/*
+ * Whether to offer the PAIR button: the driver can bind a mouse to its receiver
+ * and nothing is currently linked (no 2.4 GHz battery reading, not on Bluetooth).
+ * This is a proxy - a paired-but-powered-off mouse looks the same as an unpaired
+ * one from the host - and stands in until a real "is a mouse bound?" query is
+ * reverse-engineered from the receiver. Good enough to surface the button
+ * exactly when there is no mouse to talk to.
+ */
+int tui_device_needs_pairing(const struct tui *t)
+{
+	return (t->drv->caps & ALLOY_CAP_PAIRING) && t->drv->ops->pair &&
+	       t->battery_pct < 0 && !t->bt_present;
 }
 
 /*
@@ -226,15 +346,37 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
-		/* ILLUMINATION button is all the pane offers */
-		return 1;
+		/*
+		 * ILLUMINATION gateway is all the pane offers, and it only makes
+		 * sense when the device has LED zones to edit.
+		 * Without them the pane holds nothing selectable and navigation
+		 * skips it
+		 */
+		return t->drv->num_zones ? 1 : 0;
 	case PANE_LEVELS:
 		/* one item per preset plus CREATE below the limit */
 		return t->cfg.dpi_count +
 		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
+	case PANE_POWER: {
+		/*
+		 * Wireless-only pane.
+		 * Empty (and skipped) on wired mice.
+		 * SLEEP/SMART/DIM ride ALLOY_CAP_BATTERY;
+		 * trailing HIGHEFF item appears only with ALLOY_CAP_HIGH_EFFICIENCY.
+		 */
+		int n = (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_HIGHEFF : 0;
+
+		if (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
+			n++;
+		return n;
+	}
 	case PANE_TUNING:
-		/* acceleration, deceleration, angle snapping, engine, polling */
-		return 5;
+		/*
+		 * acceleration, deceleration, angle snapping, engine, and -
+		 * only when the device exposes polling rates - the polling rate.
+		 * Bluetooth locks polling out, so that row drops off the bottom.
+		 */
+		return t->drv->num_polling_rates ? 5 : 4;
 	case PANE_FOOTER:
 		return FOOTER_COUNT;
 	default:
@@ -256,6 +398,13 @@ static void tui_init_colors(struct tui *t)
 	init_pair(CLR_BUTTON, COLOR_BLACK, COLOR_WHITE);
 	init_pair(CLR_BUTTON_HOT, COLOR_BLACK, COLOR_GREEN);
 	init_pair(CLR_INFO, COLOR_CYAN, -1);
+	init_pair(CLR_BAT_HIGH, COLOR_GREEN, -1);
+	init_pair(CLR_BAT_GOOD, COLOR_WHITE, -1);
+	init_pair(CLR_BAT_MID, COLOR_YELLOW, -1);
+	init_pair(CLR_BAT_LOW, COLOR_RED, -1);
+	init_pair(CLR_LINK_BT, COLOR_BLUE, -1);
+	init_pair(CLR_LINK_RF, COLOR_WHITE, -1);
+	init_pair(CLR_LINK_OFF, COLOR_WHITE, -1); /* rendered dim for grey */
 
 	tui_zone_color_pairs(t);
 }
@@ -366,6 +515,7 @@ int alloy_tui_run(struct alloy_device *dev)
 	t.dev = dev;
 	t.drv = dev->drv;
 	t.live_preview = 1;
+	t.battery_pct = -1; /* unknown until the first poll */
 
 	used_defaults = alloy_state_load(t.drv, &t.baseline);
 	tui_fx_global_normalize(&t, &t.baseline);
@@ -373,13 +523,6 @@ int alloy_tui_run(struct alloy_device *dev)
 
 	t.accel_running =
 		alloy_accel_is_running(t.drv->vendor_id, t.drv->product_id);
-
-	if (t.drv->ops->firmware_version &&
-	    (t.drv->caps & ALLOY_CAP_FIRMWARE_VERSION)) {
-		if (t.drv->ops->firmware_version(dev, t.firmware,
-						 sizeof(t.firmware)))
-			t.firmware[0] = '\0';
-	}
 
 	setlocale(LC_ALL, "");
 	initscr();
@@ -391,11 +534,9 @@ int alloy_tui_run(struct alloy_device *dev)
 		tui_init_colors(&t);
 
 	/*
-	 * make the mouse state match the working config so what the user sees
-	 * on screen is what the hardware runs - except the active CPI level,
-	 * which the mouse owns and we must not clobber at launch (#41)
 	 */
-	tui_apply_all_impl(&t, 0);
+	tui_poll_battery(&t);
+	tui_sync_device(&t);
 	tui_status(&t, used_defaults ?
 			       "no saved baseline - using driver defaults" :
 			       "baseline loaded from disk");
@@ -408,6 +549,8 @@ int alloy_tui_run(struct alloy_device *dev)
 	 */
 	while (!t.quit) {
 		tui_poll_device_events(&t);
+		tui_poll_battery(&t);
+		tui_sync_device(&t);
 		timeout(TUI_ILLUM_FRAME_MS);
 		if (t.view == VIEW_ILLUM) {
 			tui_illum_draw(&t);

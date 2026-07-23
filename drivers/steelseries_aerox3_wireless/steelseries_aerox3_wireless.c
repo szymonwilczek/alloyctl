@@ -24,6 +24,8 @@
  */
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "driver.h"
 #include "art_steelseries_aerox3_wireless.h"
@@ -41,12 +43,15 @@
 #define A3WL_CMD_REACTIVE 0x66 /* wired 0x26 */
 #define A3WL_CMD_STARTUP_FX 0x67 /* wired 0x27 */
 #define A3WL_CMD_HIGHEFF 0x68 /* wired 0x28: High-Efficiency power saver */
-#define A3WL_CMD_SLEEP 0x69 /* wired 0x29 (not driven yet) */
+#define A3WL_CMD_SLEEP 0x69 /* wired 0x29: idle sleep timer */
 #define A3WL_CMD_BUTTONS 0x6A /* wired 0x2A */
 #define A3WL_CMD_POLLING 0x6B /* wired 0x2B */
 #define A3WL_CMD_DPI 0x6D /* wired 0x2D */
 #define A3WL_CMD_FIRMWARE 0x90 /* not flagged; bare ASCII reply */
 #define A3WL_CMD_BATTERY 0xD2 /* wired 0x92 */
+#define A3WL_CMD_PAIR 0x01 /* receiver bind trigger; unflagged, no echo */
+#define A3WL_CMD_PAIR_ARM_A 0x3B /* pairing preamble 1 (unflagged, echoed) */
+#define A3WL_CMD_PAIR_ARM_B 0x11 /* pairing preamble 2 (unflagged, echoed) */
 
 /* unsolicited events, delivered on the vendor event interface (4) */
 #define A3WL_EVT_CPI_LEVEL 0xAD /* active CPI-level switch */
@@ -59,6 +64,17 @@
  */
 #define A3WL_HIGHEFF_POLLING_HZ 125
 #define A3WL_HIGHEFF_BRIGHTNESS 0
+
+/*
+ * Toggling High-Efficiency drops the 2.4 GHz link for ~1 s while the mouse
+ * re-negotiates power (inherent - GG shows the same), then it re-links with
+ * 0xBC 0x01 event.
+ * Wait for that wake before returning so the next command (the 0x51 save, or any apply)
+ * does not hammer the idle link and stall;
+ * GG defers its post-toggle save the same way.
+ */
+#define A3WL_RELINK_TIMEOUT_MS 2500
+#define A3WL_RELINK_POLL_MS 20
 
 #define A3WL_DPI_MIN 100
 #define A3WL_DPI_MAX 18000
@@ -458,15 +474,48 @@ static int a3wl_apply_buttons(struct alloy_device *dev,
 	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_buttons(cfg, buf));
 }
 
+static long a3wl_now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+/*
+ * Block (bounded) until the link comes back after a High-Efficiency toggle,
+ * i.e. until a 0xBC 0x01 wake lands on the event interface.
+ * Discards the 0xBC 0x00 sleep edge and the 0x12 battery push that ride alongside it.
+ * Stale event fd (the interface can re-enumerate too) or the timeout just ends the wait;
+ * The caller proceeds best-effort.
+ */
+static void a3wl_wait_relink(struct alloy_device *dev)
+{
+	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	long deadline = a3wl_now_ms() + A3WL_RELINK_TIMEOUT_MS;
+
+	if (dev->ev.fd < 0)
+		return;
+
+	while (a3wl_now_ms() < deadline) {
+		int n = alloy_hid_poll(&dev->ev, buf, sizeof(buf));
+
+		if (n >= 2 && buf[0] == A3WL_EVT_POWER && buf[1] == 0x01)
+			return; /* re-linked */
+		usleep(A3WL_RELINK_POLL_MS * 1000);
+	}
+}
+
 /*
  * High-Efficiency Mode is not a single opcode but the register bundle GG emits,
  * mirrored here byte-for-byte from the hardware capture:
- * enabling sets the 0x68 flag, forces polling to 125 Hz (0x6B 0x03) and blanks
- * the LEDs (0x63 level 0);
- * Disabling clears the flag and restores the user's polling and brightness
- * straight from cfg.
- * That is how the firmware implements the mode - the flag alone changes nothing,
- * the host drives the saver.
+ * Enabling sets the 0x68 flag, blanks the LEDs (0x63 level 0) and forces polling
+ * to 125 Hz (0x6B 0x03), in that order;
+ * Disabling clears the flag and restores the user's brightness and polling from cfg.
+ * The flag alone changes nothing - the host drives the saver.
+ * All three ACK before the link drops;
+ * a3wl_wait_relink then waits for the mouse to come back so the caller's next command
+ * finds a live link.
  */
 static int a3wl_apply_high_efficiency(struct alloy_device *dev,
 				      const struct alloy_config *cfg)
@@ -482,8 +531,10 @@ static int a3wl_apply_high_efficiency(struct alloy_device *dev,
 
 	ret |= alloy_hid_cmd(&dev->hid, buf,
 			     a3wl_build_high_efficiency(cfg, buf));
-	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(&eff, buf));
 	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_brightness(&eff, buf));
+	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(&eff, buf));
+
+	a3wl_wait_relink(dev);
 
 	return ret ? -1 : 0;
 }
@@ -538,12 +589,17 @@ static int a3wl_battery(struct alloy_device *dev, int *percent, int *charging)
 	uint8_t b;
 	int lvl;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
 	/*
-	 * linked mouse echoes 0xD2 <byte>;
-	 * idle receiver with no mouse answers with the 0x40 0xFF idle marker,
-	 * which fails this check
+	 * match the 0xD2 echo explicitly and keep the retry budget light:
+	 * this is background poll, so sleeping mouse that never answers must not
+	 * stall the render loop
+	 * few wake attempts recover merely-idle link; unlinked receiver only ever
+	 * emits the 0x40 0xFF idle marker, which hid_read_matching skips,
+	 * so the call returns "no reading" instead of bogus level
 	 */
+	n = alloy_hid_cmd_read_want(&dev->hid, cmd, sizeof(cmd),
+				    A3WL_CMD_BATTERY, resp, sizeof(resp),
+				    ALLOY_HID_ATTEMPTS_POLL);
 	if (n < 2 || resp[0] != A3WL_CMD_BATTERY)
 		return -1;
 
@@ -555,6 +611,40 @@ static int a3wl_battery(struct alloy_device *dev, int *percent, int *charging)
 		*percent = ALLOY_CLAMP(lvl, 0, 100);
 	}
 	return 0;
+}
+
+/*
+ * Dongle pairing.
+ * Binding fresh mouse (mouse OFF, hold CPI, flick to 2.4 GHz) only completes while
+ * GG is running, which means GG puts the *receiver* into a bind/listen mode over USB
+ * - the mouse-side gesture alone is not enough.
+ * GG USB trace of "connect a new device" shows GG sends three unflagged reports to the receiver in order:
+ *	0x3b, then 0x11, then 0x01.
+ * The first two are echoed (the receiver ACKs them like any command, even with no mouse bound yet) and read
+ * as a preamble that arms the bind; 0x01 is the trigger that drops the link, enters bind mode and re-enumerates
+ * the dongle a second or two later once a mouse doing the CPI + 2.4 GHz gesture binds to it.
+ * Sending only 0x01 was not enough on hardware, so the full sequence is replayed.
+ *
+ * The 0x3b/0x11 preamble goes through alloy_hid_cmd so each step waits for its
+ * echo before the next - matching GG's pacing and making sure the firmware
+ * finished one step before starting the next; a missing echo is not fatal, we
+ * still fire the trigger. 0x01 itself is never echoed (the node is about to
+ * disappear in the re-enumeration), so it is a fire-and-forget write. A completed
+ * write is all we can confirm here; the actual bind surfaces afterwards as the
+ * link / battery coming back up (bc 01 on the event interface).
+ */
+static int a3wl_pair(struct alloy_device *dev)
+{
+	static const uint8_t arm_a[] = { A3WL_CMD_PAIR_ARM_A };
+	static const uint8_t arm_b[] = { A3WL_CMD_PAIR_ARM_B };
+	static const uint8_t bind[] = { A3WL_CMD_PAIR };
+
+	/* -1 is a hard I/O error / device gone; -2 (no echo) is tolerated */
+	if (alloy_hid_cmd(&dev->hid, arm_a, sizeof(arm_a)) == -1)
+		return -1;
+	if (alloy_hid_cmd(&dev->hid, arm_b, sizeof(arm_b)) == -1)
+		return -1;
+	return alloy_hid_send(&dev->hid, bind, sizeof(bind));
 }
 
 static const uint16_t a3wl_polling_rates[] = { 1000, 500, 250, 125 };
@@ -593,6 +683,7 @@ static const struct alloy_driver_ops a3wl_ops = {
 	.save = a3wl_save,
 	.firmware_version = a3wl_firmware_version,
 	.battery = a3wl_battery,
+	.pair = a3wl_pair,
 	.parse_event = a3wl_parse_event,
 };
 
@@ -602,6 +693,7 @@ static const struct alloy_driver steelseries_aerox3_wireless = {
 	.product_id = 0x1838,
 	.interface = 3,
 	.event_interface = 4,
+	.bt_product_id = 0x183A, /* product id the mouse shows over Bluetooth */
 	.dpi = {
 		.min = A3WL_DPI_MIN,
 		.max = A3WL_DPI_MAX,
@@ -616,8 +708,8 @@ static const struct alloy_driver steelseries_aerox3_wireless = {
 	.num_buttons = ALLOY_ARRAY_SIZE(a3wl_buttons),
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
 		ALLOY_CAP_BATTERY | ALLOY_CAP_HIGH_EFFICIENCY |
-		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
-		ALLOY_CAP_FX_STARTUP,
+		ALLOY_CAP_PAIRING | ALLOY_CAP_FX_RAINBOW |
+		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP,
 	.fx_names = a3wl_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(a3wl_fx_names),
 	.ascii_art = alloy_art_steelseries_aerox3_wireless,

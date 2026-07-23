@@ -18,9 +18,29 @@ enum tui_pane {
 	PANE_ACTIONS,
 	PANE_CENTER,
 	PANE_LEVELS,
+	/*
+	 * Wireless power controls, carved off the bottom of the CPI LEVELS column.
+	 * Present only for drivers with ALLOY_CAP_BATTERY, otherwise it holds
+	 * no items and pane navigation skips over it.
+	 */
+	PANE_POWER,
 	PANE_TUNING,
 	PANE_FOOTER,
 	PANE_COUNT,
+};
+
+/*
+ * Items in the POWER pane, top to bottom.
+ * SLEEP/SMART/DIM come with ALLOY_CAP_BATTERY;
+ * HIGHEFF is last and present only with ALLOY_CAP_HIGH_EFFICIENCY,
+ * so its absence never shifts the other indices (see tui_pane_item_count).
+ */
+enum tui_power_item {
+	POWER_SLEEP, /* Battery Saver: inactivity sleep timer stepper */
+	POWER_SMART, /* Smart Illum: blank LEDs while moving, toggle */
+	POWER_DIM, /* Dim Timer: dim LEDs after N s idle, stepper */
+	POWER_HIGHEFF, /* High-Efficiency Mode toggle */
+	POWER_COUNT,
 };
 
 /* Top-level screens; ILLUMINATION button switches between them */
@@ -54,10 +74,21 @@ enum tui_color {
 	CLR_BUTTON,
 	CLR_BUTTON_HOT,
 	CLR_INFO, /* static native tint for art guide chars ($i) */
+	/* wireless DEVICE section: battery bands (full -> empty) and link logos */
+	CLR_BAT_HIGH, /* green: plenty */
+	CLR_BAT_GOOD, /* white: comfortable */
+	CLR_BAT_MID, /* yellow: getting low */
+	CLR_BAT_LOW, /* red: nearly empty */
+	CLR_LINK_BT, /* blue: Bluetooth connected */
+	CLR_LINK_RF, /* white: 2.4 GHz connected */
+	CLR_LINK_OFF, /* dim: link inactive */
 	CLR_ZONE_BASE, /* CLR_ZONE_BASE + zone index, dynamic RGB */
 	CLR_PICKER_PREVIEW = CLR_ZONE_BASE + ALLOY_MAX_LED_ZONES,
 	CLR_PICKER_SWATCH, /* + swatch index */
 };
+
+/* consecutive idle battery polls tolerated before the gauge blanks to "--" */
+#define TUI_BATTERY_MAX_MISSES 3
 
 struct tui {
 	struct alloy_device *dev;
@@ -84,6 +115,24 @@ struct tui {
 	char status[128];
 	char firmware[48];
 
+	/*
+	 * Wireless battery gauge (ALLOY_CAP_BATTERY):
+	 * battery_pct < 0 means no reading (mouse asleep or unlinked).
+	 * Refreshed on slow cadence keyed off battery_next_ms.
+	 */
+	int battery_pct;
+	int battery_charging;
+	int battery_misses; /* consecutive failed polls; blanks the gauge past a threshold */
+	int bt_present; /* mouse currently paired to the host over Bluetooth */
+	long battery_next_ms;
+
+	/*
+	 * One-shot device handshake (firmware read + initial config push) done lazily
+	 * once a mouse is actually reachable, so bare 2.4 GHz receiver does not stall
+	 * startup on the per-command wake-retry budget.
+	 */
+	int device_synced;
+
 	int quit;
 };
 
@@ -98,6 +147,8 @@ int tui_save(struct tui *t);
 void tui_revert(struct tui *t);
 void tui_accel_changed(struct tui *t);
 void tui_accel_set_enabled(struct tui *t, int on);
+void tui_poll_battery(struct tui *t);
+int tui_device_needs_pairing(const struct tui *t);
 int tui_pane_item_count(const struct tui *t, enum tui_pane pane);
 int tui_dpi_preset_limit(const struct tui *t);
 int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx);
@@ -113,6 +164,7 @@ void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
 void tui_modal_message(const char *title, const char *text);
 void tui_modal_confirm_quit(struct tui *t);
 void tui_modal_remap(struct tui *t, int button);
+void tui_modal_pair(struct tui *t);
 void tui_modal_frame(int h, int w, int *py, int *px, const char *title);
 
 /* tui_colorpicker.c */
