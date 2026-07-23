@@ -75,7 +75,7 @@ void tui_modal_confirm_quit(struct tui *t)
 	int ch;
 
 	for (;;) {
-		tui_draw(t);
+		tui_render(t);
 		tui_modal_frame(count + 4, 30, &y, &x, "UNSAVED CHANGES");
 
 		for (i = 0; i < count; i++) {
@@ -170,7 +170,7 @@ void tui_modal_pair(struct tui *t)
 					       t->drv->product_id,
 					       t->drv->interface);
 
-		tui_draw(t);
+		tui_render(t);
 		tui_modal_frame(h, w, &y, &x, "PAIR A NEW DEVICE");
 
 		if (stage == PAIR_STAGE_PROBE) {
@@ -330,7 +330,7 @@ void tui_modal_remap(struct tui *t, int button)
 	int ch;
 
 	while (!done) {
-		tui_draw(t);
+		tui_render(t);
 		tui_modal_frame(count + 4, 34, &y, &x,
 				t->drv->buttons[button].name);
 

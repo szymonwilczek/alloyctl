@@ -123,11 +123,15 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 	int x;
 	size_t i;
 
-	/* modal floats over whichever view invoked it */
+	/*
+	 * modal floats over whichever view invoked it
+	 * render the background without flushing so the single refresh
+	 * at the end of picker_draw composites picker over background in one frame
+	 */
 	if (t->view == VIEW_ILLUM)
-		tui_illum_draw(t);
+		tui_illum_render(t);
 	else
-		tui_draw(t);
+		tui_render(t);
 	picker_pairs(p);
 	tui_modal_frame(ROW_COUNT + 8, PICKER_W, &y, &x, p->title);
 

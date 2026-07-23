@@ -744,14 +744,19 @@ static void draw_footer(struct tui *t)
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 
-void tui_draw(struct tui *t)
+/*
+ * Paint the whole main screen into the curses virtual screen but do NOT refresh
+ * - the caller decides when to flush.
+ * Modals render the background this way and then draw themselves on top,
+ * so single refresh() composites the two atomically;
+ */
+void tui_render(struct tui *t)
 {
 	erase();
 
 	if (COLS < MIN_COLS || LINES < MIN_LINES) {
 		mvprintw(0, 0, "Terminal too small: need at least %dx%d",
 			 MIN_COLS, MIN_LINES);
-		refresh();
 		return;
 	}
 
@@ -765,6 +770,10 @@ void tui_draw(struct tui *t)
 		draw_power_pane(t);
 	draw_tuning_pane(t);
 	draw_footer(t);
+}
 
+void tui_draw(struct tui *t)
+{
+	tui_render(t);
 	refresh();
 }
