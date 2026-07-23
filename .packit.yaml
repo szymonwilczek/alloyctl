@@ -25,6 +25,8 @@ jobs:
   # build into the project's COPR repo on every released tag
   - job: copr_build
     trigger: release
+    owner: szymon-wilczek
+    project: alloyctl
     targets:
       - fedora-all
       - epel-9
