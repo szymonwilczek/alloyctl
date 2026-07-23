@@ -141,7 +141,9 @@ jobs:
             | cut -d' ' -f1)
           grep -q "sha256sums=('${sha}')" release/PKGBUILD \
             || { echo "PKGBUILD checksum does not match tarball" >&2; exit 1; }
-          echo "PKGBUILD: checksum matches tarball"
+          grep -q "sha256sums = ${sha}" release/.SRCINFO \
+            || { echo ".SRCINFO checksum does not match tarball" >&2; exit 1; }
+          echo "PKGBUILD/.SRCINFO: checksum matches tarball"
 
   codeowners:
     # .github/CODEOWNERS is generated from MAINTAINERS
