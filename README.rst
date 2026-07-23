@@ -58,8 +58,15 @@ Building
    ./alloyctl
 
 No root needed as long as your ``/dev/hidraw*`` nodes are writable by your user
-(most desktop distributions handle this via udev already; otherwise add a udev
-rule for your mouse's VID/PID).
+(most desktop distributions handle this via udev already). If they are not,
+install the shipped udev rules once with ``sudo make install`` (or ``sudo
+./install.sh`` from a release); they grant per-device ``/dev/hidraw*`` access
+to your desktop session. To only preview or place the rule yourself:
+
+.. code-block:: sh
+
+   alloyctl --dump-udev    # print rules for every supported device, then
+                           # tee into /usr/lib/udev/rules.d/ and reload udev
 
 Choosing drivers
 ----------------
@@ -80,11 +87,16 @@ ship the full driver set -- this is a source-build convenience.
 Installing
 ==========
 
-TUI itself runs straight from the build tree. Installing matters mainly for
-the **pointer-transform daemon** (host-side acceleration/deceleration/angle
-snapping): it needs the ``70-alloyctl-uinput.rules`` udev rule for ``/dev/uinput``
-and evdev access, and a binary in a stable location so the autostart entry keeps
-working across reboots.
+TUI itself runs straight from the build tree. Installing sets up two things:
+the udev rules for unprivileged device access, and a binary in a stable
+location. Two rules are placed:
+
+* ``71-alloyctl-hidraw.rules`` -- unprivileged ``/dev/hidraw*`` access, one
+  match per supported device, **generated from the binary's driver registry**
+  (``alloyctl --dump-udev``) so it never drifts from the drivers you built.
+* ``70-alloyctl-uinput.rules`` -- ``/dev/uinput`` and evdev access for the
+  **pointer-transform daemon** (host-side acceleration/deceleration/angle
+  snapping), whose autostart entry also wants the binary at a stable path.
 
 From a release download (no source tree):
 
@@ -102,9 +114,9 @@ From source:
    sudo make install    # PREFIX, DESTDIR, BINDIR, UDEVDIR overridable
    sudo make uninstall
 
-Both install the binary and the udev rule, then reload udev. On non-logind
-systems, add yourself to the ``input`` group for ``/dev/input`` and
-``/dev/uinput`` access: ``sudo usermod -aG input $USER``.
+Both install the binary and the udev rules, then reload udev. On non-logind
+systems, add yourself to the ``input`` group for ``/dev/hidraw*``,
+``/dev/input`` and ``/dev/uinput`` access: ``sudo usermod -aG input $USER``.
 
 Keys
 ====
