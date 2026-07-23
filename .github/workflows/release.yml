@@ -46,6 +46,15 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential libncursesw5-dev pkg-config
 
+      - name: Install nfpm
+        # nfpm builds the .deb and .rpm from dist/nfpm.yaml
+        # its own apt repo is the maintainer-recommended install path
+        run: |
+          echo 'deb [trusted=yes] https://repo.goreleaser.com/apt/ /' \
+            | sudo tee /etc/apt/sources.list.d/goreleaser.list
+          sudo apt-get update
+          sudo apt-get install -y nfpm
+
       - name: Confirm the tag matches VERSION
         # check-version-tag fails when the tag (vX.Y.Z) does not equal the VERSION file,
         # so release cannot ship a version that disagrees with its tag
@@ -62,7 +71,11 @@ jobs:
           ver="${TAG#v}"
           dist="alloyctl-${ver}-linux-x86_64"
           scripts/stage-release "$ver" release
-          (cd release && sha256sum alloyctl "${dist}.tar.gz" > SHA256SUMS)
+          scripts/build-packages "$ver" release
+          (cd release && sha256sum \
+            alloyctl "${dist}.tar.gz" \
+            "alloyctl_${ver}_amd64.deb" "alloyctl-${ver}.x86_64.rpm" \
+            PKGBUILD > SHA256SUMS)
           cat release/SHA256SUMS
 
       - name: Install cosign
@@ -102,6 +115,7 @@ jobs:
           body="$(git log -1 --format=%b "$GITHUB_SHA" \
             | grep -viE '^(signed-off-by|co-authored-by|acked-by|reviewed-by|tested-by|reported-by|cc):')"
           notes="Portable Linux x86_64 build of alloyctl $TAG."
+          notes="$notes"$'\n\n'"Install: portable tarball, the .deb (Debian/Ubuntu), the .rpm (Fedora/RHEL), or the attached PKGBUILD (Arch/AUR)."
           if [ -n "$body" ]; then
             notes="$notes"$'\n\n'"$body"
           fi
@@ -109,6 +123,7 @@ jobs:
 
           gh release create "$TAG" \
             release/alloyctl release/*.tar.gz \
+            release/*.deb release/*.rpm release/PKGBUILD \
             release/SHA256SUMS release/SHA256SUMS.cosign.bundle \
             --title "$TAG" \
             --notes "$notes" \
