@@ -211,12 +211,21 @@ uninstall:
 	rm -f $(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
 	rm -f $(DESTDIR)$(UDEVDIR)/71-alloyctl-hidraw.rules
 
+# Build the release tarball and the native distro packages (.deb, .rpm)
+# + the AUR PKGBUILD under release/, as the Release workflow does.
+# Needs nfpm on PATH.
+# VERSION drives the version stamped into every artifact.
+packages: $(BIN)
+	scripts/stage-release "$$(cat VERSION)" release
+	scripts/build-packages "$$(cat VERSION)" release
+
 clean:
-	rm -rf build $(BIN)
+	rm -rf build release $(BIN)
 	$(MAKE) -C Documentation clean
 
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
-.PHONY: all install uninstall test test-asan test-ubsan test-tsan test-valgrind \
-	check-format format htmldocs checkdocs docs-serve check-patch \
-	codeowners check-codeowners check-version-tag clean list-drivers
+.PHONY: all install uninstall packages test test-asan test-ubsan test-tsan \
+	test-valgrind check-format format htmldocs checkdocs docs-serve \
+	check-patch codeowners check-codeowners check-version-tag clean \
+	list-drivers
