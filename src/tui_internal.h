@@ -156,6 +156,7 @@ void tui_lighting_changed(struct tui *t);
 
 /* tui_panes.c */
 void tui_draw(struct tui *t);
+void tui_render(struct tui *t);
 void tui_zone_color_pairs(const struct tui *t);
 void tui_draw_pane_box(int y, int x, int h, int w, const char *title,
 		       int focused);
@@ -189,6 +190,7 @@ void tui_art_draw(const struct tui *t, const char *art, int y, int x, int max_y,
 long tui_now_ms(void);
 void tui_zone_fx_pairs(const struct tui *t, long ms);
 void tui_illum_draw(struct tui *t);
+void tui_illum_render(struct tui *t);
 void tui_illum_handle_key(struct tui *t, int ch);
 void tui_illum_enter(struct tui *t);
 void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg);

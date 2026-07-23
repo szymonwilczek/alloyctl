@@ -755,7 +755,13 @@ static void illum_activate(struct tui *t)
 	}
 }
 
-void tui_illum_draw(struct tui *t)
+/*
+ * Paint the illumination view into the virtual screen without refreshing,
+ * the counterpart of tui_render for the main screen.
+ * Color picker lays its background down this way so its single refresh
+ * composites picker over view in one frame.
+ */
+void tui_illum_render(struct tui *t)
 {
 	int main_h = LINES - 2;
 	int left_w = COLS / 3;
@@ -776,7 +782,11 @@ void tui_illum_draw(struct tui *t)
 	mvprintw(LINES - 1, COLS - 52,
 		 "Tab: Zone  Enter: Edit zone  s: Save  Esc: Back");
 	attroff(COLOR_PAIR(CLR_DISABLED));
+}
 
+void tui_illum_draw(struct tui *t)
+{
+	tui_illum_render(t);
 	refresh();
 }
 
