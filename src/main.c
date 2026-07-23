@@ -8,6 +8,7 @@
 #include "accel.h"
 #include "driver.h"
 #include "tui.h"
+#include "udev.h"
 
 static void list_drivers(void)
 {
@@ -54,7 +55,9 @@ static int open_selected(struct alloy_device *dev)
 	if (alloy_device_open_id(dev, pick->vendor_id, pick->product_id)) {
 		fprintf(stderr,
 			"alloyctl: cannot open %s (%04x:%04x) - "
-			"no permission to open /dev/hidraw*?\n",
+			"no permission to open /dev/hidraw*?\n"
+			"Install the udev rules once with 'sudo make install' "
+			"(or 'sudo ./install.sh').\n",
 			pick->name, pick->vendor_id, pick->product_id);
 		return 1;
 	}
@@ -74,6 +77,17 @@ int main(int argc, char **argv)
 	}
 	if (argc > 1 && !strcmp(argv[1], "--version")) {
 		printf("alloyctl %s\n", ALLOY_VERSION);
+		return 0;
+	}
+	/*
+	 * Print udev rules for unprivileged /dev/hidraw* access,
+	 * one line per supported device, built from the driver registry.
+	 * Meant to be piped into rules file; the installers do this for you.
+	 *   alloyctl --dump-udev | sudo tee \
+	 *     /usr/lib/udev/rules.d/71-alloyctl-hidraw.rules
+	 */
+	if (argc > 1 && !strcmp(argv[1], "--dump-udev")) {
+		alloy_udev_rules_write(stdout);
 		return 0;
 	}
 
@@ -107,9 +121,11 @@ int main(int argc, char **argv)
 			return 1;
 		}
 		if (alloy_device_open_id(&dev, (uint16_t)vid, (uint16_t)pid)) {
-			fprintf(stderr, "alloyctl: no supported mouse found "
-					"(or no permission to open "
-					"/dev/hidraw*)\n");
+			fprintf(stderr,
+				"alloyctl: no supported mouse found "
+				"(or no permission to open /dev/hidraw*; "
+				"install the udev rules with 'sudo make "
+				"install')\n");
 			list_drivers();
 			return 1;
 		}
