@@ -131,7 +131,7 @@ jobs:
 
       - name: Hand the AUR recipe to the publish job
         if: ${{ !contains(github.ref_name, '-') }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: aur-recipe
           path: |
