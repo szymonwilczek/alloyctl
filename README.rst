@@ -99,16 +99,27 @@ location. Two rules are placed:
   snapping), whose autostart entry also wants the binary at a stable path.
 
 From a distribution package (recommended -- your package manager tracks
-updates and removals). Every release attaches a ``.deb``, an ``.rpm`` and an
-AUR ``PKGBUILD``; all place the binary and both udev rules and reload udev:
+updates and removals). Fedora users can enable the `COPR repository
+<https://copr.fedorainfracloud.org/coprs/szymon-wilczek/alloyctl/>`_, and Arch
+Linux users can install `alloyctl-bin
+<https://aur.archlinux.org/packages/alloyctl-bin>`_ from the AUR. Every
+release also attaches a ``.deb``, an ``.rpm`` and an AUR ``PKGBUILD``; all
+place the binary and both udev rules and reload udev:
 
 .. code-block:: sh
 
+   # Fedora (COPR)
+   sudo dnf copr enable szymon-wilczek/alloyctl
+   sudo dnf install alloyctl
+
+   # Arch Linux (AUR)
+   yay -S alloyctl-bin                                  # or using any AUR helper
+
+   # Manual / release package install
    sudo apt install ./alloyctl_<version>_amd64.deb      # Debian / Ubuntu
    sudo dnf install ./alloyctl-<version>.x86_64.rpm     # Fedora / RHEL
    sudo zypper install ./alloyctl-<version>.x86_64.rpm  # openSUSE
-   # Arch: build the attached PKGBUILD, or use the AUR 'alloyctl-bin' package
-   makepkg -si                                          # from the PKGBUILD's dir
+   makepkg -si                                          # Arch (from attached PKGBUILD)
 
 On NixOS, use the flake -- it builds from source and installs the udev rules
 the supported way:
