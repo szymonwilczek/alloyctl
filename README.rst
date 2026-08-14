@@ -13,104 +13,55 @@ alloyctl
    :align: center
 
 Supported hardware
-===================
+==================
 
 .. list-table::
    :header-rows: 1
-   :widths: 40 40 20
+   :widths: 45 25 30
 
    * - Device
-     - USB ID
-   * - SteelSeries Aerox 3 Wireless *(2.4 GHz receiver)*
-     - ``1038:1838``
-   * - SteelSeries Rival 3 Gen 2
-     - ``1038:1870``
-   * - SteelSeries Rival 3
+     - Connectivity
+     - Device ID
+   * - SteelSeries Rival 3 (Gen 1)
+     - USB (wired)
      - ``1038:1824``, ``1038:184c``
+   * - SteelSeries Rival 3 Gen 2
+     - USB (wired)
+     - ``1038:1870``
+   * - SteelSeries Aerox 3 Wireless
+     - 2.4 GHz USB / Wired
+     - ``1038:1838``
+   * - SteelSeries Aerox 3 Wireless (BT)
+     - Bluetooth LE
+     - ``BUS_BLUETOOTH``
 
-This project is mice only for now (keyboards are maybe in the scope for the future).
-Want yours supported? See
-`Documentation/contributor/adding-a-driver.rst
-<Documentation/contributor/adding-a-driver.rst>`_ -- one file, one mouse,
-community drivers are the whole point of this project.
+See the `documentation <https://alloy.szymon-wilczek.me/devices.html>`_ for full device notes.
+Want yours supported? See `Adding a driver <https://alloy.szymon-wilczek.me/contributor/adding-a-driver.html>`_.
 
 Features
 ========
 
-* **Button remapping** -- every physical control, including scroll directions,
-  to mouse buttons, CPI toggle, keyboard keys, or off.
-* **Per-zone RGB** -- each LED zone addressed individually, not one color
-  smeared over everything. The color picker modal offers R/G/B steppers, a
-  preset palette and hex entry, all previewed live on the hardware.
-* **Hardware lighting effects** -- everything the firmware can run on its own:
-  per-zone rainbow cycling, reactive click color, and the power-up lighting
-  choice. Drivers declare what their mouse supports; nothing is emulated
-  host-side.
-* **Two CPI presets** on interval sliders across the sensor's real range, plus
-  the active-preset toggle.
-* **Polling rate** stepper with a live waveform.
-* **Live preview** -- changes hit the mouse instantly but are not persisted;
-  **SAVE** commits to onboard flash, **REVERT** restores your session baseline.
-  Settings your hardware lacks are shown as ``N/A (device)``, never faked.
+* **Button remapping** -- every physical button and scroll direction mapped to mouse actions, CPI toggle, keyboard keys, or disabled.
+* **Per-zone RGB** -- each LED zone addressed independently with live hardware preview, color steppers, preset palettes, and hex input.
+* **Hardware lighting effects** -- native firmware rainbow cycling, reactive click illumination, and startup lighting mode.
+* **CPI & Polling rate** -- interval sliders across the sensor's native range, active preset switching, and polling rate steppers.
+* **Pointer tuning** -- host-side acceleration, deceleration, and angle snapping with visual curves.
+* **Onboard persistence** -- instant live preview on hardware; **SAVE** commits to onboard flash memory, **REVERT** restores session baseline.
 
-Building
-========
+Quick start
+===========
 
 .. code-block:: sh
 
-   make            # needs gcc/clang, ncursesw, pkg-config
-   make test       # unit tests, no hardware required
-   ./alloyctl
+   make            # build alloyctl binary
+   make test       # run unit test suite
+   ./alloyctl      # launch TUI
 
-No root needed as long as your ``/dev/hidraw*`` nodes are writable by your user
-(most desktop distributions handle this via udev already). If they are not,
-install the shipped udev rules once with ``sudo make install`` (or ``sudo ./install.sh``
-from a release); they grant per-device ``/dev/hidraw*`` access to your desktop session.
+Installation
+============
 
-To only preview or place the rule yourself:
-
-.. code-block:: sh
-
-   alloyctl --dump-udev    # print rules for every supported device, then
-                           # tee into /usr/lib/udev/rules.d/ and reload udev
-
-Choosing drivers
-----------------
-
-Plain ``make`` builds every driver in the tree. You can trim the binary to just
-the hardware you use:
-
-.. code-block:: sh
-
-   make list-drivers                                           # valid driver names
-   make DRIVERS="steelseries_rival3_gen2"                      # build only this one
-   make DRIVERS="steelseries_rival3 steelseries_rival3_gen2"   # subset
-
-Only the named drivers' code and embedded art are compiled and linked; an
-unknown name is a hard error listing the valid ones. Released binaries always
-ship the full driver set -- this is a source-build convenience.
-
-Installing
-==========
-
-TUI itself runs straight from the build tree. Installing sets up two things:
-the udev rules for unprivileged device access, and a binary in a stable
-location. Two rules are placed:
-
-* ``71-alloyctl-hidraw.rules`` -- unprivileged ``/dev/hidraw*`` access, one
-  match per supported device, **generated from the binary's driver registry**
-  (``alloyctl --dump-udev``) so it never drifts from the drivers you built.
-* ``70-alloyctl-uinput.rules`` -- ``/dev/uinput`` and evdev access for the
-  **pointer-transform daemon** (host-side acceleration/deceleration/angle
-  snapping), whose autostart entry also wants the binary at a stable path.
-
-From a distribution package:
-----------------------------
-
-Fedora users can enable the `COPR repository <https://copr.fedorainfracloud.org/coprs/szymon-wilczek/alloyctl/>`_,
-and Arch Linux users can install `alloyctl-bin <https://aur.archlinux.org/packages/alloyctl-bin>`_ from the AUR.
-Every release also attaches a ``.deb``, an ``.rpm`` and an AUR ``PKGBUILD``;
-all place the binary and both udev rules and reload udev:
+Packages
+--------
 
 .. code-block:: sh
 
@@ -119,79 +70,39 @@ all place the binary and both udev rules and reload udev:
    sudo dnf install alloyctl
 
    # Arch Linux (AUR)
-   yay -S alloyctl-bin                                  # or using any AUR helper
+   yay -S alloyctl-bin
 
-   # Manual / release package install
-   sudo apt install ./alloyctl_<version>_amd64.deb      # Debian / Ubuntu
-   sudo dnf install ./alloyctl-<version>.x86_64.rpm     # Fedora / RHEL
-   sudo zypper install ./alloyctl-<version>.x86_64.rpm  # openSUSE
-   makepkg -si                                          # Arch (from attached PKGBUILD)
+   # Debian / Ubuntu (.deb release)
+   sudo apt install ./alloyctl_<version>_amd64.deb
 
-On NixOS, use the flake -- it builds from source and installs the udev rules
-the supported way:
+   # Fedora / RHEL (.rpm release)
+   sudo dnf install ./alloyctl-<version>.x86_64.rpm
 
-.. code-block:: nix
+   # NixOS (flake)
+   # programs.alloyctl.enable = true; (via inputs.alloyctl.nixosModules.default)
 
-   # flake.nix inputs: alloyctl.url = "github:szymonwilczek/alloyctl";
-   # in a NixOS module:
-   imports = [ inputs.alloyctl.nixosModules.default ];
-   programs.alloyctl.enable = true;
-
-| Or run it ad hoc: ``nix run github:szymonwilczek/alloyctl``.
-| Gentoo users can build the ebuild under ``dist/gentoo/`` from an overlay.
-
-From a release download (no source tree):
------------------------------------------
+From source
+-----------
 
 .. code-block:: sh
 
-   tar -xzf alloyctl-<version>-linux-x86_64.tar.gz
-   cd alloyctl-<version>-linux-x86_64
-   sudo ./install.sh                               # or: sudo ./install.sh --prefix /usr
-   sudo ./install.sh --uninstall                   # to remove it again
-
-From source:
-------------
-
-.. code-block:: sh
-
-   sudo make install    # PREFIX, DESTDIR, BINDIR, UDEVDIR overridable
+   sudo make install      # installs binary and udev rules
    sudo make uninstall
-
-Both install the binary and the udev rules, then reload udev. On non-logind
-systems, add yourself to the ``input`` group for ``/dev/hidraw*``,
-``/dev/input`` and ``/dev/uinput`` access: ``sudo usermod -aG input $USER``.
 
 Documentation
 =============
 
-Online hosted documentation can be found at https://alloy.szymon-wilczek.me
+Online documentation and protocol references: https://alloy.szymon-wilczek.me
 
-Full manual can be found under ``Documentation/`` and builds to HTML
-with Sphinx::
-
-   make htmldocs
-
-Highlights:
-
-* `Adding a driver <Documentation/contributor/adding-a-driver.rst>`_
-* `Contributing <Documentation/contributor/contributing.rst>`_
-* `Reverse-engineered protocol notes <Documentation/protocol/>`_
-
-Design notes
-============
-
-* Mice provide no configuration read-back, so REVERT restores the baseline
-  persisted under ``~/.config/alloyctl/`` (driver defaults on the very first
-  run) -- your defaults, not the application's.
+* `Supported devices <https://alloy.szymon-wilczek.me/devices.html>`_
+* `Adding a driver <https://alloy.szymon-wilczek.me/contributor/adding-a-driver.html>`_
+* `Contributing guidelines <https://alloy.szymon-wilczek.me/contributor/contributing.html>`_
+* `Protocol documentation <https://alloy.szymon-wilczek.me/protocol/index.html>`_
 
 Disclaimer
 ==========
 
-alloyctl is an independent, unofficial project. It is not affiliated with,
-endorsed by, or sponsored by SteelSeries ApS. "SteelSeries" and "SteelSeries
-Engine" are trademarks of their respective owners, used here only to describe
-hardware compatibility.
+alloyctl is an independent, unofficial project. It is not affiliated with, endorsed by, or sponsored by SteelSeries ApS. "SteelSeries" and "SteelSeries Engine" are trademarks of their respective owners, used here only to describe hardware compatibility.
 
 License
 =======
