@@ -84,6 +84,13 @@ F:    drivers/steelseries_aerox3_wireless/
 F:    tests/drivers/steelseries_aerox3_wireless.c
 F:    tests/drivers/steelseries_aerox3_wireless_bt.c
 
+STEELSERIES PRIME DRIVER
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
+S:    Orphan
+F:    Documentation/protocol/steelseries-prime.rst
+F:    drivers/steelseries_prime/
+F:    tests/drivers/steelseries_prime.c
+
 STEELSERIES RIVAL 3 GEN 1 DRIVER
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained

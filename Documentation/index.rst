@@ -33,19 +33,22 @@ included.
 
 * :doc:`SteelSeries Rival 3 Gen 1 <protocol/steelseries-rival3>`
 * :doc:`SteelSeries Rival 3 Gen 2 <protocol/steelseries-rival3-gen2>`
+* :doc:`SteelSeries Prime <protocol/steelseries-prime>`
 
 User
 ----
 
 Build with ``make``, run ``./alloyctl``. The :ghsrc:`README.rst` covers
-supported hardware, features, and key bindings.
+all the features.
 
+* :doc:`Supported devices <devices>`
 * :doc:`Host-side acceleration / deceleration / angle snapping
   <architecture/pointer-transform>`
 
 .. toctree::
    :hidden:
 
+   devices
    contributor/index
    protocol/index
    architecture/index

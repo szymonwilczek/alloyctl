@@ -208,10 +208,10 @@ check_commit_body_layout() {
 		write_commit_message "$commit" "$msg_file"
 
 		if ! awk '
-			/^Signed-off-by:/ {
-				if (NR == 1 || (prev != "" && prev !~ /-by:/)) {
+			tolower($0) ~ /^[a-z0-9-]+-by:/ {
+				if (NR == 1 || (prev != "" && tolower(prev) !~ /^[a-z0-9-]+-by:/)) {
 					bad = 1
-					print FNR ": Signed-off-by must be preceded by one blank line"
+					print FNR ": " $1 " must be preceded by one blank line"
 				}
 			}
 			{ prev = $0 }
@@ -225,7 +225,7 @@ check_commit_body_layout() {
 		if ! awk '
 			NR == 1 { next }
 			/^$/ { next }
-			/^[A-Za-z0-9-]+-by:[[:space:]]/ { next }
+			tolower($0) ~ /^[a-z0-9-]+-by:[[:space:]]/ { next }
 			length($0) > 77 && $0 ~ /[[:space:]]/ {
 				bad = 1
 				printf "%d: body line is %d columns\n", FNR, length($0)
@@ -244,7 +244,7 @@ check_commit_body_layout() {
 		pass "commit body layout"
 	else
 		fail "commit body layout" \
-			"wrap the body at 75 columns and keep one blank line before Signed-off-by."
+			"wrap the body at 75 columns and keep one blank line before trailers."
 	fi
 }
 
