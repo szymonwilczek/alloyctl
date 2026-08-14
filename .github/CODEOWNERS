@@ -16,12 +16,15 @@
 /defaults/	@szymonwilczek
 /Documentation/	@szymonwilczek
 /Documentation/protocol/
+/drivers/steelseries_prime/	@szymonwilczek
 /drivers/steelseries_rival3/	@szymonwilczek
 /drivers/steelseries_rival3_gen2/	@szymonwilczek
+/tests/drivers/steelseries_prime.c	@szymonwilczek
 /tests/drivers/steelseries_rival3.c	@szymonwilczek
 /drivers/steelseries_aerox3_wireless/	@szymonwilczek
 /tests/drivers/steelseries_rival3_gen2.c	@szymonwilczek
 /tests/drivers/steelseries_aerox3_wireless.c	@szymonwilczek
+/Documentation/protocol/steelseries-prime.rst	@szymonwilczek
 /Documentation/protocol/steelseries-rival3.rst	@szymonwilczek
 /tests/drivers/steelseries_aerox3_wireless_bt.c	@szymonwilczek
 /Documentation/protocol/steelseries-rival3-gen2.rst	@szymonwilczek

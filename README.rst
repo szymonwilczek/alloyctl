@@ -22,6 +22,9 @@ Supported hardware
    * - Device
      - Connectivity
      - Device ID
+   * - SteelSeries Prime, Black Ice, Neo Noir
+     - USB (wired)
+     - ``1038:182e``, ``1038:182a``, ``1038:1856``
    * - SteelSeries Rival 3 (Gen 1)
      - USB (wired)
      - ``1038:1824``, ``1038:184c``

@@ -15,6 +15,10 @@ alloyctl currently supports the following SteelSeries gaming mice on Linux:
      - Connectivity
      - Device ID
      - Protocol doc
+   * - SteelSeries Prime
+     - USB (wired)
+     - ``1038:182e``, ``1038:182a``, ``1038:1856``
+     - :doc:`protocol/steelseries-prime`
    * - SteelSeries Rival 3 (Gen 1)
      - USB (wired)
      - ``1038:1824``, ``1038:184c``
