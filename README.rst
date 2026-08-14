@@ -4,8 +4,13 @@
 alloyctl
 ========
 
-Full-screen terminal replacement for SteelSeries Engine on Linux, written in C.
-Panes, modals, live preview, and every setting the hardware really has.
+| Full-screen terminal replacement for SteelSeries Engine on Linux.
+| Panes, modals, live preview, and every setting the hardware really has.
+|
+
+.. image:: Documentation/assets/tui_overview.png
+   :alt: alloyctl TUI - Main and illumination views
+   :align: center
 
 Supported hardware
 ===================
@@ -59,9 +64,10 @@ Building
 
 No root needed as long as your ``/dev/hidraw*`` nodes are writable by your user
 (most desktop distributions handle this via udev already). If they are not,
-install the shipped udev rules once with ``sudo make install`` (or ``sudo
-./install.sh`` from a release); they grant per-device ``/dev/hidraw*`` access
-to your desktop session. To only preview or place the rule yourself:
+install the shipped udev rules once with ``sudo make install`` (or ``sudo ./install.sh``
+from a release); they grant per-device ``/dev/hidraw*`` access to your desktop session.
+
+To only preview or place the rule yourself:
 
 .. code-block:: sh
 
@@ -98,13 +104,13 @@ location. Two rules are placed:
   **pointer-transform daemon** (host-side acceleration/deceleration/angle
   snapping), whose autostart entry also wants the binary at a stable path.
 
-From a distribution package (recommended -- your package manager tracks
-updates and removals). Fedora users can enable the `COPR repository
-<https://copr.fedorainfracloud.org/coprs/szymon-wilczek/alloyctl/>`_, and Arch
-Linux users can install `alloyctl-bin
-<https://aur.archlinux.org/packages/alloyctl-bin>`_ from the AUR. Every
-release also attaches a ``.deb``, an ``.rpm`` and an AUR ``PKGBUILD``; all
-place the binary and both udev rules and reload udev:
+From a distribution package:
+----------------------------
+
+Fedora users can enable the `COPR repository <https://copr.fedorainfracloud.org/coprs/szymon-wilczek/alloyctl/>`_,
+and Arch Linux users can install `alloyctl-bin <https://aur.archlinux.org/packages/alloyctl-bin>`_ from the AUR.
+Every release also attaches a ``.deb``, an ``.rpm`` and an AUR ``PKGBUILD``;
+all place the binary and both udev rules and reload udev:
 
 .. code-block:: sh
 
@@ -131,10 +137,11 @@ the supported way:
    imports = [ inputs.alloyctl.nixosModules.default ];
    programs.alloyctl.enable = true;
 
-Or run it ad hoc: ``nix run github:szymonwilczek/alloyctl``. Gentoo users can
-build the ebuild under ``dist/gentoo/`` from an overlay.
+| Or run it ad hoc: ``nix run github:szymonwilczek/alloyctl``.
+| Gentoo users can build the ebuild under ``dist/gentoo/`` from an overlay.
 
 From a release download (no source tree):
+-----------------------------------------
 
 .. code-block:: sh
 
@@ -144,6 +151,7 @@ From a release download (no source tree):
    sudo ./install.sh --uninstall                   # to remove it again
 
 From source:
+------------
 
 .. code-block:: sh
 
@@ -154,21 +162,6 @@ Both install the binary and the udev rules, then reload udev. On non-logind
 systems, add yourself to the ``input`` group for ``/dev/hidraw*``,
 ``/dev/input`` and ``/dev/uinput`` access: ``sudo usermod -aG input $USER``.
 
-Keys
-====
-
-===========  =============================
-Key          Action
-===========  =============================
-Tab / S-Tab  Cycle panes
-j/k, arrows  Move within a pane
-h/l          Adjust stepper (H/L: fast)
-a            Set active CPI preset
-Enter        Open modal / Press button
-Esc          Close modal
-q            Quit
-===========  =============================
-
 Documentation
 =============
 
@@ -177,7 +170,7 @@ Online hosted documentation can be found at https://alloy.szymon-wilczek.me
 Full manual can be found under ``Documentation/`` and builds to HTML
 with Sphinx::
 
-   make htmldocs   # output in Documentation/_build/html/index.html
+   make htmldocs
 
 Highlights:
 
