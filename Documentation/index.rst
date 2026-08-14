@@ -33,6 +33,7 @@ included.
 
 * :doc:`SteelSeries Rival 3 Gen 1 <protocol/steelseries-rival3>`
 * :doc:`SteelSeries Rival 3 Gen 2 <protocol/steelseries-rival3-gen2>`
+* :doc:`SteelSeries Prime <protocol/steelseries-prime>`
 
 User
 ----
