@@ -96,13 +96,13 @@ ALLOY_TEST(test_dpi_packet)
 	size_t len;
 
 	a3wl()->config_defaults(a3wl(), &cfg);
-	cfg.dpi_count = 5;
-	cfg.dpi_active = 0;
-	cfg.dpi[0][0] = 400;
-	cfg.dpi[1][0] = 800;
-	cfg.dpi[2][0] = 1200;
-	cfg.dpi[3][0] = 2400;
-	cfg.dpi[4][0] = 3200;
+	cfg.mouse.dpi_count = 5;
+	cfg.mouse.dpi_active = 0;
+	cfg.mouse.dpi[0][0] = 400;
+	cfg.mouse.dpi[1][0] = 800;
+	cfg.mouse.dpi[2][0] = 1200;
+	cfg.mouse.dpi[3][0] = 2400;
+	cfg.mouse.dpi[4][0] = 3200;
 
 	len = a3wl_build_dpi(&cfg, buf);
 	ASSERT_EQ(len, 8); /* cmd + count + active + 5 single-byte presets */
@@ -117,26 +117,26 @@ ALLOY_TEST(test_dpi_packet)
 	ASSERT_EQ(buf[7], 0x26); /* 3200 */
 
 	/* active index is carried through, 0-based */
-	cfg.dpi_active = 3;
+	cfg.mouse.dpi_active = 3;
 	a3wl_build_dpi(&cfg, buf);
 	ASSERT_EQ(buf[2], 3);
 
 	/* boundaries of the TrueMove Air table */
-	cfg.dpi_count = 1;
-	cfg.dpi_active = 0;
-	cfg.dpi[0][0] = 100;
+	cfg.mouse.dpi_count = 1;
+	cfg.mouse.dpi_active = 0;
+	cfg.mouse.dpi[0][0] = 100;
 	len = a3wl_build_dpi(&cfg, buf);
 	ASSERT_EQ(len, 4);
 	ASSERT_EQ(buf[3], 0x00);
-	cfg.dpi[0][0] = 18000;
+	cfg.mouse.dpi[0][0] = 18000;
 	a3wl_build_dpi(&cfg, buf);
 	ASSERT_EQ(buf[3], 0xD6);
 
 	/* out-of-range values clamp instead of overflowing the table */
-	cfg.dpi[0][0] = 50;
+	cfg.mouse.dpi[0][0] = 50;
 	a3wl_build_dpi(&cfg, buf);
 	ASSERT_EQ(buf[3], 0x00);
-	cfg.dpi[0][0] = 60000;
+	cfg.mouse.dpi[0][0] = 60000;
 	a3wl_build_dpi(&cfg, buf);
 	ASSERT_EQ(buf[3], 0xD6);
 }
@@ -158,7 +158,7 @@ ALLOY_TEST(test_polling_packet)
 
 	a3wl()->config_defaults(a3wl(), &cfg);
 	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
-		cfg.polling_hz = cases[i].hz;
+		cfg.common.polling_hz = cases[i].hz;
 		ASSERT_EQ(a3wl_build_polling(&cfg, buf), 2);
 		ASSERT_EQ(buf[0], 0x6B);
 		ASSERT_EQ(buf[1], cases[i].wire);
@@ -171,9 +171,9 @@ ALLOY_TEST(test_zone_color_packet)
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
 	a3wl()->config_defaults(a3wl(), &cfg);
-	cfg.zone_color[0] = (struct alloy_rgb){ 0xFF, 0x00, 0x00 };
-	cfg.zone_color[1] = (struct alloy_rgb){ 0x11, 0x22, 0x33 };
-	cfg.zone_color[2] = (struct alloy_rgb){ 0x44, 0x55, 0x66 };
+	cfg.common.zone_color[0] = (struct alloy_rgb){ 0xFF, 0x00, 0x00 };
+	cfg.common.zone_color[1] = (struct alloy_rgb){ 0x11, 0x22, 0x33 };
+	cfg.common.zone_color[2] = (struct alloy_rgb){ 0x44, 0x55, 0x66 };
 
 	/* top zone: captured 61 01 00 ff 00 00 */
 	ASSERT_EQ(a3wl_build_zone_color(&cfg, 0, buf), 6);
@@ -204,19 +204,19 @@ ALLOY_TEST(test_rainbow_packet)
 	a3wl()->config_defaults(a3wl(), &cfg);
 
 	/* defaults are all steady: no rainbow packet */
-	cfg.zone_fx[0] = 0;
-	cfg.zone_fx[1] = 0;
-	cfg.zone_fx[2] = 0;
+	cfg.common.zone_fx[0] = 0;
+	cfg.common.zone_fx[1] = 0;
+	cfg.common.zone_fx[2] = 0;
 	ASSERT_EQ(a3wl_build_rainbow(&cfg, buf), 0);
 
-	cfg.zone_fx[0] = 1;
-	cfg.zone_fx[2] = 1;
+	cfg.common.zone_fx[0] = 1;
+	cfg.common.zone_fx[2] = 1;
 	ASSERT_EQ(a3wl_build_rainbow(&cfg, buf), 2);
 	ASSERT_EQ(buf[0], 0x62);
 	ASSERT_EQ(buf[1], 0x05); /* bit0 | bit2 */
 
 	/* all three zones on the rainbow */
-	cfg.zone_fx[1] = 1;
+	cfg.common.zone_fx[1] = 1;
 	a3wl_build_rainbow(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x07);
 }
@@ -228,8 +228,8 @@ ALLOY_TEST(test_reactive_packet)
 
 	a3wl()->config_defaults(a3wl(), &cfg);
 
-	cfg.reactive_enabled = 1;
-	cfg.reactive_color = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
+	cfg.mouse.reactive_enabled = 1;
+	cfg.mouse.reactive_color = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
 	ASSERT_EQ(a3wl_build_reactive(&cfg, buf), 6);
 	ASSERT_EQ(buf[0], 0x66);
 	ASSERT_EQ(buf[1], 0x01); /* enable byte is mandatory */
@@ -239,7 +239,7 @@ ALLOY_TEST(test_reactive_packet)
 	ASSERT_EQ(buf[5], 0x56);
 
 	/* disabled: all-zero payload turns the effect off */
-	cfg.reactive_enabled = 0;
+	cfg.mouse.reactive_enabled = 0;
 	a3wl_build_reactive(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x00);
 	ASSERT_EQ(buf[3], 0x00);
@@ -264,11 +264,11 @@ ALLOY_TEST(test_startup_packet)
 	size_t i;
 
 	a3wl()->config_defaults(a3wl(), &cfg);
-	cfg.zone_fx[0] = 0;
-	cfg.zone_fx[1] = 0;
-	cfg.zone_fx[2] = 0;
+	cfg.common.zone_fx[0] = 0;
+	cfg.common.zone_fx[1] = 0;
+	cfg.common.zone_fx[2] = 0;
 	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
-		cfg.startup_fx = cases[i].fx;
+		cfg.mouse.startup_fx = cases[i].fx;
 		ASSERT_EQ(a3wl_build_startup(&cfg, buf), 3);
 		ASSERT_EQ(buf[0], 0x67);
 		ASSERT_EQ(buf[1], cases[i].rainbow);
@@ -276,8 +276,8 @@ ALLOY_TEST(test_startup_packet)
 	}
 
 	/* any rainbow zone forces the engine on regardless of startup choice */
-	cfg.zone_fx[1] = 1;
-	cfg.startup_fx = ALLOY_STARTUP_OFF;
+	cfg.common.zone_fx[1] = 1;
+	cfg.mouse.startup_fx = ALLOY_STARTUP_OFF;
 	a3wl_build_startup(&cfg, buf);
 	ASSERT_EQ(buf[1], 1);
 }
@@ -290,7 +290,7 @@ ALLOY_TEST(test_brightness_packet)
 	a3wl()->config_defaults(a3wl(), &cfg);
 
 	/* 0-100% maps onto the 16-level (0x00-0x0F) illumination knob */
-	cfg.brightness = 100;
+	cfg.common.brightness = 100;
 	ASSERT_EQ(a3wl_build_brightness(&cfg, buf), 8);
 	ASSERT_EQ(buf[0], 0x63);
 	ASSERT_EQ(buf[1], 0x0F); /* full */
@@ -298,34 +298,34 @@ ALLOY_TEST(test_brightness_packet)
 	ASSERT_EQ(buf[3], 0x00); /* smart mode off */
 	ASSERT_EQ(buf[5], 0x00); /* dim timer off */
 
-	cfg.brightness = 0;
+	cfg.common.brightness = 0;
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x00);
 
-	cfg.brightness = 50;
+	cfg.common.brightness = 50;
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x08);
 
-	cfg.brightness = 255; /* clamps to 100% -> full */
+	cfg.common.brightness = 255; /* clamps to 100% -> full */
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x0F);
 
 	/* smart mode rides byte 3 of the same command */
-	cfg.brightness = 100;
-	cfg.illum_smart = 1;
+	cfg.common.brightness = 100;
+	cfg.common.illum_smart = 1;
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[3], 0x01);
 
 	/* dim timer: seconds -> 3-byte little-endian ms (30 s = 30000 = 0x7530) */
-	cfg.illum_smart = 0;
-	cfg.illum_dim_s = 30;
+	cfg.common.illum_smart = 0;
+	cfg.common.illum_dim_s = 30;
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[5], 0x30);
 	ASSERT_EQ(buf[6], 0x75);
 	ASSERT_EQ(buf[7], 0x00);
 
 	/* dim timer clamps to the 1200 s ceiling (1200 s = 1200000 = 0x124F80) */
-	cfg.illum_dim_s = 5000;
+	cfg.common.illum_dim_s = 5000;
 	a3wl_build_brightness(&cfg, buf);
 	ASSERT_EQ(buf[5], 0x80);
 	ASSERT_EQ(buf[6], 0x4F);
@@ -340,7 +340,7 @@ ALLOY_TEST(test_sleep_packet)
 	a3wl()->config_defaults(a3wl(), &cfg);
 
 	/* 5 min: captured 69 e0 93 04 (0x000493E0 = 300000 ms) */
-	cfg.sleep_min = 5;
+	cfg.common.sleep_min = 5;
 	ASSERT_EQ(a3wl_build_sleep(&cfg, buf), 4);
 	ASSERT_EQ(buf[0], 0x69);
 	ASSERT_EQ(buf[1], 0xE0);
@@ -348,21 +348,21 @@ ALLOY_TEST(test_sleep_packet)
 	ASSERT_EQ(buf[3], 0x04);
 
 	/* 20 min ceiling: 0x00124F80 = 1200000 ms -> 69 80 4f 12 */
-	cfg.sleep_min = 20;
+	cfg.common.sleep_min = 20;
 	a3wl_build_sleep(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x80);
 	ASSERT_EQ(buf[2], 0x4F);
 	ASSERT_EQ(buf[3], 0x12);
 
 	/* 0 = never: 69 00 00 00 */
-	cfg.sleep_min = 0;
+	cfg.common.sleep_min = 0;
 	a3wl_build_sleep(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x00);
 	ASSERT_EQ(buf[2], 0x00);
 	ASSERT_EQ(buf[3], 0x00);
 
 	/* out-of-range minutes clamp to the 20 min ceiling */
-	cfg.sleep_min = 200;
+	cfg.common.sleep_min = 200;
 	a3wl_build_sleep(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x80);
 	ASSERT_EQ(buf[2], 0x4F);
@@ -390,14 +390,14 @@ ALLOY_TEST(test_buttons_packet)
 	ASSERT_EQ(buf[1 + 0x23], 0x32); /* scroll down */
 
 	/* rebind button 4 to keyboard 'a' (usage 0x04) */
-	cfg.buttons[3].type = ALLOY_ACT_KEYBOARD;
-	cfg.buttons[3].value = 0x04;
+	cfg.mouse.buttons[3].type = ALLOY_ACT_KEYBOARD;
+	cfg.mouse.buttons[3].value = 0x04;
 	a3wl_build_buttons(&cfg, buf);
 	ASSERT_EQ(buf[1 + 0x0F], 0x51);
 	ASSERT_EQ(buf[1 + 0x0F + 1], 0x04);
 
 	/* disable button 5 */
-	cfg.buttons[4].type = ALLOY_ACT_DISABLED;
+	cfg.mouse.buttons[4].type = ALLOY_ACT_DISABLED;
 	a3wl_build_buttons(&cfg, buf);
 	ASSERT_EQ(buf[1 + 0x14], 0x00);
 }
@@ -410,12 +410,12 @@ ALLOY_TEST(test_high_efficiency_packet)
 	a3wl()->config_defaults(a3wl(), &cfg);
 
 	/* enable flag: 0x68 0x01 (captured with the mode toggled on) */
-	cfg.high_efficiency = 1;
+	cfg.mouse.high_efficiency = 1;
 	ASSERT_EQ(a3wl_build_high_efficiency(&cfg, buf), 2);
 	ASSERT_EQ(buf[0], 0x68);
 	ASSERT_EQ(buf[1], 0x01);
 
-	cfg.high_efficiency = 0;
+	cfg.mouse.high_efficiency = 0;
 	a3wl_build_high_efficiency(&cfg, buf);
 	ASSERT_EQ(buf[1], 0x00);
 }
@@ -431,15 +431,15 @@ ALLOY_TEST(test_high_efficiency_bundle)
 	dev.ev.fd = -1; /* no event interface: skip the re-link wait */
 	dev.drv = drv;
 	drv->config_defaults(drv, &cfg);
-	cfg.polling_hz = 1000;
-	cfg.brightness = 100;
+	cfg.common.polling_hz = 1000;
+	cfg.common.brightness = 100;
 
 	/*
 	 * Enabling mirrors the GG bundle order:
 	 * flag on, LEDs blanked (0x63 level 0), then polling forced to 125 Hz (0x6B 0x03)
 	 */
 	mock_hid_reset();
-	cfg.high_efficiency = 1;
+	cfg.mouse.high_efficiency = 1;
 	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 3);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
@@ -451,7 +451,7 @@ ALLOY_TEST(test_high_efficiency_bundle)
 
 	/* disabling clears the flag and restores brightness/polling from cfg */
 	mock_hid_reset();
-	cfg.high_efficiency = 0;
+	cfg.mouse.high_efficiency = 0;
 	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 3);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
@@ -470,16 +470,16 @@ ALLOY_TEST(test_cpi_level_event)
 	struct alloy_config cfg;
 
 	a3wl()->config_defaults(a3wl(), &cfg);
-	cfg.dpi_count = 2;
-	cfg.dpi_active = 0;
+	cfg.mouse.dpi_count = 2;
+	cfg.mouse.dpi_active = 0;
 
 	/* hardware switched to level 2 (0-based 1) */
 	ASSERT_EQ(a3wl_parse_event(evt, sizeof(evt), &cfg), 1);
-	ASSERT_EQ(cfg.dpi_active, 1);
+	ASSERT_EQ(cfg.mouse.dpi_active, 1);
 
 	/* same level again: no change to report */
 	ASSERT_EQ(a3wl_parse_event(evt, sizeof(evt), &cfg), 0);
-	ASSERT_EQ(cfg.dpi_active, 1);
+	ASSERT_EQ(cfg.mouse.dpi_active, 1);
 
 	/* not the CPI notification */
 	evt[0] = 0x61;
@@ -493,7 +493,7 @@ ALLOY_TEST(test_cpi_level_event)
 	evt[1] = 0x05;
 	evt[2] = 0x04;
 	ASSERT_EQ(a3wl_parse_event(evt, sizeof(evt), &cfg), 0);
-	ASSERT_EQ(cfg.dpi_active, 1);
+	ASSERT_EQ(cfg.mouse.dpi_active, 1);
 }
 
 ALLOY_TEST(test_battery_decode)

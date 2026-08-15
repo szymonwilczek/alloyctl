@@ -20,9 +20,9 @@ ALLOY_TEST(test_accel_from_config_clamps)
 	struct alloy_config cfg = { 0 };
 	struct alloy_accel_params p;
 
-	cfg.acceleration = 127; /* int8 max, above ALLOY_ACCEL_MAX */
-	cfg.deceleration = 0;
-	cfg.angle_snapping = 200; /* uint8, above ALLOY_SNAP_MAX */
+	cfg.mouse.acceleration = 127; /* int8 max, above ALLOY_ACCEL_MAX */
+	cfg.mouse.deceleration = 0;
+	cfg.mouse.angle_snapping = 200; /* uint8, above ALLOY_SNAP_MAX */
 	alloy_accel_from_config(&cfg, &p);
 	ASSERT_EQ(p.accel, ALLOY_ACCEL_MAX);
 	ASSERT_EQ(p.decel, 0);

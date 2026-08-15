@@ -49,10 +49,10 @@ ALLOY_TEST(test_gen1_dpi_packet)
 	size_t len;
 
 	gen1()->config_defaults(gen1(), &cfg);
-	cfg.dpi_count = 2;
-	cfg.dpi_active = 1;
-	cfg.dpi[0][0] = 800;
-	cfg.dpi[1][0] = 1600;
+	cfg.mouse.dpi_count = 2;
+	cfg.mouse.dpi_active = 1;
+	cfg.mouse.dpi[0][0] = 800;
+	cfg.mouse.dpi[1][0] = 1600;
 
 	len = r3_build_dpi(&cfg, buf);
 	ASSERT_EQ(len, 6);
@@ -70,8 +70,8 @@ ALLOY_TEST(test_gen1_zone_color_packet)
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
 	gen1()->config_defaults(gen1(), &cfg);
-	cfg.zone_color[3] = (struct alloy_rgb){ 0x00, 0xFF, 0x88 };
-	cfg.brightness = 55;
+	cfg.common.zone_color[3] = (struct alloy_rgb){ 0x00, 0xFF, 0x88 };
+	cfg.common.brightness = 55;
 
 	/* logo is zone index 3 -> wire id 0x04 */
 	ASSERT_EQ(r3_build_zone_color(&cfg, 3, buf), 7);
@@ -96,7 +96,7 @@ ALLOY_TEST(test_gen1_effect_packet)
 
 	gen1()->config_defaults(gen1(), &cfg);
 	for (i = 0; i < ALLOY_ARRAY_SIZE(wire); i++) {
-		cfg.zone_fx[0] = (uint8_t)i;
+		cfg.common.zone_fx[0] = (uint8_t)i;
 		ASSERT_EQ(r3_build_effect(&cfg, buf), 3);
 		ASSERT_EQ(buf[0], 0x06);
 		ASSERT_EQ(buf[1], 0x00);
@@ -104,13 +104,13 @@ ALLOY_TEST(test_gen1_effect_packet)
 	}
 
 	/* device-wide selector: first zone not running steady wins */
-	cfg.zone_fx[0] = 0;
-	cfg.zone_fx[2] = 4; /* rainbow shift */
+	cfg.common.zone_fx[0] = 0;
+	cfg.common.zone_fx[2] = 4; /* rainbow shift */
 	r3_build_effect(&cfg, buf);
 	ASSERT_EQ(buf[2], 0x00);
 
 	/* out-of-range index falls back to steady */
-	cfg.zone_fx[0] = 99;
+	cfg.common.zone_fx[0] = 99;
 	r3_build_effect(&cfg, buf);
 	ASSERT_EQ(buf[2], 0x04);
 }
@@ -132,8 +132,8 @@ ALLOY_TEST(test_gen1_buttons_packet)
 	ASSERT_EQ(buf[2 + 7 * 2], 0x32); /* scroll down */
 
 	/* keyboard rebind uses 0x33 on this protocol family */
-	cfg.buttons[3].type = ALLOY_ACT_KEYBOARD;
-	cfg.buttons[3].value = 0x04;
+	cfg.mouse.buttons[3].type = ALLOY_ACT_KEYBOARD;
+	cfg.mouse.buttons[3].value = 0x04;
 	r3_build_buttons(&cfg, buf);
 	ASSERT_EQ(buf[2 + 3 * 2], 0x33);
 	ASSERT_EQ(buf[2 + 3 * 2 + 1], 0x04);

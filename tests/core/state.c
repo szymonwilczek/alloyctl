@@ -40,63 +40,63 @@ ALLOY_TEST(test_state_roundtrip)
 
 	/* nothing stored yet: defaults, return 1 */
 	ASSERT_EQ(alloy_state_load(drv, &out), 1);
-	ASSERT_EQ(out.dpi[0][0], 800);
-	ASSERT_EQ(out.dpi_count, 1); /* single preset out of the box */
-	ASSERT_EQ(out.dpi_active, 0);
+	ASSERT_EQ(out.mouse.dpi[0][0], 800);
+	ASSERT_EQ(out.mouse.dpi_count, 1); /* single preset out of the box */
+	ASSERT_EQ(out.mouse.dpi_active, 0);
 
 	drv->config_defaults(drv, &in);
-	in.dpi_count = 2;
-	in.dpi[0][0] = 2300;
-	in.dpi[0][1] = 2300;
-	in.dpi[1][0] = 1600;
-	in.dpi[1][1] = 1600;
-	in.dpi_active = 1;
-	in.polling_hz = 250;
-	in.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
-	in.zone_fx[1] = 1; /* rainbow on this driver */
-	in.zone_fx_freq[1] = 8;
-	in.zone_fx_speed[1] = 2;
-	in.reactive_enabled = 1;
-	in.reactive_color = (struct alloy_rgb){ 0x10, 0x20, 0x30 };
-	in.startup_fx = ALLOY_STARTUP_REACTIVE_RAINBOW;
-	in.brightness = 42;
-	in.buttons[5].type = ALLOY_ACT_KEYBOARD;
-	in.buttons[5].value = 0x29;
-	in.acceleration = 40;
-	in.deceleration = 15;
-	in.angle_snapping = 12;
-	in.accel_enabled = 1;
+	in.mouse.dpi_count = 2;
+	in.mouse.dpi[0][0] = 2300;
+	in.mouse.dpi[0][1] = 2300;
+	in.mouse.dpi[1][0] = 1600;
+	in.mouse.dpi[1][1] = 1600;
+	in.mouse.dpi_active = 1;
+	in.common.polling_hz = 250;
+	in.common.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
+	in.common.zone_fx[1] = 1; /* rainbow on this driver */
+	in.common.zone_fx_freq[1] = 8;
+	in.common.zone_fx_speed[1] = 2;
+	in.mouse.reactive_enabled = 1;
+	in.mouse.reactive_color = (struct alloy_rgb){ 0x10, 0x20, 0x30 };
+	in.mouse.startup_fx = ALLOY_STARTUP_REACTIVE_RAINBOW;
+	in.common.brightness = 42;
+	in.mouse.buttons[5].type = ALLOY_ACT_KEYBOARD;
+	in.mouse.buttons[5].value = 0x29;
+	in.mouse.acceleration = 40;
+	in.mouse.deceleration = 15;
+	in.mouse.angle_snapping = 12;
+	in.mouse.accel_enabled = 1;
 
 	ASSERT_EQ(alloy_state_store(drv, &in), 0);
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
 
-	ASSERT_EQ(out.dpi[0][0], 2300);
-	ASSERT_EQ(out.dpi_count, 2);
-	ASSERT_EQ(out.dpi_active, 1);
-	ASSERT_EQ(out.polling_hz, 250);
-	ASSERT_EQ(out.zone_color[2].r, 0xAB);
-	ASSERT_EQ(out.zone_color[2].g, 0xCD);
-	ASSERT_EQ(out.zone_color[2].b, 0xEF);
-	ASSERT_EQ(out.zone_fx[0], 0);
-	ASSERT_EQ(out.zone_fx[1], 1);
-	ASSERT_EQ(out.zone_fx_freq[1], 8);
-	ASSERT_EQ(out.zone_fx_speed[1], 2);
-	ASSERT_EQ(out.reactive_enabled, 1);
-	ASSERT_EQ(out.reactive_color.g, 0x20);
-	ASSERT_EQ(out.startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
-	ASSERT_EQ(out.brightness, 42);
-	ASSERT_EQ(out.acceleration, 40);
-	ASSERT_EQ(out.deceleration, 15);
-	ASSERT_EQ(out.angle_snapping, 12);
-	ASSERT_EQ(out.accel_enabled, 1);
+	ASSERT_EQ(out.mouse.dpi[0][0], 2300);
+	ASSERT_EQ(out.mouse.dpi_count, 2);
+	ASSERT_EQ(out.mouse.dpi_active, 1);
+	ASSERT_EQ(out.common.polling_hz, 250);
+	ASSERT_EQ(out.common.zone_color[2].r, 0xAB);
+	ASSERT_EQ(out.common.zone_color[2].g, 0xCD);
+	ASSERT_EQ(out.common.zone_color[2].b, 0xEF);
+	ASSERT_EQ(out.common.zone_fx[0], 0);
+	ASSERT_EQ(out.common.zone_fx[1], 1);
+	ASSERT_EQ(out.common.zone_fx_freq[1], 8);
+	ASSERT_EQ(out.common.zone_fx_speed[1], 2);
+	ASSERT_EQ(out.mouse.reactive_enabled, 1);
+	ASSERT_EQ(out.mouse.reactive_color.g, 0x20);
+	ASSERT_EQ(out.mouse.startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
+	ASSERT_EQ(out.common.brightness, 42);
+	ASSERT_EQ(out.mouse.acceleration, 40);
+	ASSERT_EQ(out.mouse.deceleration, 15);
+	ASSERT_EQ(out.mouse.angle_snapping, 12);
+	ASSERT_EQ(out.mouse.accel_enabled, 1);
 
 	/* reactive=off round-trips to disabled */
-	in.reactive_enabled = 0;
+	in.mouse.reactive_enabled = 0;
 	ASSERT_EQ(alloy_state_store(drv, &in), 0);
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
-	ASSERT_EQ(out.reactive_enabled, 0);
-	ASSERT_EQ(out.buttons[5].type, ALLOY_ACT_KEYBOARD);
-	ASSERT_EQ(out.buttons[5].value, 0x29);
+	ASSERT_EQ(out.mouse.reactive_enabled, 0);
+	ASSERT_EQ(out.mouse.buttons[5].type, ALLOY_ACT_KEYBOARD);
+	ASSERT_EQ(out.mouse.buttons[5].value, 0x29);
 }
 
 ALLOY_TEST(test_state_legacy_fx_keys)
@@ -137,11 +137,11 @@ ALLOY_TEST(test_state_legacy_fx_keys)
 	fclose(f);
 
 	ASSERT_EQ(alloy_state_load(drv, &out), 0);
-	ASSERT_EQ(out.zone_fx[0], 1);
-	ASSERT_EQ(out.zone_fx[1], 1);
-	ASSERT_EQ(out.zone_fx[2], 0);
-	ASSERT_EQ(out.dpi_count, 1);
-	ASSERT_EQ(out.dpi_active, 0);
+	ASSERT_EQ(out.common.zone_fx[0], 1);
+	ASSERT_EQ(out.common.zone_fx[1], 1);
+	ASSERT_EQ(out.common.zone_fx[2], 0);
+	ASSERT_EQ(out.mouse.dpi_count, 1);
+	ASSERT_EQ(out.mouse.dpi_active, 0);
 }
 
 ALLOY_TEST(test_ops_use_mock)
