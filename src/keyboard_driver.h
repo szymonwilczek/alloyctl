@@ -10,8 +10,8 @@
 /* Keyboard-specific capabilities */
 #define ALLOY_CAP_WIN_LOCK (1u << 12) /* Windows / Meta key lock toggle */
 #define ALLOY_CAP_SNAP_TAP \
-	(1u << 13) /* Hardware Snap Tap / SOCD counter-strafing */
-#define ALLOY_CAP_PROFILE (1u << 14) /* Onboard hardware profiles */
+	(1u << 16) /* Hardware Snap Tap / SOCD counter-strafing */
+#define ALLOY_CAP_PROFILE (1u << 17) /* Onboard hardware profiles */
 
 #define ALLOY_MAX_SNAP_TAP_GROUPS 10
 

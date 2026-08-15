@@ -84,6 +84,13 @@ F:    drivers/steelseries_aerox3_wireless/
 F:    tests/drivers/steelseries_aerox3_wireless.c
 F:    tests/drivers/steelseries_aerox3_wireless_bt.c
 
+STEELSERIES APEX 100 DRIVER
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
+S:    Maintained
+F:    Documentation/protocol/steelseries-apex100.rst
+F:    drivers/steelseries_apex100/
+F:    tests/drivers/steelseries_apex100.c
+
 STEELSERIES PRIME DRIVER
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Orphan

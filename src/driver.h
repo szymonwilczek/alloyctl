@@ -36,13 +36,13 @@ struct alloy_led_zone {
 #define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
 #define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
 #define ALLOY_CAP_FX_GLOBAL (1u << 8) /* one effect device-wide only */
-#define ALLOY_CAP_COLOR (1u << 9) /* Full RGB color customization supported */
-#define ALLOY_CAP_FX_FREQ (1u << 10) /* Effect frequency knob supported */
-#define ALLOY_CAP_FX_SPEED (1u << 11) /* Effect speed knob supported */
-#define ALLOY_CAP_MULTICOLOR (1u << 15) /* Single / multicolor effect toggle */
-#define ALLOY_CAP_DIRECTION (1u << 16) /* Effect direction / angle selection */
+#define ALLOY_CAP_COLOR (1u << 13) /* Full RGB color customization supported */
+#define ALLOY_CAP_FX_FREQ (1u << 14) /* Effect frequency knob supported */
+#define ALLOY_CAP_FX_SPEED (1u << 15) /* Effect speed knob supported */
+#define ALLOY_CAP_MULTICOLOR (1u << 18) /* Single / multicolor effect toggle */
+#define ALLOY_CAP_DIRECTION (1u << 19) /* Effect direction / angle selection */
 #define ALLOY_CAP_CUSTOM_ZONE \
-	(1u << 17) /* Per-key/sector custom lighting zones */
+	(1u << 20) /* Per-key/sector custom lighting zones */
 
 /*
  * Per-zone effect rate knobs.
