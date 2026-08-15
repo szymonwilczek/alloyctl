@@ -100,6 +100,9 @@ void tui_apply_all(struct tui *t)
  */
 int tui_save(struct tui *t)
 {
+	const char *devtype = alloy_driver_is_mouse(t->drv) ? "mouse" :
+							      "keyboard";
+
 	tui_apply_all(t);
 	if (t->drv->ops->save(t->dev)) {
 		tui_status(t, "save failed: no device ACK");
@@ -107,9 +110,10 @@ int tui_save(struct tui *t)
 	}
 	t->baseline = t->cfg;
 	if (alloy_state_store(t->drv, &t->cfg))
-		tui_status(t, "saved to mouse; baseline file not writable");
+		tui_status(t, "saved to %s; baseline file not writable",
+			   devtype);
 	else
-		tui_status(t, "saved to mouse flash + baseline");
+		tui_status(t, "saved to %s flash + baseline", devtype);
 	if (t->accel_running)
 		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
 	t->dirty = 0;
@@ -353,6 +357,8 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 {
 	switch (pane) {
 	case PANE_ACTIONS:
+		if (alloy_driver_is_keyboard(t->drv))
+			return 0;
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
@@ -373,7 +379,7 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 	case PANE_POWER: {
 		/*
 		 * Wireless-only pane.
-		 * Empty (and skipped) on wired mice.
+		 * Empty (and skipped) on wired mice and keyboards.
 		 * SLEEP/SMART/DIM ride ALLOY_CAP_BATTERY;
 		 * trailing HIGHEFF item appears only with ALLOY_CAP_HIGH_EFFICIENCY.
 		 */
@@ -384,6 +390,22 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		return n;
 	}
 	case PANE_TUNING:
+		if (alloy_driver_is_keyboard(t->drv)) {
+			int count = 0;
+
+			if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
+				count++;
+			if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
+				count++;
+				if ((t->drv->caps & ALLOY_CAP_FX_SPEED) &&
+				    t->cfg.common.zone_fx[0] > 0)
+					count++;
+			}
+			if (t->drv->num_polling_rates > 0)
+				count++;
+			return count;
+		}
+
 		/*
 		 * acceleration, deceleration, angle snapping, engine, and -
 		 * only when the device exposes polling rates - the polling rate.
@@ -550,6 +572,9 @@ int alloy_tui_run(struct alloy_device *dev)
 	 */
 	tui_poll_battery(&t);
 	tui_sync_device(&t);
+	while (tui_pane_item_count(&t, t.focus) == 0 &&
+	       t.focus < PANE_COUNT - 1)
+		t.focus++;
 	tui_status(&t, used_defaults ?
 			       "no saved baseline - using driver defaults" :
 			       "baseline loaded from disk");

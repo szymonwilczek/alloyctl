@@ -81,3 +81,16 @@ ALLOY_TEST(test_enumerate_count_over_capacity)
 	ASSERT_TRUE(out[0]->product_id == 0x1824 ||
 		    out[0]->product_id == 0x1870);
 }
+
+ALLOY_TEST(test_enumerate_keyboard)
+{
+	const struct alloy_driver *out[4];
+
+	mock_hid_reset();
+	mark_present(0x1038, 0x160E); /* Apex 100 keyboard */
+
+	ASSERT_EQ(alloy_device_enumerate(out, 4), 1);
+	ASSERT_EQ(out[0]->vendor_id, 0x1038);
+	ASSERT_EQ(out[0]->product_id, 0x160E);
+	ASSERT_EQ(out[0]->type, ALLOY_DEV_KEYBOARD);
+}

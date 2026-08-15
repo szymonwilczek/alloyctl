@@ -85,6 +85,46 @@ static void adjust_dim(struct tui *t, int delta)
 		tui_apply(t, t->drv->ops->apply_brightness, "dim timer");
 }
 
+static void adjust_brightness(struct tui *t, int delta)
+{
+	if (!(t->drv->caps & ALLOY_CAP_BRIGHTNESS))
+		return;
+	t->cfg.common.brightness = (uint8_t)ALLOY_CLAMP(
+		(int)t->cfg.common.brightness + delta, 0, 100);
+	mark_dirty(t);
+	if (t->live_preview && t->drv->ops->apply_brightness)
+		tui_apply(t, t->drv->ops->apply_brightness, "brightness");
+}
+
+static void adjust_fx_mode(struct tui *t, int delta)
+{
+	int count = t->drv->num_fx;
+	int cur;
+
+	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL) || count <= 0)
+		return;
+
+	cur = (int)t->cfg.common.zone_fx[0] + delta;
+	while (cur < 0)
+		cur += count;
+	cur %= count;
+	t->cfg.common.zone_fx[0] = (uint8_t)cur;
+	mark_dirty(t);
+	if (t->live_preview && t->drv->ops->apply_colors)
+		tui_apply(t, t->drv->ops->apply_colors, "effect");
+}
+
+static void adjust_fx_speed(struct tui *t, int delta)
+{
+	int spd = (int)t->cfg.common.zone_fx_speed[0] + delta;
+
+	spd = ALLOY_CLAMP(spd, 1, 3);
+	t->cfg.common.zone_fx_speed[0] = (uint8_t)spd;
+	mark_dirty(t);
+	if (t->live_preview && t->drv->ops->apply_colors)
+		tui_apply(t, t->drv->ops->apply_colors, "effect");
+}
+
 /*
  * High-Efficiency Mode toggle.
  * Unlike the other steppers this is a deliberate hardware mode switch that GG
@@ -254,6 +294,44 @@ static void pane_adjust(struct tui *t, int dir, int big)
 			set_higheff(t, dir > 0);
 		break;
 	case PANE_TUNING:
+		if (alloy_driver_is_keyboard(t->drv)) {
+			int item = 0;
+
+			if (t->drv->caps & ALLOY_CAP_BRIGHTNESS) {
+				if (sel == item) {
+					adjust_brightness(t,
+							  dir * (big ? 25 : 5));
+					break;
+				}
+				item++;
+			}
+
+			if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
+				if (sel == item) {
+					adjust_fx_mode(t, dir);
+					break;
+				}
+				item++;
+
+				if ((t->drv->caps & ALLOY_CAP_FX_SPEED) &&
+				    t->cfg.common.zone_fx[0] > 0) {
+					if (sel == item) {
+						adjust_fx_speed(t, dir);
+						break;
+					}
+					item++;
+				}
+			}
+
+			if (t->drv->num_polling_rates > 0) {
+				if (sel == item) {
+					adjust_polling(t, dir, big);
+					break;
+				}
+				item++;
+			}
+			break;
+		}
 		switch (sel) {
 		case 0:
 			adjust_accel(t, dir * (big ? ALLOY_ACCEL_STEP * 10 :
@@ -277,6 +355,7 @@ static void pane_adjust(struct tui *t, int dir, int big)
 			break;
 		}
 		break;
+
 	default:
 		break;
 	}

@@ -45,24 +45,40 @@ static int illum_idx_brightness(const struct tui *t)
 
 static int illum_idx_reactive(const struct tui *t)
 {
-	if (!(t->drv->caps & ALLOY_CAP_FX_REACTIVE))
+	if (!(t->drv->caps & ALLOY_CAP_FX_REACTIVE) ||
+	    !alloy_driver_is_mouse(t->drv))
 		return -1;
 	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0);
 }
 
 static int illum_idx_startup(const struct tui *t)
 {
-	if (!(t->drv->caps & ALLOY_CAP_FX_STARTUP))
+	if (!(t->drv->caps & ALLOY_CAP_FX_STARTUP) ||
+	    !alloy_driver_is_mouse(t->drv))
 		return -1;
 	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0);
+	       (illum_idx_reactive(t) >= 0 ? 1 : 0);
 }
 
 static int illum_item_count(const struct tui *t)
 {
 	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-	       ((t->drv->caps & ALLOY_CAP_FX_REACTIVE) ? 1 : 0) +
-	       ((t->drv->caps & ALLOY_CAP_FX_STARTUP) ? 1 : 0);
+	       (illum_idx_reactive(t) >= 0 ? 1 : 0) +
+	       (illum_idx_startup(t) >= 0 ? 1 : 0);
+}
+
+static int illum_item_valid(const struct tui *t, int idx)
+{
+	if (idx == ILL_FREQ && !(t->drv->caps & ALLOY_CAP_FX_FREQ))
+		return 0;
+	if (idx == ILL_SPEED && (!(t->drv->caps & ALLOY_CAP_FX_SPEED) ||
+				 !t->cfg.common.zone_fx[t->illum_zone]))
+		return 0;
+	if ((idx == ILL_R || idx == ILL_G || idx == ILL_B ||
+	     idx == ILL_PALETTE || idx == ILL_HEX) &&
+	    !(t->drv->caps & ALLOY_CAP_COLOR))
+		return 0;
+	return 1;
 }
 
 long tui_now_ms(void)
@@ -244,6 +260,9 @@ void tui_illum_enter(struct tui *t)
 	t->illum_zone = 0; /* smallest zone is the default */
 	t->illum_tab = 0;
 	t->illum_cursor = 0;
+	while (!illum_item_valid(t, t->illum_cursor) &&
+	       t->illum_cursor < illum_item_count(t) - 1)
+		t->illum_cursor++;
 	t->illum_focus = ILLUM_FOCUS_PREVIEW;
 }
 
@@ -324,20 +343,27 @@ static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
 }
 
 static void draw_rate_row(struct tui *t, int y, int x, const char *name,
-			  uint8_t val, int selected)
+			  uint8_t val, int selected, int supported)
 {
-	int rate_disabled = !t->cfg.common.zone_fx[t->illum_zone];
+	int rate_disabled = !supported || !t->cfg.common.zone_fx[t->illum_zone];
 	int i;
 
-	if (selected)
+	if (selected && supported)
 		attron(COLOR_PAIR(CLR_SELECTED));
 	else if (rate_disabled)
 		attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y, x, "%-10s", name);
-	if (selected)
+	if (selected && supported)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 	else if (rate_disabled)
 		attroff(COLOR_PAIR(CLR_DISABLED));
+
+	if (!supported) {
+		attron(COLOR_PAIR(CLR_DISABLED));
+		mvprintw(y, x + 11, "N/A");
+		attroff(COLOR_PAIR(CLR_DISABLED));
+		return;
+	}
 
 	if (rate_disabled) {
 		attron(COLOR_PAIR(CLR_DISABLED));
@@ -385,8 +411,10 @@ static void draw_color_channel(int y, int x, int w, const char *name,
 static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 {
 	struct alloy_rgb *rgb = &t->cfg.common.zone_color[t->illum_zone];
+	int has_color = (t->drv->caps & ALLOY_CAP_COLOR) != 0;
 	int sel = t->illum_cursor;
-	int greyed = tui_fx_ignores_color(t->drv,
+	int greyed = !has_color ||
+		     tui_fx_ignores_color(t->drv,
 					  t->cfg.common.zone_fx[t->illum_zone]);
 	char hex[8];
 	size_t i;
@@ -399,44 +427,68 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 				  tui_rgb_to_color(&tui_palette[i]), -1);
 	}
 
-	attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
-	mvprintw(y, x + 2, "COLORS");
-	attroff(COLOR_PAIR(CLR_TITLE) | A_BOLD);
+	attron(COLOR_PAIR(has_color ? CLR_TITLE : CLR_DISABLED) | A_BOLD);
+	if (has_color)
+		mvprintw(y, x + 2, "COLORS");
+	else
+		mvprintw(y, x + 2, "COLORS (Fixed Tint)");
+	attroff(COLOR_PAIR(has_color ? CLR_TITLE : CLR_DISABLED) | A_BOLD);
 
 	draw_color_channel(y + 2, x + 2, w - 4, "R", rgb->r,
-			   focused && sel == ILL_R, greyed);
+			   focused && has_color && sel == ILL_R, greyed);
 	draw_color_channel(y + 3, x + 2, w - 4, "G", rgb->g,
-			   focused && sel == ILL_G, greyed);
+			   focused && has_color && sel == ILL_G, greyed);
 	draw_color_channel(y + 4, x + 2, w - 4, "B", rgb->b,
-			   focused && sel == ILL_B, greyed);
+			   focused && has_color && sel == ILL_B, greyed);
 
-	if (focused && sel == ILL_PALETTE)
+	if (focused && has_color && sel == ILL_PALETTE)
 		attron(COLOR_PAIR(CLR_SELECTED));
+	else if (!has_color)
+		attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + 6, x + 2, "PALETTE");
-	if (focused && sel == ILL_PALETTE)
+	if (focused && has_color && sel == ILL_PALETTE)
 		attroff(COLOR_PAIR(CLR_SELECTED));
+	else if (!has_color)
+		attroff(COLOR_PAIR(CLR_DISABLED));
 	for (i = 0; i < TUI_PALETTE_SIZE; i++) {
 		int sx = x + 12 + (int)i * 2 - (int)(i / 8) * 16;
 		int sy = y + 6 + (int)(i / 8);
 
-		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
+		if (focused && has_color && sel == ILL_PALETTE &&
+		    (int)i == t->illum_swatch)
 			mvaddch(sy, sx - 1, '[' | A_BOLD);
-		if (COLORS >= 8)
+		if (COLORS >= 8 && has_color)
 			attron(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
+		else
+			attron(COLOR_PAIR(CLR_DISABLED));
 		mvaddch(sy, sx, ACS_DIAMOND);
-		if (COLORS >= 8)
+		if (COLORS >= 8 && has_color)
 			attroff(COLOR_PAIR(CLR_PICKER_SWATCH + i) | A_BOLD);
-		if (focused && sel == ILL_PALETTE && (int)i == t->illum_swatch)
+		else
+			attroff(COLOR_PAIR(CLR_DISABLED));
+		if (focused && has_color && sel == ILL_PALETTE &&
+		    (int)i == t->illum_swatch)
 			mvaddch(sy, sx + 1, ']' | A_BOLD);
 	}
 
 	/* hex field: typed buffer while editing, live value otherwise */
-	if (focused && sel == ILL_HEX)
+	if (focused && has_color && sel == ILL_HEX)
 		attron(COLOR_PAIR(CLR_SELECTED));
+	else if (!has_color)
+		attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + 9, x + 2, "HEX");
-	if (focused && sel == ILL_HEX)
+	if (focused && has_color && sel == ILL_HEX)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	if (t->illum_hexbuf) {
+	else if (!has_color)
+		attroff(COLOR_PAIR(CLR_DISABLED));
+
+	if (!has_color) {
+		attron(COLOR_PAIR(CLR_DISABLED));
+		snprintf(hex, sizeof(hex), "%02X%02X%02X", rgb->r, rgb->g,
+			 rgb->b);
+		mvprintw(y + 9, x + 12, "#%s", hex);
+		attroff(COLOR_PAIR(CLR_DISABLED));
+	} else if (t->illum_hexbuf) {
 		attron(A_BOLD);
 		mvprintw(y + 9, x + 12, "#%-6s_", t->illum_hexbuf);
 		attroff(A_BOLD);
@@ -546,10 +598,12 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 
 	draw_rate_row(t, y + 6, x + 2, "FREQUENCY",
 		      t->cfg.common.zone_fx_freq[t->illum_zone],
-		      focused && sel == ILL_FREQ);
+		      focused && sel == ILL_FREQ,
+		      (t->drv->caps & ALLOY_CAP_FX_FREQ) != 0);
 	draw_rate_row(t, y + 7, x + 2, "SPEED",
 		      t->cfg.common.zone_fx_speed[t->illum_zone],
-		      focused && sel == ILL_SPEED);
+		      focused && sel == ILL_SPEED,
+		      (t->drv->caps & ALLOY_CAP_FX_SPEED) != 0);
 
 	draw_colors_section(t, y + 9, x, w, focused);
 	draw_device_section(t, y + 20, x, focused);
@@ -772,7 +826,7 @@ static void illum_activate(struct tui *t)
 void tui_illum_render(struct tui *t)
 {
 	int main_h = LINES - 2;
-	int left_w = COLS / 3;
+	int left_w = ALLOY_CLAMP(COLS * 28 / 100, 26, 34);
 	int right_w = COLS - left_w;
 
 	erase();
@@ -837,15 +891,25 @@ void tui_illum_handle_key(struct tui *t, int ch)
 
 	switch (ch) {
 	case KEY_UP:
-	case 'k':
-		t->illum_cursor = (t->illum_cursor + illum_item_count(t) - 1) %
-				  illum_item_count(t);
+	case 'k': {
+		int count = illum_item_count(t);
+		int tries = count;
+		do {
+			t->illum_cursor = (t->illum_cursor + count - 1) % count;
+		} while (!illum_item_valid(t, t->illum_cursor) && --tries > 0);
 		break;
+	}
 	case KEY_DOWN:
-	case 'j':
-		t->illum_cursor = (t->illum_cursor + 1) % illum_item_count(t);
+	case 'j': {
+		int count = illum_item_count(t);
+		int tries = count;
+		do {
+			t->illum_cursor = (t->illum_cursor + 1) % count;
+		} while (!illum_item_valid(t, t->illum_cursor) && --tries > 0);
 		break;
+	}
 	case KEY_LEFT:
+
 	case 'h':
 		illum_adjust(t, -1, 0);
 		break;

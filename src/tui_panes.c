@@ -40,6 +40,21 @@ static struct rect layout[PANE_COUNT];
 static void compute_layout(const struct tui *t)
 {
 	int main_h = LINES - 3;
+
+	if (alloy_driver_is_keyboard(t->drv)) {
+		int right_w = ALLOY_CLAMP(COLS * 28 / 100, 26, 32);
+		int center_w = COLS - right_w;
+
+		layout[PANE_ACTIONS] = (struct rect){ 0, 0, 0, 0 };
+		layout[PANE_CENTER] = (struct rect){ 0, 0, main_h, center_w };
+		layout[PANE_LEVELS] = (struct rect){ 0, 0, 0, 0 };
+		layout[PANE_POWER] = (struct rect){ 0, 0, 0, 0 };
+		layout[PANE_TUNING] =
+			(struct rect){ 0, center_w, main_h, right_w };
+		layout[PANE_FOOTER] = (struct rect){ LINES - 3, 0, 2, COLS };
+		return;
+	}
+
 	int left_w = COLS * 24 / 100;
 	int sens_w = COLS * 22 / 100;
 	int tune_w = COLS * 24 / 100;
@@ -551,6 +566,113 @@ static int gain_to_row(int32_t g, int graph_h)
 	return ALLOY_CLAMP(row, 0, graph_h - 1);
 }
 
+static void draw_keyboard_tuning_pane(struct tui *t)
+{
+	const struct rect *r = &layout[PANE_TUNING];
+	int focused = t->focus == PANE_TUNING;
+	int sel = t->cursor[PANE_TUNING];
+	int y = r->y + 2;
+	int item = 0;
+
+	draw_box(r, "CONTROLS", focused);
+
+	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS) {
+		mvprintw(y, r->x + 2, "BACKLIGHT BRIGHTNESS");
+		y++;
+		draw_slider(y, r->x + 2, r->w - 4, 0, 100,
+			    t->cfg.common.brightness);
+		y += 2;
+		if (focused && sel == item)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, r->x + 2, "%-13s", "Brightness");
+		if (focused && sel == item)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(y, r->x + 16, "< %3u%% >", t->cfg.common.brightness);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		y += 3;
+		item++;
+	}
+
+	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
+		const char *fx_name =
+			(t->cfg.common.zone_fx[0] < t->drv->num_fx) ?
+				t->drv->fx_names[t->cfg.common.zone_fx[0]] :
+				"DEFAULT";
+
+		mvprintw(y, r->x + 2, "LIGHTING EFFECT");
+		y += 2;
+		if (focused && sel == item)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, r->x + 2, "%-13s", "Mode");
+		if (focused && sel == item)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(y, r->x + 16, "< %s >", fx_name);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		y += 2;
+		item++;
+
+		if ((t->drv->caps & ALLOY_CAP_FX_SPEED) &&
+		    t->cfg.common.zone_fx[0] > 0) {
+			static const char *const speed_labels[] = { "SLOW",
+								    "MEDIUM",
+								    "FAST" };
+			uint8_t spd = t->cfg.common.zone_fx_speed[0];
+			const char *spd_name =
+				(spd >= 1 && spd <= 3) ?
+					speed_labels[spd - 1] :
+					(spd <= 1 ? "SLOW" : "FAST");
+
+			if (focused && sel == item)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y, r->x + 2, "%-13s", "Speed");
+			if (focused && sel == item)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			mvprintw(y, r->x + 16, "< %s >", spd_name);
+			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			y += 2;
+			item++;
+		}
+		y++;
+	}
+
+	if (t->drv->num_polling_rates > 0) {
+		mvprintw(y, r->x + 2, "POLLING RATE");
+		y++;
+		attron(COLOR_PAIR(CLR_ACCENT));
+		draw_poll_wave(y, r->x + 3, r->w - 6, 3,
+			       t->cfg.common.polling_hz,
+			       t->drv->polling_rates[0]);
+		attroff(COLOR_PAIR(CLR_ACCENT));
+		y += 4;
+
+		if (focused && sel == item)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, r->x + 2, "%-13s", "Rate");
+		if (focused && sel == item)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(y, r->x + 16, "%4u Hz", t->cfg.common.polling_hz);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		y++;
+		if (t->drv->num_polling_rates > 1)
+			draw_slider(
+				y, r->x + 2, r->w - 4,
+				t->drv->polling_rates[t->drv->num_polling_rates -
+						      1],
+				t->drv->polling_rates[0],
+				t->cfg.common.polling_hz);
+		item++;
+	}
+
+	attron(COLOR_PAIR(CLR_DISABLED));
+	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: Adjust");
+	mvprintw(r->y + r->h - 2, r->x + 2, "H/L: Fast Adjust");
+	attroff(COLOR_PAIR(CLR_DISABLED));
+}
+
 static void draw_tuning_pane(struct tui *t)
 {
 	const struct rect *r = &layout[PANE_TUNING];
@@ -563,6 +685,11 @@ static void draw_tuning_pane(struct tui *t)
 	int prev = -1;
 	int y = r->y + 2;
 	int i;
+
+	if (alloy_driver_is_keyboard(t->drv)) {
+		draw_keyboard_tuning_pane(t);
+		return;
+	}
 
 	draw_box(r, "TUNING", focused);
 
@@ -781,12 +908,17 @@ void tui_render(struct tui *t)
 	compute_layout(t);
 	tui_zone_color_pairs(t);
 
-	draw_actions_pane(t);
-	draw_center_pane(t);
-	draw_levels_pane(t);
-	if (t->drv->caps & ALLOY_CAP_BATTERY)
-		draw_power_pane(t);
-	draw_tuning_pane(t);
+	if (alloy_driver_is_keyboard(t->drv)) {
+		draw_center_pane(t);
+		draw_tuning_pane(t);
+	} else {
+		draw_actions_pane(t);
+		draw_center_pane(t);
+		draw_levels_pane(t);
+		if (t->drv->caps & ALLOY_CAP_BATTERY)
+			draw_power_pane(t);
+		draw_tuning_pane(t);
+	}
 	draw_footer(t);
 }
 
