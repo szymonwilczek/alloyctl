@@ -321,10 +321,10 @@ static void draw_center_pane(struct tui *t)
 
 	/*
 	 * gateway to the illumination view, centered under the art -
-	 * only for devices with LED zones
+	 * only for devices with advanced/multi-zone lighting
 	 * (see tui_pane_item_count: the pane is unfocusable without them)
 	 */
-	if (t->drv->num_zones) {
+	if (tui_has_illum_view(t->drv)) {
 		y = r.y + r.h - 3;
 		x = r.x + (r.w - 16) / 2;
 		if (focused)

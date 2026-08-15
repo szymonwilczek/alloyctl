@@ -364,11 +364,11 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 	case PANE_CENTER:
 		/*
 		 * ILLUMINATION gateway is all the pane offers, and it only makes
-		 * sense when the device has LED zones to edit.
-		 * Without them the pane holds nothing selectable and navigation
-		 * skips it
+		 * sense when the device has advanced / multi-zone lighting to edit.
+		 * Without it the pane holds nothing selectable and navigation
+		 * skips it.
 		 */
-		return t->drv->num_zones ? 1 : 0;
+		return tui_has_illum_view(t->drv) ? 1 : 0;
 	case PANE_LEVELS:
 		/* one item per preset plus CREATE below the limit */
 		if (!alloy_driver_is_mouse(t->drv))

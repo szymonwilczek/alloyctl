@@ -373,7 +373,8 @@ static void pane_activate(struct tui *t)
 			tui_modal_message("MACRO EDITOR", "TBA");
 		break;
 	case PANE_CENTER:
-		tui_illum_enter(t);
+		if (tui_has_illum_view(t->drv))
+			tui_illum_enter(t);
 		break;
 	case PANE_POWER:
 		if (sel == POWER_SMART)

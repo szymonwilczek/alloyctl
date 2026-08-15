@@ -195,4 +195,14 @@ void tui_illum_handle_key(struct tui *t, int ch);
 void tui_illum_enter(struct tui *t);
 void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg);
 
+static inline int tui_has_illum_view(const struct alloy_driver *drv)
+{
+	if (!drv || drv->num_zones == 0)
+		return 0;
+	if (drv->num_zones > 1 || (drv->caps & ALLOY_CAP_COLOR) ||
+	    (drv->caps & (ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP)))
+		return 1;
+	return 0;
+}
+
 #endif /* ALLOY_TUI_INTERNAL_H */
