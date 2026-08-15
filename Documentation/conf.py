@@ -9,7 +9,6 @@
 
 import os
 import pathlib
-import re
 
 # -- Project information ------------------------------------------------------
 
@@ -91,3 +90,15 @@ html_show_sourcelink = True
 linkcheck_ignore = [r"https://github\.com/szymonwilczek/alloyctl/blob/"]
 linkcheck_retries = 2
 linkcheck_timeout = 15
+
+# -- Options for manual page output -------------------------------------------
+
+man_pages = [
+    (
+        "man/alloyctl.1",
+        "alloyctl",
+        "Linux CLI to control and configure SteelSeries devices",
+        ["Szymon Wilczek"],
+        1,
+    )
+]

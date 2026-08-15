@@ -76,3 +76,139 @@ void alloy_config_keyboard_defaults(const struct alloy_driver *drv,
 	cfg->kbd.profile_count =
 		(drv && drv->num_profiles) ? drv->num_profiles : 1;
 }
+
+#include "cli.h"
+
+static int parse_bool_val(const char *str, uint8_t *out)
+{
+	if (!str || !*str)
+		return -1;
+	if (!strcasecmp(str, "1") || !strcasecmp(str, "on") ||
+	    !strcasecmp(str, "true") || !strcasecmp(str, "yes")) {
+		*out = 1;
+		return 0;
+	}
+	if (!strcasecmp(str, "0") || !strcasecmp(str, "off") ||
+	    !strcasecmp(str, "false") || !strcasecmp(str, "no")) {
+		*out = 0;
+		return 0;
+	}
+	return -1;
+}
+
+static int opt_parse_win_lock(const char *arg, struct alloy_config *cfg,
+			      char *err_buf, size_t err_len)
+{
+	uint8_t bool_val = 1;
+	(void)err_buf;
+	(void)err_len;
+
+	if (arg && !parse_bool_val(arg, &bool_val)) {
+		/* parsed successfully */
+	}
+	cfg->kbd.win_lock = bool_val;
+	return 0;
+}
+
+static int opt_apply_win_lock(struct alloy_device *dev,
+			      const struct alloy_config *cfg)
+{
+	if (dev->drv->ops && dev->drv->ops->apply_win_lock)
+		return dev->drv->ops->apply_win_lock(dev, cfg);
+	return 0;
+}
+
+static int opt_parse_snap_tap(const char *arg, struct alloy_config *cfg,
+			      char *err_buf, size_t err_len)
+{
+	uint8_t bool_val = 1;
+	(void)err_buf;
+	(void)err_len;
+
+	if (arg && !parse_bool_val(arg, &bool_val)) {
+		/* parsed successfully */
+	}
+	cfg->kbd.snap_tap = bool_val;
+	return 0;
+}
+
+static int opt_apply_snap_tap(struct alloy_device *dev,
+			      const struct alloy_config *cfg)
+{
+	if (dev->drv->ops && dev->drv->ops->apply_snap_tap)
+		return dev->drv->ops->apply_snap_tap(dev, cfg);
+	return 0;
+}
+
+static int opt_parse_profile(const char *arg, struct alloy_config *cfg,
+			     char *err_buf, size_t err_len)
+{
+	int p;
+	if (!arg || sscanf(arg, "%d", &p) != 1 || p < 1 || p > 3) {
+		snprintf(err_buf, err_len,
+			 "--profile requires a profile index (1-3)");
+		return -1;
+	}
+	cfg->kbd.profile_active = (uint8_t)p;
+	return 0;
+}
+
+static int opt_validate_profile(const struct alloy_driver *drv,
+				const struct alloy_config *cfg, char *err_buf,
+				size_t err_len)
+{
+	if (drv->num_profiles > 0 &&
+	    cfg->kbd.profile_active > drv->num_profiles) {
+		snprintf(err_buf, err_len,
+			 "profile %u out of range [1, %u] for '%s'",
+			 cfg->kbd.profile_active, drv->num_profiles, drv->name);
+		return -1;
+	}
+	return 0;
+}
+
+static int opt_apply_profile(struct alloy_device *dev,
+			     const struct alloy_config *cfg)
+{
+	if (dev->drv->ops && dev->drv->ops->apply_profile)
+		return dev->drv->ops->apply_profile(dev, cfg);
+	return 0;
+}
+
+const struct alloy_cli_option alloy_keyboard_cli_options[] = {
+	{
+		.name = "--meta-lock",
+		.alias = "--win-lock",
+		.arg_desc = "[on|off]",
+		.help = "Toggle Windows/Meta key lock",
+		.category = ALLOY_OPT_KEYBOARD,
+		.required_cap = ALLOY_CAP_WIN_LOCK,
+		.has_arg = 2,
+		.parse = opt_parse_win_lock,
+		.apply = opt_apply_win_lock,
+	},
+	{
+		.name = "--snap-tap",
+		.arg_desc = "[on|off]",
+		.help = "Toggle hardware Snap Tap / SOCD counter-strafing",
+		.category = ALLOY_OPT_KEYBOARD,
+		.required_cap = ALLOY_CAP_SNAP_TAP,
+		.has_arg = 2,
+		.parse = opt_parse_snap_tap,
+		.apply = opt_apply_snap_tap,
+	},
+	{
+		.name = "--profile",
+		.arg_desc = "<1-3>",
+		.help = "Switch active hardware onboard profile",
+		.category = ALLOY_OPT_KEYBOARD,
+		.required_cap = ALLOY_CAP_PROFILE,
+		.has_arg = 1,
+		.parse = opt_parse_profile,
+		.validate = opt_validate_profile,
+		.apply = opt_apply_profile,
+	},
+};
+
+const size_t alloy_num_keyboard_cli_options =
+	ALLOY_ARRAY_SIZE(alloy_keyboard_cli_options);

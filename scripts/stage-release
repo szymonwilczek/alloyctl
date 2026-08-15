@@ -36,6 +36,11 @@ mkdir -p "$out/$dist"
 cp alloyctl "$out/$dist/"
 cp dist/install.sh "$out/$dist/"
 cp dist/udev/70-alloyctl-uinput.rules "$out/$dist/"
+if [ -f dist/man/alloyctl.1 ]; then
+	mkdir -p "$out/$dist/man"
+	cp dist/man/alloyctl.1 "$out/$dist/man/"
+	cp dist/man/alloyctl.1 "$out/$dist/"
+fi
 chmod +x "$out/$dist/install.sh"
 cp README.rst LICENSE VERSION "$out/$dist/"
 
