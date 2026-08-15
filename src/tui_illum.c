@@ -4,7 +4,8 @@
  *
  * Full-screen lighting editor reached through the ILLUMINATION button:
  * the left third is the EFFECTS pane editing one zone, the right two thirds
- * preview the mouse with every zone drawn in its current color.
+ * preview the device with every zone drawn in its current color.
+
  *
  * Zone selection lives in the preview pane:
  *	TAB cycles the zone tabs and ENTER commits the choice,
@@ -24,6 +25,9 @@ enum illum_item {
 	ILL_EFFECT,
 	ILL_FREQ,
 	ILL_SPEED,
+	ILL_MULTICOLOR,
+	ILL_DIRECTION,
+	ILL_CUSTOM_ZONE,
 	ILL_R,
 	ILL_G,
 	ILL_B,
@@ -51,29 +55,41 @@ static int illum_idx_reactive(const struct tui *t)
 	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0);
 }
 
-static int illum_idx_startup(const struct tui *t)
+static int illum_item_count(const struct tui *t)
 {
-	if (!(t->drv->caps & ALLOY_CAP_FX_STARTUP) ||
-	    !alloy_driver_is_mouse(t->drv))
-		return -1;
 	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
 	       (illum_idx_reactive(t) >= 0 ? 1 : 0);
 }
 
-static int illum_item_count(const struct tui *t)
-{
-	return ILL_COUNT + ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) ? 1 : 0) +
-	       (illum_idx_reactive(t) >= 0 ? 1 : 0) +
-	       (illum_idx_startup(t) >= 0 ? 1 : 0);
-}
-
 static int illum_item_valid(const struct tui *t, int idx)
 {
+	uint8_t fx = t->cfg.common.zone_fx[t->illum_zone];
+
 	if (idx == ILL_FREQ && !(t->drv->caps & ALLOY_CAP_FX_FREQ))
 		return 0;
-	if (idx == ILL_SPEED && (!(t->drv->caps & ALLOY_CAP_FX_SPEED) ||
-				 !t->cfg.common.zone_fx[t->illum_zone]))
-		return 0;
+	if (idx == ILL_SPEED) {
+		if (!(t->drv->caps & ALLOY_CAP_FX_SPEED))
+			return 0;
+		/* speed is invalid for Steady (0), Solid (5), and Custom (14) */
+		if (fx == 0 || fx == 5 || fx == 14)
+			return 0;
+	}
+	if (idx == ILL_MULTICOLOR) {
+		if (!(t->drv->caps & ALLOY_CAP_MULTICOLOR))
+			return 0;
+		if (fx != 0 && fx != 1 && fx != 6)
+			return 0;
+	}
+	if (idx == ILL_DIRECTION) {
+		if (!(t->drv->caps & ALLOY_CAP_DIRECTION))
+			return 0;
+		if (fx != 0 && fx != 6)
+			return 0;
+	}
+	if (idx == ILL_CUSTOM_ZONE) {
+		if (fx != 14)
+			return 0;
+	}
 	if ((idx == ILL_R || idx == ILL_G || idx == ILL_B ||
 	     idx == ILL_PALETTE || idx == ILL_HEX) &&
 	    !(t->drv->caps & ALLOY_CAP_COLOR))
@@ -89,46 +105,39 @@ long tui_now_ms(void)
 	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
 }
 
-/* Fully saturated hue (0-359) to RGB, one 60 degree segment at a time */
-static struct alloy_rgb hue_to_rgb(int hue)
-{
-	uint8_t rise = (uint8_t)((hue % 60) * 255 / 60);
-	uint8_t fall = (uint8_t)(255 - rise);
-
-	switch ((hue / 60) % 6) {
-	case 0:
-		return (struct alloy_rgb){ 255, rise, 0 };
-	case 1:
-		return (struct alloy_rgb){ fall, 255, 0 };
-	case 2:
-		return (struct alloy_rgb){ 0, 255, rise };
-	case 3:
-		return (struct alloy_rgb){ 0, fall, 255 };
-	case 4:
-		return (struct alloy_rgb){ rise, 0, 255 };
-	default:
-		return (struct alloy_rgb){ 255, 0, fall };
-	}
-}
-
 static struct alloy_rgb scale_rgb(struct alloy_rgb c, int num, int den)
 {
+	if (den <= 0)
+		return (struct alloy_rgb){ 0, 0, 0 };
 	c.r = (uint8_t)((int)c.r * num / den);
 	c.g = (uint8_t)((int)c.g * num / den);
 	c.b = (uint8_t)((int)c.b * num / den);
 	return c;
 }
 
-/*
- * What color a zone shows at the given moment.
- *
- * Effect class is derived from the driver's display name -
- * the same convention tui_fx_ignores_color() uses - so any driver whose
- * names mention BREATH, RAINBOW or DISCO gets faithful animation without
- * core code knowing its wire format.
- * Per-zone speed knob scales time, the frequency knob packs more cycles
- * into a period, and SLOW/FAST name variants bake their own tempo on top.
- */
+static struct alloy_rgb hue_to_rgb(int hue)
+{
+	int h = ((hue % 360) + 360) % 360;
+	int sector = h / 60;
+	int frac = (h % 60) * 255 / 60;
+	int q = 255 - frac;
+
+	switch (sector) {
+	case 0:
+		return (struct alloy_rgb){ 255, (uint8_t)frac, 0 };
+	case 1:
+		return (struct alloy_rgb){ (uint8_t)q, 255, 0 };
+	case 2:
+		return (struct alloy_rgb){ 0, 255, (uint8_t)frac };
+	case 3:
+		return (struct alloy_rgb){ 0, (uint8_t)q, 255 };
+	case 4:
+		return (struct alloy_rgb){ (uint8_t)frac, 0, 255 };
+	default:
+		return (struct alloy_rgb){ 255, 0, (uint8_t)q };
+	}
+}
+
 static struct alloy_rgb zone_preview_color(const struct tui *t, int zone,
 					   long ms)
 {
@@ -224,6 +233,12 @@ static void illum_sync_global_fx(struct tui *t)
 			t->cfg.common.zone_fx_freq[zone];
 		t->cfg.common.zone_fx_speed[i] =
 			t->cfg.common.zone_fx_speed[zone];
+		t->cfg.common.zone_fx_multicolor[i] =
+			t->cfg.common.zone_fx_multicolor[zone];
+		t->cfg.common.zone_fx_direction[i] =
+			t->cfg.common.zone_fx_direction[zone];
+		t->cfg.common.zone_fx_custom[i] =
+			t->cfg.common.zone_fx_custom[zone];
 	}
 }
 
@@ -251,6 +266,11 @@ void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg)
 		cfg->common.zone_fx[i] = cfg->common.zone_fx[src];
 		cfg->common.zone_fx_freq[i] = cfg->common.zone_fx_freq[src];
 		cfg->common.zone_fx_speed[i] = cfg->common.zone_fx_speed[src];
+		cfg->common.zone_fx_multicolor[i] =
+			cfg->common.zone_fx_multicolor[src];
+		cfg->common.zone_fx_direction[i] =
+			cfg->common.zone_fx_direction[src];
+		cfg->common.zone_fx_custom[i] = cfg->common.zone_fx_custom[src];
 	}
 }
 
@@ -507,13 +527,10 @@ static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 /* Device-wide lighting that used to live in the main center pane */
 static void draw_device_section(struct tui *t, int y, int x, int focused)
 {
-	static const char *const startup_names[] = { "OFF", "REACTIVE",
-						     "RAINBOW", "REACT+RBOW" };
 	int sel = t->illum_cursor;
 	int row;
 
-	if (illum_idx_brightness(t) < 0 && illum_idx_reactive(t) < 0 &&
-	    illum_idx_startup(t) < 0)
+	if (illum_idx_brightness(t) < 0 && illum_idx_reactive(t) < 0)
 		return;
 
 	attron(COLOR_PAIR(CLR_TITLE) | A_BOLD);
@@ -548,19 +565,6 @@ static void draw_device_section(struct tui *t, int y, int x, int focused)
 		else
 			mvprintw(y, x + 13, "[OFF]");
 	}
-
-	row = illum_idx_startup(t);
-	if (row >= 0 && alloy_driver_is_mouse(t->drv)) {
-		y++;
-		if (focused && sel == row)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x + 2, "%-10s", "STARTUP");
-		if (focused && sel == row)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x + 13, "< %s >",
-			 startup_names[t->cfg.mouse.startup_fx &
-				       ALLOY_STARTUP_REACTIVE_RAINBOW]);
-	}
 }
 
 static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
@@ -568,6 +572,7 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	int focused = t->illum_focus == ILLUM_FOCUS_EFFECTS;
 	int sel = t->illum_cursor;
 	const char *fx_name = "STEADY";
+	int cur_y;
 
 	tui_draw_pane_box(y, x, h, w, "EFFECTS", focused);
 
@@ -581,32 +586,105 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 			t->drv->fx_names[t->cfg.common.zone_fx[t->illum_zone] %
 					 t->drv->num_fx];
 
+	cur_y = y + 4;
+
 	if (focused && sel == ILL_EFFECT)
 		attron(COLOR_PAIR(CLR_SELECTED));
-	mvprintw(y + 4, x + 2, "%-10s", "EFFECT");
+	mvprintw(cur_y, x + 2, "%-10s", "EFFECT");
 	if (focused && sel == ILL_EFFECT)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-	mvprintw(y + 4, x + 13, "< %s >", fx_name);
+	mvprintw(cur_y, x + 13, "< %s >", fx_name);
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+	cur_y++;
 
 	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
 		attron(COLOR_PAIR(CLR_DISABLED));
-		mvprintw(y + 5, x + 2, "drives the whole device");
+		mvprintw(cur_y, x + 2, "drives the whole device");
 		attroff(COLOR_PAIR(CLR_DISABLED));
+		cur_y++;
+	}
+	cur_y++;
+
+	if (t->drv->caps & ALLOY_CAP_FX_FREQ) {
+		draw_rate_row(t, cur_y, x + 2, "FREQUENCY",
+			      t->cfg.common.zone_fx_freq[t->illum_zone],
+			      focused && sel == ILL_FREQ, 1);
+		cur_y++;
 	}
 
-	draw_rate_row(t, y + 6, x + 2, "FREQUENCY",
-		      t->cfg.common.zone_fx_freq[t->illum_zone],
-		      focused && sel == ILL_FREQ,
-		      (t->drv->caps & ALLOY_CAP_FX_FREQ) != 0);
-	draw_rate_row(t, y + 7, x + 2, "SPEED",
-		      t->cfg.common.zone_fx_speed[t->illum_zone],
-		      focused && sel == ILL_SPEED,
-		      (t->drv->caps & ALLOY_CAP_FX_SPEED) != 0);
+	if (illum_item_valid(t, ILL_SPEED)) {
+		draw_rate_row(t, cur_y, x + 2, "SPEED",
+			      t->cfg.common.zone_fx_speed[t->illum_zone],
+			      focused && sel == ILL_SPEED, 1);
+		cur_y++;
+	}
 
-	draw_colors_section(t, y + 9, x, w, focused);
-	draw_device_section(t, y + 20, x, focused);
+	if (illum_item_valid(t, ILL_MULTICOLOR)) {
+		if (focused && sel == ILL_MULTICOLOR)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(cur_y, x + 2, "%-10s", "MULTICOLOR");
+		if (focused && sel == ILL_MULTICOLOR)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(cur_y, x + 13, "< %s >",
+			 t->cfg.common.zone_fx_multicolor[t->illum_zone] ?
+				 "ON" :
+				 "OFF");
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		cur_y++;
+	}
+
+	if (illum_item_valid(t, ILL_DIRECTION)) {
+		static const char *const wave_dir_labels[] = { "Right", "Left",
+							       "Down", "Up" };
+		static const char *const spiral_dir_labels[] = {
+			"Clockwise", "Counterclockwise"
+		};
+		uint8_t d = t->cfg.common.zone_fx_direction[t->illum_zone];
+		const char *d_name =
+			(t->cfg.common.zone_fx[t->illum_zone] == 0) ?
+				wave_dir_labels[d & 3] :
+				spiral_dir_labels[d & 1];
+
+		if (focused && sel == ILL_DIRECTION)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(cur_y, x + 2, "%-10s",
+			 t->cfg.common.zone_fx[t->illum_zone] == 0 ?
+				 "ANGLE" :
+				 "DIRECTION");
+		if (focused && sel == ILL_DIRECTION)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(cur_y, x + 13, "< %s >", d_name);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		cur_y++;
+	}
+
+	if (illum_item_valid(t, ILL_CUSTOM_ZONE)) {
+		static const char *const cust_labels[] = { "Cust1", "Cust2",
+							   "Cust3", "Cust4",
+							   "Cust5" };
+		uint8_t cz = t->cfg.common.zone_fx_custom[t->illum_zone];
+		const char *cz_name = (cz < ALLOY_ARRAY_SIZE(cust_labels)) ?
+					      cust_labels[cz] :
+					      "Cust1";
+
+		if (focused && sel == ILL_CUSTOM_ZONE)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(cur_y, x + 2, "%-10s", "ZONE");
+		if (focused && sel == ILL_CUSTOM_ZONE)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(cur_y, x + 13, "< %s >", cz_name);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		cur_y++;
+	}
+
+	cur_y++;
+	draw_colors_section(t, cur_y, x, w, focused);
+	cur_y += 11;
+	draw_device_section(t, cur_y, x, focused);
 
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(y + h - 2, x + 2, "j/k: Item  h/l: Adjust");
@@ -695,13 +773,6 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		tui_lighting_changed(t);
 		return;
 	}
-	if (t->illum_cursor == illum_idx_startup(t) &&
-	    alloy_driver_is_mouse(t->drv)) {
-		t->cfg.mouse.startup_fx =
-			(uint8_t)((t->cfg.mouse.startup_fx + 4 + dir) % 4);
-		tui_lighting_changed(t);
-		return;
-	}
 
 	switch (t->illum_cursor) {
 	case ILL_EFFECT:
@@ -727,6 +798,35 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		illum_sync_global_fx(t);
 		tui_lighting_changed(t);
 		return;
+	case ILL_MULTICOLOR:
+		t->cfg.common.zone_fx_multicolor[zone] =
+			!t->cfg.common.zone_fx_multicolor[zone];
+		illum_sync_global_fx(t);
+		tui_lighting_changed(t);
+		return;
+	case ILL_DIRECTION: {
+		int max_d = (t->cfg.common.zone_fx[zone] == 0) ? 4 : 2;
+		int d = (int)t->cfg.common.zone_fx_direction[zone] + dir;
+		if (d < 0)
+			d = max_d - 1;
+		if (d >= max_d)
+			d = 0;
+		t->cfg.common.zone_fx_direction[zone] = (uint8_t)d;
+		illum_sync_global_fx(t);
+		tui_lighting_changed(t);
+		return;
+	}
+	case ILL_CUSTOM_ZONE: {
+		int cz = (int)t->cfg.common.zone_fx_custom[zone] + dir;
+		if (cz < 0)
+			cz = 4;
+		if (cz > 4)
+			cz = 0;
+		t->cfg.common.zone_fx_custom[zone] = (uint8_t)cz;
+		illum_sync_global_fx(t);
+		tui_lighting_changed(t);
+		return;
+	}
 	case ILL_R:
 		chan = &t->cfg.common.zone_color[zone].r;
 		break;
@@ -748,6 +848,7 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		return;
 	val = *chan + dir * (big ? 16 : 1);
 	*chan = (uint8_t)ALLOY_CLAMP(val, 0, 255);
+	illum_sync_global_fx(t);
 	tui_lighting_changed(t);
 }
 
@@ -790,6 +891,7 @@ static void illum_hex_input(struct tui *t)
 		tui_status(t, "invalid hex color");
 		return;
 	}
+	illum_sync_global_fx(t);
 	tui_lighting_changed(t);
 }
 
@@ -804,9 +906,35 @@ static void illum_activate(struct tui *t)
 	case ILL_EFFECT:
 		illum_effect_modal(t);
 		return;
+	case ILL_MULTICOLOR:
+		t->cfg.common.zone_fx_multicolor[t->illum_zone] =
+			!t->cfg.common.zone_fx_multicolor[t->illum_zone];
+		illum_sync_global_fx(t);
+		tui_lighting_changed(t);
+		return;
+	case ILL_DIRECTION: {
+		int max_d = (t->cfg.common.zone_fx[t->illum_zone] == 0) ? 4 : 2;
+		t->cfg.common.zone_fx_direction[t->illum_zone] =
+			(uint8_t)((t->cfg.common
+					   .zone_fx_direction[t->illum_zone] +
+				   1) %
+				  max_d);
+		illum_sync_global_fx(t);
+		tui_lighting_changed(t);
+		return;
+	}
+	case ILL_CUSTOM_ZONE:
+		t->cfg.common.zone_fx_custom[t->illum_zone] =
+			(uint8_t)((t->cfg.common.zone_fx_custom[t->illum_zone] +
+				   1) %
+				  5);
+		illum_sync_global_fx(t);
+		tui_lighting_changed(t);
+		return;
 	case ILL_PALETTE:
 		t->cfg.common.zone_color[t->illum_zone] =
 			tui_palette[t->illum_swatch];
+		illum_sync_global_fx(t);
 		tui_lighting_changed(t);
 		return;
 	case ILL_HEX:

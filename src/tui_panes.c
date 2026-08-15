@@ -416,11 +416,12 @@ static void draw_levels_pane(struct tui *t)
 }
 
 /*
- * Wireless power controls, sat under the CPI LEVELS column:
- * Battery Saver is the inactivity sleep-timer stepper (Off..20 min)
- * and Smart Illum toggles the idle lighting dim.
- * Shown only for drivers that report a battery (ALLOY_CAP_BATTERY).
+ * Wireless power controls:
+ * Battery Saver is the inactivity sleep-timer stepper (Off..20 min),
+ * Smart Illum blanks LEDs while moving, and Dim Timer dims LEDs after N s idle.
+ * Shown only for devices that report a battery (ALLOY_CAP_BATTERY).
  */
+
 /* one POWER-pane label, highlighted when it is the focused item */
 static void draw_power_label(int y, int x, const char *s, int selected)
 {
@@ -444,7 +445,6 @@ static void draw_power_pane(struct tui *t)
 	const struct rect *r = &layout[PANE_POWER];
 	int focused = t->focus == PANE_POWER;
 	int sel = t->cursor[PANE_POWER];
-	int has_higheff = (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0;
 	int y = r->y + 1;
 
 	draw_box(r, "POWER", focused);
@@ -476,15 +476,6 @@ static void draw_power_pane(struct tui *t)
 	else
 		mvprintw(y + 1, r->x + 4, "<  Off   >");
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-
-	/* High-Efficiency Mode: only for drivers that advertise it */
-	if (has_higheff && alloy_driver_is_mouse(t->drv)) {
-		y += 2;
-		draw_power_label(y, r->x + 2, "High-Efficiency",
-				 focused && sel == POWER_HIGHEFF);
-		draw_power_toggle(y + 1, r->x + 4,
-				  t->cfg.mouse.high_efficiency);
-	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(r->y + r->h - 2, r->x + 2, "h/l: Adjust  Enter: Toggle");
@@ -594,50 +585,6 @@ static void draw_keyboard_tuning_pane(struct tui *t)
 		item++;
 	}
 
-	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
-		const char *fx_name =
-			(t->cfg.common.zone_fx[0] < t->drv->num_fx) ?
-				t->drv->fx_names[t->cfg.common.zone_fx[0]] :
-				"DEFAULT";
-
-		mvprintw(y, r->x + 2, "LIGHTING EFFECT");
-		y += 2;
-		if (focused && sel == item)
-			attron(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, r->x + 2, "%-13s", "Mode");
-		if (focused && sel == item)
-			attroff(COLOR_PAIR(CLR_SELECTED));
-		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		mvprintw(y, r->x + 16, "< %s >", fx_name);
-		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		y += 2;
-		item++;
-
-		if ((t->drv->caps & ALLOY_CAP_FX_SPEED) &&
-		    t->cfg.common.zone_fx[0] > 0) {
-			static const char *const speed_labels[] = { "SLOW",
-								    "MEDIUM",
-								    "FAST" };
-			uint8_t spd = t->cfg.common.zone_fx_speed[0];
-			const char *spd_name =
-				(spd >= 1 && spd <= 3) ?
-					speed_labels[spd - 1] :
-					(spd <= 1 ? "SLOW" : "FAST");
-
-			if (focused && sel == item)
-				attron(COLOR_PAIR(CLR_SELECTED));
-			mvprintw(y, r->x + 2, "%-13s", "Speed");
-			if (focused && sel == item)
-				attroff(COLOR_PAIR(CLR_SELECTED));
-			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			mvprintw(y, r->x + 16, "< %s >", spd_name);
-			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-			y += 2;
-			item++;
-		}
-		y++;
-	}
-
 	if (t->drv->num_polling_rates > 0) {
 		mvprintw(y, r->x + 2, "POLLING RATE");
 		y++;
@@ -656,7 +603,6 @@ static void draw_keyboard_tuning_pane(struct tui *t)
 		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 		mvprintw(y, r->x + 16, "%4u Hz", t->cfg.common.polling_hz);
 		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		y++;
 		if (t->drv->num_polling_rates > 1)
 			draw_slider(
 				y, r->x + 2, r->w - 4,
@@ -664,12 +610,113 @@ static void draw_keyboard_tuning_pane(struct tui *t)
 						      1],
 				t->drv->polling_rates[0],
 				t->cfg.common.polling_hz);
+		y++;
+		item++;
+	}
+
+	if (t->drv->caps & ALLOY_CAP_SNAP_TAP) {
+		static const char *const snap_modes[] = { "Last Input", "Key 1",
+							  "Key 2", "Neutral" };
+		uint8_t g;
+
+		y++;
+		mvprintw(y, r->x + 2, "SNAP TAP (SOCD)");
+		y += 2;
+		if (focused && sel == item)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, r->x + 2, "%-13s", "Snap Tap");
+		if (focused && sel == item)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		if (t->cfg.kbd.snap_tap) {
+			attron(COLOR_PAIR(CLR_LINK_RF) | A_BOLD);
+			mvprintw(y, r->x + 16, "< ON >");
+			attroff(COLOR_PAIR(CLR_LINK_RF) | A_BOLD);
+		} else {
+			attron(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+			mvprintw(y, r->x + 16, "< OFF >");
+			attroff(COLOR_PAIR(CLR_LINK_OFF) | A_DIM);
+		}
+		y += 2;
+		item++;
+
+		for (g = 0; g < t->cfg.kbd.snap_tap_group_count &&
+			    g < ALLOY_MAX_SNAP_TAP_GROUPS;
+		     g++) {
+			char label[32];
+			const char *k1 = alloy_hid_key_name(
+				t->cfg.kbd.snap_tap_groups[g].key1);
+			const char *k2 = alloy_hid_key_name(
+				t->cfg.kbd.snap_tap_groups[g].key2);
+			uint8_t m = t->cfg.kbd.snap_tap_groups[g].mode;
+			const char *m_name = (m < 4) ? snap_modes[m] :
+						       "Last Input";
+
+			snprintf(label, sizeof(label), "Grp %u Keys", g + 1);
+			if (focused && sel == item)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y, r->x + 2, "%-13s", label);
+			if (focused && sel == item)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			mvprintw(y, r->x + 16, "[ %s / %s ]", k1, k2);
+			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			y++;
+			item++;
+
+			snprintf(label, sizeof(label), "Grp %u Mode", g + 1);
+			if (focused && sel == item)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y, r->x + 2, "%-13s", label);
+			if (focused && sel == item)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+			attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			mvprintw(y, r->x + 16, "< %s >", m_name);
+			attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+			y += 2;
+			item++;
+		}
+
+		if (t->cfg.kbd.snap_tap_group_count <
+		    ALLOY_MAX_SNAP_TAP_GROUPS) {
+			if (focused && sel == item)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y, r->x + 2, "[ + Add Snap Tap Group ]");
+			if (focused && sel == item)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+			y++;
+			item++;
+		}
+
+		if (t->cfg.kbd.snap_tap_group_count > 1) {
+			if (focused && sel == item)
+				attron(COLOR_PAIR(CLR_SELECTED));
+			mvprintw(y, r->x + 2, "[ - Remove Last Group ]");
+			if (focused && sel == item)
+				attroff(COLOR_PAIR(CLR_SELECTED));
+			y += 2;
+			item++;
+		}
+	}
+
+	if (t->drv->caps & ALLOY_CAP_PROFILE) {
+		mvprintw(y, r->x + 2, "HARDWARE PROFILE");
+		y += 2;
+		if (focused && sel == item)
+			attron(COLOR_PAIR(CLR_SELECTED));
+		mvprintw(y, r->x + 2, "%-13s", "Profile");
+		if (focused && sel == item)
+			attroff(COLOR_PAIR(CLR_SELECTED));
+		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		mvprintw(y, r->x + 16, "< Profile %u >",
+			 t->cfg.kbd.profile_active);
+		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
+		y += 2;
 		item++;
 	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
 	mvprintw(r->y + r->h - 3, r->x + 2, "h/l: Adjust");
-	mvprintw(r->y + r->h - 2, r->x + 2, "H/L: Fast Adjust");
+	mvprintw(r->y + r->h - 2, r->x + 2, "Enter: Toggle / Select");
 	attroff(COLOR_PAIR(CLR_DISABLED));
 }
 

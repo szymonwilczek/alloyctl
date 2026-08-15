@@ -96,60 +96,6 @@ static void adjust_brightness(struct tui *t, int delta)
 		tui_apply(t, t->drv->ops->apply_brightness, "brightness");
 }
 
-static void adjust_fx_mode(struct tui *t, int delta)
-{
-	int count = t->drv->num_fx;
-	int cur;
-
-	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL) || count <= 0)
-		return;
-
-	cur = (int)t->cfg.common.zone_fx[0] + delta;
-	while (cur < 0)
-		cur += count;
-	cur %= count;
-	t->cfg.common.zone_fx[0] = (uint8_t)cur;
-	mark_dirty(t);
-	if (t->live_preview && t->drv->ops->apply_colors)
-		tui_apply(t, t->drv->ops->apply_colors, "effect");
-}
-
-static void adjust_fx_speed(struct tui *t, int delta)
-{
-	int spd = (int)t->cfg.common.zone_fx_speed[0] + delta;
-
-	spd = ALLOY_CLAMP(spd, 1, 3);
-	t->cfg.common.zone_fx_speed[0] = (uint8_t)spd;
-	mark_dirty(t);
-	if (t->live_preview && t->drv->ops->apply_colors)
-		tui_apply(t, t->drv->ops->apply_colors, "effect");
-}
-
-/*
- * High-Efficiency Mode toggle.
- * Unlike the other steppers this is a deliberate hardware mode switch that GG
- * applies the instant it is clicked, so it is pushed immediately regardless of
- * the live-preview flag.
- * The op forces the device bundle (0x68 + LEDs off + 125 Hz) and blocks until
- * the link, which the toggle briefly drops, comes back - so a following save
- * finds a live link.
- * It is not re-pushed by tui_apply_all; later save just commits the live state,
- * which already carries the mode.
- */
-static void set_higheff(struct tui *t, int on)
-{
-	if (!alloy_driver_is_mouse(t->drv))
-		return;
-	on = on ? 1 : 0;
-	if (t->cfg.mouse.high_efficiency == on)
-		return;
-	t->cfg.mouse.high_efficiency = (uint8_t)on;
-	mark_dirty(t);
-	tui_apply(t, t->drv->ops->apply_high_efficiency, "high-efficiency");
-	tui_status(t, on ? "high-efficiency on (link re-synced)" :
-			   "high-efficiency off (link re-synced)");
-}
-
 static void adjust_dpi(struct tui *t, int preset, int delta)
 {
 	const struct alloy_driver *drv = t->drv;
@@ -269,6 +215,205 @@ static void footer_activate(struct tui *t)
 	}
 }
 
+static const uint8_t snap_tap_pairs[][2] = {
+	{ 0x04, 0x07 }, /* A / D */
+	{ 0x1A, 0x16 }, /* W / S */
+	{ 0x14, 0x08 }, /* Q / E */
+	{ 0x50, 0x4F }, /* Left / Right */
+	{ 0x52, 0x51 }, /* Up / Down */
+};
+
+static void snap_tap_adjust_keys(struct tui *t, uint8_t g, int dir)
+{
+	int pidx = 0;
+	size_t count = ALLOY_ARRAY_SIZE(snap_tap_pairs);
+
+	for (size_t pi = 0; pi < count; pi++) {
+		if (snap_tap_pairs[pi][0] ==
+			    t->cfg.kbd.snap_tap_groups[g].key1 &&
+		    snap_tap_pairs[pi][1] ==
+			    t->cfg.kbd.snap_tap_groups[g].key2) {
+			pidx = (int)pi;
+			break;
+		}
+	}
+	pidx = (int)((pidx + dir + count) % count);
+	t->cfg.kbd.snap_tap_groups[g].key1 = snap_tap_pairs[pidx][0];
+	t->cfg.kbd.snap_tap_groups[g].key2 = snap_tap_pairs[pidx][1];
+	mark_dirty(t);
+
+	if (t->drv->ops->apply_snap_tap)
+		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
+
+	tui_status(t, "Group %u Keys: %s / %s", g + 1,
+		   alloy_hid_key_name(snap_tap_pairs[pidx][0]),
+		   alloy_hid_key_name(snap_tap_pairs[pidx][1]));
+}
+
+static void snap_tap_adjust_mode(struct tui *t, uint8_t g, int dir)
+{
+	static const char *const mnames[] = { "Last Input", "Key 1", "Key 2",
+					      "Neutral" };
+	int m = (int)t->cfg.kbd.snap_tap_groups[g].mode + dir;
+
+	if (m < 0)
+		m = 3;
+	if (m > 3)
+		m = 0;
+
+	t->cfg.kbd.snap_tap_groups[g].mode = (uint8_t)m;
+	mark_dirty(t);
+
+	if (t->drv->ops->apply_snap_tap)
+		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
+
+	tui_status(t, "Group %u Mode: %s", g + 1, mnames[m]);
+}
+
+static void snap_tap_add_group(struct tui *t)
+{
+	uint8_t gc = t->cfg.kbd.snap_tap_group_count;
+
+	if (gc >= ALLOY_MAX_SNAP_TAP_GROUPS)
+		return;
+
+	t->cfg.kbd.snap_tap_groups[gc].mode = 0;
+	t->cfg.kbd.snap_tap_groups[gc].key1 =
+		snap_tap_pairs[gc % ALLOY_ARRAY_SIZE(snap_tap_pairs)][0];
+	t->cfg.kbd.snap_tap_groups[gc].key2 =
+		snap_tap_pairs[gc % ALLOY_ARRAY_SIZE(snap_tap_pairs)][1];
+	t->cfg.kbd.snap_tap_group_count++;
+	mark_dirty(t);
+
+	if (t->drv->ops->apply_snap_tap)
+		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
+
+	tui_status(t, "Added Snap Tap Group %u",
+		   t->cfg.kbd.snap_tap_group_count);
+}
+
+static void snap_tap_remove_group(struct tui *t)
+{
+	if (t->cfg.kbd.snap_tap_group_count <= 1)
+		return;
+
+	t->cfg.kbd.snap_tap_group_count--;
+	mark_dirty(t);
+
+	if (t->drv->ops->apply_snap_tap)
+		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
+
+	tui_status(t, "Removed Snap Tap Group");
+}
+
+static void snap_tap_toggle(struct tui *t, int on)
+{
+	t->cfg.kbd.snap_tap = on ? 1 : 0;
+	mark_dirty(t);
+
+	if (t->drv->ops->apply_snap_tap)
+		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
+
+	tui_status(t, "Snap Tap %s", t->cfg.kbd.snap_tap ? "ON" : "OFF");
+}
+
+static void adjust_profile(struct tui *t, int dir)
+{
+	uint8_t prof = t->cfg.kbd.profile_active;
+
+	if (dir > 0)
+		prof = (prof >= 3) ? 1 : (uint8_t)(prof + 1);
+	else
+		prof = (prof <= 1) ? 3 : (uint8_t)(prof - 1);
+
+	t->cfg.kbd.profile_active = prof;
+	mark_dirty(t);
+
+	if (t->drv->ops->apply_profile)
+		t->drv->ops->apply_profile(t->dev, &t->cfg);
+
+	tui_status(t, "Profile %u active", prof);
+}
+
+static void adjust_keyboard_controls(struct tui *t, int dir, int big)
+{
+	int sel = t->cursor[PANE_TUNING];
+	int item = 0;
+
+	if ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) && sel == item++) {
+		adjust_brightness(t, dir * (big ? 25 : 5));
+		return;
+	}
+
+	if (t->drv->num_polling_rates > 0 && sel == item++) {
+		adjust_polling(t, dir, big);
+		return;
+	}
+
+	if (t->drv->caps & ALLOY_CAP_SNAP_TAP) {
+		if (sel == item++) {
+			snap_tap_toggle(t, dir > 0);
+			return;
+		}
+
+		for (uint8_t g = 0; g < t->cfg.kbd.snap_tap_group_count; g++) {
+			if (sel == item++) {
+				snap_tap_adjust_keys(t, g, dir);
+				return;
+			}
+			if (sel == item++) {
+				snap_tap_adjust_mode(t, g, dir);
+				return;
+			}
+		}
+
+		if (t->cfg.kbd.snap_tap_group_count <
+			    ALLOY_MAX_SNAP_TAP_GROUPS &&
+		    sel == item++) {
+			if (dir > 0)
+				snap_tap_add_group(t);
+			return;
+		}
+
+		if (t->cfg.kbd.snap_tap_group_count > 1 && sel == item++) {
+			if (dir < 0)
+				snap_tap_remove_group(t);
+			return;
+		}
+	}
+
+	if ((t->drv->caps & ALLOY_CAP_PROFILE) && sel == item++)
+		adjust_profile(t, dir);
+}
+
+static void adjust_mouse_tuning(struct tui *t, int dir, int big)
+{
+	int sel = t->cursor[PANE_TUNING];
+
+	switch (sel) {
+	case 0:
+		adjust_accel(t, dir * (big ? ALLOY_ACCEL_STEP * 10 :
+					     ALLOY_ACCEL_STEP));
+		break;
+	case 1:
+		adjust_decel(t, dir * (big ? ALLOY_DECEL_STEP * 10 :
+					     ALLOY_DECEL_STEP));
+		break;
+	case 2:
+		adjust_snap(t, dir * (big ? ALLOY_SNAP_STEP * 5 :
+					    ALLOY_SNAP_STEP));
+		break;
+	case 3:
+		tui_status(t, "enter: toggle the OS accel engine");
+		break;
+	case 4:
+		adjust_polling(t, dir, big);
+		break;
+	default:
+		break;
+	}
+}
+
 static void pane_adjust(struct tui *t, int dir, int big)
 {
 	int sel = t->cursor[t->focus];
@@ -285,80 +430,65 @@ static void pane_adjust(struct tui *t, int dir, int big)
 			adjust_sleep(t, dir * (big ? ALLOY_SLEEP_STEP * 5 :
 						     ALLOY_SLEEP_STEP));
 		else if (sel == POWER_SMART)
-			/* h/l flips the toggle by direction */
 			set_smart(t, dir > 0);
 		else if (sel == POWER_DIM)
 			adjust_dim(t, dir * (big ? ALLOY_ILLUM_DIM_STEP * 4 :
 						   ALLOY_ILLUM_DIM_STEP));
-		else /* POWER_HIGHEFF: h/l flips the toggle by direction */
-			set_higheff(t, dir > 0);
 		break;
 	case PANE_TUNING:
-		if (alloy_driver_is_keyboard(t->drv)) {
-			int item = 0;
-
-			if (t->drv->caps & ALLOY_CAP_BRIGHTNESS) {
-				if (sel == item) {
-					adjust_brightness(t,
-							  dir * (big ? 25 : 5));
-					break;
-				}
-				item++;
-			}
-
-			if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
-				if (sel == item) {
-					adjust_fx_mode(t, dir);
-					break;
-				}
-				item++;
-
-				if ((t->drv->caps & ALLOY_CAP_FX_SPEED) &&
-				    t->cfg.common.zone_fx[0] > 0) {
-					if (sel == item) {
-						adjust_fx_speed(t, dir);
-						break;
-					}
-					item++;
-				}
-			}
-
-			if (t->drv->num_polling_rates > 0) {
-				if (sel == item) {
-					adjust_polling(t, dir, big);
-					break;
-				}
-				item++;
-			}
-			break;
-		}
-		switch (sel) {
-		case 0:
-			adjust_accel(t, dir * (big ? ALLOY_ACCEL_STEP * 10 :
-						     ALLOY_ACCEL_STEP));
-			break;
-		case 1:
-			adjust_decel(t, dir * (big ? ALLOY_DECEL_STEP * 10 :
-						     ALLOY_DECEL_STEP));
-			break;
-		case 2:
-			adjust_snap(t, dir * (big ? ALLOY_SNAP_STEP * 5 :
-						    ALLOY_SNAP_STEP));
-			break;
-		case 3:
-			tui_status(t, "enter: toggle the OS accel engine");
-			break;
-		case 4:
-			adjust_polling(t, dir, big);
-			break;
-		default:
-			break;
-		}
+		if (alloy_driver_is_keyboard(t->drv))
+			adjust_keyboard_controls(t, dir, big);
+		else
+			adjust_mouse_tuning(t, dir, big);
 		break;
-
 	default:
 		break;
 	}
+}
+
+static void activate_keyboard_controls(struct tui *t)
+{
+	int sel = t->cursor[PANE_TUNING];
+	int item = 0;
+
+	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
+		item++;
+
+	if (t->drv->num_polling_rates > 0)
+		item++;
+
+	if (t->drv->caps & ALLOY_CAP_SNAP_TAP) {
+		if (sel == item++) {
+			snap_tap_toggle(t, !t->cfg.kbd.snap_tap);
+			return;
+		}
+
+		for (uint8_t g = 0; g < t->cfg.kbd.snap_tap_group_count; g++) {
+			if (sel == item++) {
+				snap_tap_adjust_keys(t, g, 1);
+				return;
+			}
+			if (sel == item++) {
+				snap_tap_adjust_mode(t, g, 1);
+				return;
+			}
+		}
+
+		if (t->cfg.kbd.snap_tap_group_count <
+			    ALLOY_MAX_SNAP_TAP_GROUPS &&
+		    sel == item++) {
+			snap_tap_add_group(t);
+			return;
+		}
+
+		if (t->cfg.kbd.snap_tap_group_count > 1 && sel == item++) {
+			snap_tap_remove_group(t);
+			return;
+		}
+	}
+
+	if ((t->drv->caps & ALLOY_CAP_PROFILE) && sel == item++)
+		adjust_profile(t, 1);
 }
 
 static void pane_activate(struct tui *t)
@@ -379,11 +509,11 @@ static void pane_activate(struct tui *t)
 	case PANE_POWER:
 		if (sel == POWER_SMART)
 			set_smart(t, !t->cfg.common.illum_smart);
-		else if (sel == POWER_HIGHEFF && alloy_driver_is_mouse(t->drv))
-			set_higheff(t, !t->cfg.mouse.high_efficiency);
 		break;
 	case PANE_TUNING:
-		if (sel == 3)
+		if (alloy_driver_is_keyboard(t->drv))
+			activate_keyboard_controls(t);
+		else if (sel == 3)
 			tui_accel_set_enabled(t, !t->accel_running);
 		break;
 	case PANE_LEVELS:
