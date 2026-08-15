@@ -162,9 +162,12 @@ static void draw_actions_pane(struct tui *t)
 			attroff(COLOR_PAIR(CLR_SELECTED));
 
 		attron(COLOR_PAIR(CLR_ACCENT));
-		mvprintw(row + 1, actions.x + 4, "-> %s",
-			 action_label(&t->cfg.buttons[i], label,
-				      sizeof(label)));
+		if (alloy_driver_is_mouse(t->drv))
+			mvprintw(row + 1, actions.x + 4, "-> %s",
+				 action_label(&t->cfg.mouse.buttons[i], label,
+					      sizeof(label)));
+		else
+			mvprintw(row + 1, actions.x + 4, "-> (Default)");
 		attroff(COLOR_PAIR(CLR_ACCENT));
 	}
 
@@ -348,8 +351,11 @@ static void draw_levels_pane(struct tui *t)
 
 	draw_box(r, "CPI LEVELS", focused);
 
-	for (i = 0; i < t->cfg.dpi_count; i++) {
-		int active = t->cfg.dpi_active == i;
+	if (!alloy_driver_is_mouse(t->drv))
+		return;
+
+	for (i = 0; i < t->cfg.mouse.dpi_count; i++) {
+		int active = t->cfg.mouse.dpi_active == i;
 
 		/*
 		 * Cursor keeps its usual highlight;
@@ -365,7 +371,7 @@ static void draw_levels_pane(struct tui *t)
 		attroff(COLOR_PAIR(CLR_BUTTON_HOT) | A_BOLD);
 
 		attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-		mvprintw(y + 1, r->x + 2, "%5u CPI", t->cfg.dpi[i][0]);
+		mvprintw(y + 1, r->x + 2, "%5u CPI", t->cfg.mouse.dpi[i][0]);
 		attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 		if (active) {
 			attron(COLOR_PAIR(CLR_BUTTON_HOT));
@@ -374,12 +380,12 @@ static void draw_levels_pane(struct tui *t)
 		}
 
 		draw_slider(y + 2, r->x + 2, r->w - 4, t->drv->dpi.min,
-			    t->drv->dpi.max, t->cfg.dpi[i][0]);
+			    t->drv->dpi.max, t->cfg.mouse.dpi[i][0]);
 		y += 4;
 	}
 
-	if (t->cfg.dpi_count < tui_dpi_preset_limit(t)) {
-		if (focused && sel == t->cfg.dpi_count)
+	if (t->cfg.mouse.dpi_count < tui_dpi_preset_limit(t)) {
+		if (focused && sel == t->cfg.mouse.dpi_count)
 			attron(COLOR_PAIR(CLR_SELECTED));
 		else
 			attron(COLOR_PAIR(CLR_BUTTON));
@@ -432,8 +438,9 @@ static void draw_power_pane(struct tui *t)
 	draw_power_label(y, r->x + 2, "Battery Saver",
 			 focused && sel == POWER_SLEEP);
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-	if (t->cfg.sleep_min)
-		mvprintw(y + 1, r->x + 4, "< %2d min >", t->cfg.sleep_min);
+	if (t->cfg.common.sleep_min)
+		mvprintw(y + 1, r->x + 4, "< %2d min >",
+			 t->cfg.common.sleep_min);
 	else
 		mvprintw(y + 1, r->x + 4, "<  Off   >");
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
@@ -442,24 +449,26 @@ static void draw_power_pane(struct tui *t)
 	y += 2;
 	draw_power_label(y, r->x + 2, "Smart Illum",
 			 focused && sel == POWER_SMART);
-	draw_power_toggle(y + 1, r->x + 4, t->cfg.illum_smart);
+	draw_power_toggle(y + 1, r->x + 4, t->cfg.common.illum_smart);
 
 	/* Dim Timer: dim the LEDs after N seconds idle */
 	y += 2;
 	draw_power_label(y, r->x + 2, "Dim Timer", focused && sel == POWER_DIM);
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-	if (t->cfg.illum_dim_s)
-		mvprintw(y + 1, r->x + 4, "< %4d s >", t->cfg.illum_dim_s);
+	if (t->cfg.common.illum_dim_s)
+		mvprintw(y + 1, r->x + 4, "< %4d s >",
+			 t->cfg.common.illum_dim_s);
 	else
 		mvprintw(y + 1, r->x + 4, "<  Off   >");
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 
 	/* High-Efficiency Mode: only for drivers that advertise it */
-	if (has_higheff) {
+	if (has_higheff && alloy_driver_is_mouse(t->drv)) {
 		y += 2;
 		draw_power_label(y, r->x + 2, "High-Efficiency",
 				 focused && sel == POWER_HIGHEFF);
-		draw_power_toggle(y + 1, r->x + 4, t->cfg.high_efficiency);
+		draw_power_toggle(y + 1, r->x + 4,
+				  t->cfg.mouse.high_efficiency);
 	}
 
 	attron(COLOR_PAIR(CLR_DISABLED));
@@ -627,7 +636,11 @@ static void draw_tuning_pane(struct tui *t)
 
 	for (i = 0; i < 2; i++) {
 		const char *name = i == 0 ? "Acceleration" : "Deceleration";
-		int8_t val = i == 0 ? t->cfg.acceleration : t->cfg.deceleration;
+		int8_t val = 0;
+
+		if (alloy_driver_is_mouse(t->drv))
+			val = i == 0 ? t->cfg.mouse.acceleration :
+				       t->cfg.mouse.deceleration;
 
 		if (focused && sel == i)
 			attron(COLOR_PAIR(CLR_SELECTED));
@@ -641,7 +654,10 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "ANGLE SNAPPING");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
-	draw_snap_wave(y, r->x + 3, r->w - 6, t->cfg.angle_snapping);
+	draw_snap_wave(y, r->x + 3, r->w - 6,
+		       alloy_driver_is_mouse(t->drv) ?
+			       t->cfg.mouse.angle_snapping :
+			       0);
 	attroff(COLOR_PAIR(CLR_ACCENT));
 	y += 4;
 	if (focused && sel == 2)
@@ -649,7 +665,9 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "%-13s", "Snapping");
 	if (focused && sel == 2)
 		attroff(COLOR_PAIR(CLR_SELECTED));
-	mvprintw(y, r->x + 16, "< %3u deg >", t->cfg.angle_snapping);
+	mvprintw(y, r->x + 16, "< %3u deg >",
+		 alloy_driver_is_mouse(t->drv) ? t->cfg.mouse.angle_snapping :
+						 0);
 	y++;
 
 	if (focused && sel == 3)
@@ -673,7 +691,7 @@ static void draw_tuning_pane(struct tui *t)
 	mvprintw(y, r->x + 2, "POLLING RATE");
 	y++;
 	attron(COLOR_PAIR(CLR_ACCENT));
-	draw_poll_wave(y, r->x + 3, r->w - 6, 3, t->cfg.polling_hz,
+	draw_poll_wave(y, r->x + 3, r->w - 6, 3, t->cfg.common.polling_hz,
 		       t->drv->polling_rates[0]);
 	attroff(COLOR_PAIR(CLR_ACCENT));
 	y += 4; /* chart height + blank line before the stepper */
@@ -689,14 +707,14 @@ static void draw_tuning_pane(struct tui *t)
 	if (focused && sel == 4)
 		attroff(COLOR_PAIR(CLR_SELECTED));
 	attron(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
-	mvprintw(y, r->x + 16, "%4u Hz", t->cfg.polling_hz);
+	mvprintw(y, r->x + 16, "%4u Hz", t->cfg.common.polling_hz);
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 	y++;
 	if (t->drv->num_polling_rates > 1)
 		draw_slider(
 			y, r->x + 2, r->w - 4,
 			t->drv->polling_rates[t->drv->num_polling_rates - 1],
-			t->drv->polling_rates[0], t->cfg.polling_hz);
+			t->drv->polling_rates[0], t->cfg.common.polling_hz);
 }
 
 static void draw_footer(struct tui *t)

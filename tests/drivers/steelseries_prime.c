@@ -84,9 +84,9 @@ ALLOY_TEST(test_prime_dpi_packets)
 	drv_prime()->config_defaults(drv_prime(), &cfg);
 
 	/* 1 preset at 400 DPI */
-	cfg.dpi_count = 1;
-	cfg.dpi_active = 0;
-	cfg.dpi[0][0] = 400;
+	cfg.mouse.dpi_count = 1;
+	cfg.mouse.dpi_active = 0;
+	cfg.mouse.dpi[0][0] = 400;
 
 	len = prime_build_dpi(&cfg, buf);
 	ASSERT_EQ(len, 5);
@@ -97,13 +97,13 @@ ALLOY_TEST(test_prime_dpi_packets)
 	ASSERT_EQ(buf[4], 0);
 
 	/* 5 presets at 400, 800, 1200, 2400, 3200 with active preset 2 */
-	cfg.dpi_count = 5;
-	cfg.dpi_active = 2;
-	cfg.dpi[0][0] = 400;
-	cfg.dpi[1][0] = 800;
-	cfg.dpi[2][0] = 1200;
-	cfg.dpi[3][0] = 2400;
-	cfg.dpi[4][0] = 3200;
+	cfg.mouse.dpi_count = 5;
+	cfg.mouse.dpi_active = 2;
+	cfg.mouse.dpi[0][0] = 400;
+	cfg.mouse.dpi[1][0] = 800;
+	cfg.mouse.dpi[2][0] = 1200;
+	cfg.mouse.dpi[3][0] = 2400;
+	cfg.mouse.dpi[4][0] = 3200;
 
 	len = prime_build_dpi(&cfg, buf);
 	ASSERT_EQ(len, 13);
@@ -122,10 +122,10 @@ ALLOY_TEST(test_prime_dpi_packets)
 	ASSERT_EQ(buf[12], 0x00);
 
 	/* clamping min (20 -> 50) and max (20000 -> 18000) */
-	cfg.dpi_count = 2;
-	cfg.dpi_active = 0;
-	cfg.dpi[0][0] = 20;
-	cfg.dpi[1][0] = 20000;
+	cfg.mouse.dpi_count = 2;
+	cfg.mouse.dpi_active = 0;
+	cfg.mouse.dpi[0][0] = 20;
+	cfg.mouse.dpi[1][0] = 20000;
 	len = prime_build_dpi(&cfg, buf);
 	ASSERT_EQ(buf[3], 0x01); /* 50 DPI -> 1 */
 	ASSERT_EQ(buf[4], 0x00);
@@ -133,8 +133,8 @@ ALLOY_TEST(test_prime_dpi_packets)
 	ASSERT_EQ(buf[6], 0x01);
 
 	/* rounding to nearest 50 */
-	cfg.dpi[0][0] = 820;
-	cfg.dpi[1][0] = 830;
+	cfg.mouse.dpi[0][0] = 820;
+	cfg.mouse.dpi[1][0] = 830;
 	len = prime_build_dpi(&cfg, buf);
 	ASSERT_EQ(buf[3], 0x10); /* 800 DPI -> 16 */
 	ASSERT_EQ(buf[5], 0x11); /* 850 DPI -> 17 */
@@ -231,13 +231,13 @@ ALLOY_TEST(test_prime_button_packets)
 	ASSERT_EQ(buf[26], 0x30); /* Button 6 (CPI) */
 
 	/* custom mapping */
-	cfg.buttons[0] = (struct alloy_action){ ALLOY_ACT_SCROLL_UP, 0 };
-	cfg.buttons[1] = (struct alloy_action){ ALLOY_ACT_DISABLED, 0 };
-	cfg.buttons[2] = (struct alloy_action){ ALLOY_ACT_MOUSE, 1 };
-	cfg.buttons[3] =
+	cfg.mouse.buttons[0] = (struct alloy_action){ ALLOY_ACT_SCROLL_UP, 0 };
+	cfg.mouse.buttons[1] = (struct alloy_action){ ALLOY_ACT_DISABLED, 0 };
+	cfg.mouse.buttons[2] = (struct alloy_action){ ALLOY_ACT_MOUSE, 1 };
+	cfg.mouse.buttons[3] =
 		(struct alloy_action){ ALLOY_ACT_KEYBOARD, 0x04 }; /* key 'a' */
-	cfg.buttons[4] = (struct alloy_action){ ALLOY_ACT_MEDIA, 0xCD };
-	cfg.buttons[5] = (struct alloy_action){ ALLOY_ACT_DPI_CYCLE, 0 };
+	cfg.mouse.buttons[4] = (struct alloy_action){ ALLOY_ACT_MEDIA, 0xCD };
+	cfg.mouse.buttons[5] = (struct alloy_action){ ALLOY_ACT_DPI_CYCLE, 0 };
 	len = prime_build_buttons(&cfg, buf);
 	ASSERT_EQ(len, 31);
 	ASSERT_EQ(buf[0], 0x5B);
@@ -251,7 +251,7 @@ ALLOY_TEST(test_prime_button_packets)
 	ASSERT_EQ(buf[26], 0x30); /* Button 6 -> CPI Cycle */
 
 	/* test remapping right click (Button 2) to Middle click */
-	cfg.buttons[1] = (struct alloy_action){ ALLOY_ACT_MOUSE, 3 };
+	cfg.mouse.buttons[1] = (struct alloy_action){ ALLOY_ACT_MOUSE, 3 };
 	len = prime_build_buttons(&cfg, buf);
 	ASSERT_EQ(buf[6], 0x03); /* Button 2 -> Middle Click */
 }
@@ -279,9 +279,9 @@ ALLOY_TEST(test_prime_ops_execution)
 	drv->config_defaults(drv, &cfg);
 
 	/* Apply DPI */
-	cfg.dpi_count = 2;
-	cfg.dpi[0][0] = 800;
-	cfg.dpi[1][0] = 1600;
+	cfg.mouse.dpi_count = 2;
+	cfg.mouse.dpi[0][0] = 800;
+	cfg.mouse.dpi[1][0] = 1600;
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_dpi(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
@@ -289,7 +289,7 @@ ALLOY_TEST(test_prime_ops_execution)
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 2);
 
 	/* Apply Polling */
-	cfg.polling_hz = 500;
+	cfg.common.polling_hz = 500;
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_polling(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
@@ -297,7 +297,7 @@ ALLOY_TEST(test_prime_ops_execution)
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x02);
 
 	/* Apply Colors */
-	cfg.zone_color[0] = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
+	cfg.common.zone_color[0] = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_colors(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
@@ -307,7 +307,7 @@ ALLOY_TEST(test_prime_ops_execution)
 	ASSERT_EQ(mock_hid.cmds[0].payload[4], 0x56);
 
 	/* Apply Brightness */
-	cfg.brightness = 75;
+	cfg.common.brightness = 75;
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_brightness(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);

@@ -22,7 +22,7 @@ static void list_drivers(void)
 	}
 }
 
-/* Upper bound on connected supported mice offered in the chooser */
+/* Upper bound on connected supported devices offered in the chooser */
 #define ALLOY_MAX_CANDIDATES 16
 
 static int open_selected(struct alloy_device *dev)
@@ -34,8 +34,8 @@ static int open_selected(struct alloy_device *dev)
 
 	count = alloy_device_enumerate(cands, ALLOY_MAX_CANDIDATES);
 	if (count == 0) {
-		fprintf(stderr, "alloyctl: no compatible mouse found.\n"
-				"alloyctl configures SteelSeries mice only; "
+		fprintf(stderr, "alloyctl: no compatible device found.\n"
+				"alloyctl configures SteelSeries devices only; "
 				"none is connected.\n");
 		list_drivers();
 		return 1;

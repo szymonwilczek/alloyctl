@@ -60,20 +60,24 @@ static void tui_apply_all_impl(struct tui *t, int with_dpi)
 	 * the mode and undo it;
 	 * the rest of the config still applies normally
 	 */
-	int high_eff = t->cfg.high_efficiency != 0;
+	int high_eff = (alloy_driver_is_mouse(t->drv) &&
+			t->cfg.mouse.high_efficiency != 0);
 
-	if (with_dpi)
+	if (with_dpi && ops->apply_dpi)
 		tui_apply(t, ops->apply_dpi, "dpi");
-	if (!high_eff)
+	if (!high_eff && ops->apply_polling)
 		tui_apply(t, ops->apply_polling, "polling");
-	if (!high_eff)
+	if (!high_eff && ops->apply_colors)
 		tui_apply(t, ops->apply_colors, "colors");
 	if ((t->drv->caps & (ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_BATTERY)) &&
-	    !high_eff)
+	    !high_eff && ops->apply_brightness)
 		tui_apply(t, ops->apply_brightness, "brightness");
-	tui_apply(t, ops->apply_buttons, "buttons");
-	if (t->drv->caps & ALLOY_CAP_BATTERY)
+	if (ops->apply_buttons)
+		tui_apply(t, ops->apply_buttons, "buttons");
+	if ((t->drv->caps & ALLOY_CAP_BATTERY) && ops->apply_sleep)
 		tui_apply(t, ops->apply_sleep, "sleep");
+	if ((t->drv->caps & ALLOY_CAP_WIN_LOCK) && ops->apply_win_lock)
+		tui_apply(t, ops->apply_win_lock, "win_lock");
 
 	/*
 	 * High-Efficiency itself is deliberately NOT re-pushed here:
@@ -145,10 +149,13 @@ static void tui_poll_device_events(struct tui *t)
 	while ((n = alloy_hid_poll(&t->dev->ev, buf, sizeof(buf))) > 0) {
 		if (!t->drv->ops->parse_event(buf, (size_t)n, &t->cfg))
 			continue;
-		t->baseline.dpi_active = t->cfg.dpi_active;
-		t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-		tui_status(t, "level %u active (mouse button)",
-			   t->cfg.dpi_active + 1);
+		if (alloy_driver_is_mouse(t->drv)) {
+			t->baseline.mouse.dpi_active = t->cfg.mouse.dpi_active;
+			t->dirty = memcmp(&t->cfg, &t->baseline,
+					  sizeof(t->cfg)) != 0;
+			tui_status(t, "level %u active (mouse button)",
+				   t->cfg.mouse.dpi_active + 1);
+		}
 	}
 }
 
@@ -278,8 +285,11 @@ void tui_accel_set_enabled(struct tui *t, int on)
 	uint16_t vid = t->drv->vendor_id;
 	uint16_t pid = t->drv->product_id;
 
+	if (!alloy_driver_is_mouse(t->drv))
+		return;
+
 	if (on) {
-		t->cfg.accel_enabled = 1;
+		t->cfg.mouse.accel_enabled = 1;
 		alloy_state_store(t->drv, &t->cfg);
 		if (alloy_accel_spawn(vid, pid) == 0) {
 			t->accel_running = 1;
@@ -289,7 +299,7 @@ void tui_accel_set_enabled(struct tui *t, int on)
 			/* do not persist the intent or install autostart for engine
 			 * that could not start */
 			t->accel_running = 0;
-			t->cfg.accel_enabled = 0;
+			t->cfg.mouse.accel_enabled = 0;
 			alloy_state_store(t->drv, &t->cfg);
 			tui_status(t, "engine failed: no access to /dev/input "
 				      "or /dev/uinput (install the udev rule "
@@ -300,11 +310,11 @@ void tui_accel_set_enabled(struct tui *t, int on)
 		alloy_accel_stop(vid, pid);
 		alloy_accel_autostart_set(vid, pid, 0);
 		t->accel_running = 0;
-		t->cfg.accel_enabled = 0;
+		t->cfg.mouse.accel_enabled = 0;
 		alloy_state_store(t->drv, &t->cfg);
 		tui_status(t, "accel engine off - motion back to normal");
 	}
-	t->baseline.accel_enabled = t->cfg.accel_enabled;
+	t->baseline.mouse.accel_enabled = t->cfg.mouse.accel_enabled;
 	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
 }
 
@@ -355,8 +365,11 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		return t->drv->num_zones ? 1 : 0;
 	case PANE_LEVELS:
 		/* one item per preset plus CREATE below the limit */
-		return t->cfg.dpi_count +
-		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
+		if (!alloy_driver_is_mouse(t->drv))
+			return 0;
+		return t->cfg.mouse.dpi_count +
+		       (t->cfg.mouse.dpi_count < tui_dpi_preset_limit(t) ? 1 :
+									   0);
 	case PANE_POWER: {
 		/*
 		 * Wireless-only pane.

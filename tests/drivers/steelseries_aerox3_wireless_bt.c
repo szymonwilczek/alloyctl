@@ -82,9 +82,9 @@ ALLOY_TEST(test_bt_dpi_unflagged)
 
 	bt_dev(&dev, drv);
 	drv->config_defaults(drv, &cfg);
-	cfg.dpi_count = 1;
-	cfg.dpi_active = 0;
-	cfg.dpi[0][0] = 400; /* wire 0x04 in the TrueMove Air table */
+	cfg.mouse.dpi_count = 1;
+	cfg.mouse.dpi_active = 0;
+	cfg.mouse.dpi[0][0] = 400; /* wire 0x04 in the TrueMove Air table */
 
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_dpi(&dev, &cfg), 0);
@@ -111,7 +111,7 @@ ALLOY_TEST(test_bt_sleep_timer)
 
 	bt_dev(&dev, drv);
 	drv->config_defaults(drv, &cfg);
-	cfg.sleep_min = 5;
+	cfg.common.sleep_min = 5;
 
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_sleep(&dev, &cfg), 0);
@@ -135,9 +135,9 @@ ALLOY_TEST(test_bt_dim_and_smart)
 
 	bt_dev(&dev, drv);
 	drv->config_defaults(drv, &cfg);
-	cfg.brightness = 100; /* pinned to full, as GG sends over BLE */
-	cfg.illum_dim_s = 30;
-	cfg.illum_smart = 1;
+	cfg.common.brightness = 100; /* pinned to full, as GG sends over BLE */
+	cfg.common.illum_dim_s = 30;
+	cfg.common.illum_smart = 1;
 
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_brightness(&dev, &cfg), 0);
@@ -153,7 +153,7 @@ ALLOY_TEST(test_bt_dim_and_smart)
 	ASSERT_EQ(mock_hid.cmds[0].payload[7], 0x00);
 
 	/* smart off flips only byte 3 */
-	cfg.illum_smart = 0;
+	cfg.common.illum_smart = 0;
 	mock_hid_reset();
 	ASSERT_EQ(drv->ops->apply_brightness(&dev, &cfg), 0);
 	ASSERT_EQ(mock_hid.cmds[0].payload[3], 0x00);

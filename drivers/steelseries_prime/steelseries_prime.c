@@ -73,15 +73,15 @@ size_t prime_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 	size_t n = 0;
 
-	count = ALLOY_CLAMP(cfg->dpi_count, 1, 5);
-	active = (cfg->dpi_active < count) ? cfg->dpi_active : 0;
+	count = ALLOY_CLAMP(cfg->mouse.dpi_count, 1, 5);
+	active = (cfg->mouse.dpi_active < count) ? cfg->mouse.dpi_active : 0;
 
 	buf[n++] = PRIME_CMD_SENSITIVITY;
 	buf[n++] = count;
 	buf[n++] = active;
 
 	for (i = 0; i < count; i++) {
-		uint16_t wire = prime_dpi_to_wire(cfg->dpi[i][0]);
+		uint16_t wire = prime_dpi_to_wire(cfg->mouse.dpi[i][0]);
 
 		buf[n++] = (uint8_t)(wire & 0xFF);
 		buf[n++] = (uint8_t)((wire >> 8) & 0xFF);
@@ -149,7 +149,7 @@ size_t prime_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	memset(buf + 1, 0, 6 * 5);
 
 	for (i = 0; i < 6; i++) {
-		const struct alloy_action *act = &cfg->buttons[i];
+		const struct alloy_action *act = &cfg->mouse.buttons[i];
 		uint8_t *field = buf + 1 + i * 5;
 
 		field[0] = prime_action_first_byte(act);
@@ -182,7 +182,7 @@ static int prime_apply_polling(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	len = prime_build_polling(cfg->polling_hz, buf);
+	len = prime_build_polling(cfg->common.polling_hz, buf);
 	return alloy_hid_send(&dev->hid, buf, len);
 }
 
@@ -192,7 +192,7 @@ static int prime_apply_colors(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	len = prime_build_color(&cfg->zone_color[0], buf);
+	len = prime_build_color(&cfg->common.zone_color[0], buf);
 	return alloy_hid_send(&dev->hid, buf, len);
 }
 
@@ -202,7 +202,7 @@ static int prime_apply_brightness(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	len = prime_build_brightness(cfg->brightness, buf);
+	len = prime_build_brightness(cfg->common.brightness, buf);
 	return alloy_hid_send(&dev->hid, buf, len);
 }
 
@@ -252,6 +252,7 @@ static const struct alloy_driver_ops prime_ops = {
 #define PRIME_DRIVER(sym, drv_name, pid)                                       \
 	static const struct alloy_driver sym = {                             \
 		.name = drv_name,                                            \
+		.type = ALLOY_DEV_MOUSE,                                     \
 		.vendor_id = 0x1038,                                         \
 		.product_id = pid,                                           \
 		.interface = 0,                                              \

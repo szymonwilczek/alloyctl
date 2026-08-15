@@ -126,6 +126,7 @@ static const struct alloy_driver_ops a3wl_bt_ops = {
 
 static const struct alloy_driver steelseries_aerox3_wireless_bt = {
 	.name = "SteelSeries Aerox 3 Wireless (Bluetooth)",
+	.type = ALLOY_DEV_MOUSE,
 	.vendor_id = 0x1038,
 	.product_id = A3WL_BT_PRODUCT_ID,
 	.bustype = 0x05, /* Bluetooth: match/open by product id on bus 0x05 */

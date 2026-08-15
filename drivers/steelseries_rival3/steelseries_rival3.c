@@ -90,16 +90,16 @@ size_t r3_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 
 	buf[n++] = R3_CMD_DPI;
 	buf[n++] = 0x00;
-	buf[n++] = cfg->dpi_count;
+	buf[n++] = cfg->mouse.dpi_count;
 	/*
 	 * Active index is 0-based on the wire.
 	 * Sending dpi_active + 1 selected the next preset,
 	 * which SAVE then latched to flash, advancing the active
 	 * level on every save (#41)
 	 */
-	buf[n++] = cfg->dpi_active;
-	for (i = 0; i < cfg->dpi_count; i++)
-		buf[n++] = r3_dpi_to_wire(cfg->dpi[i][0]);
+	buf[n++] = cfg->mouse.dpi_active;
+	for (i = 0; i < cfg->mouse.dpi_count; i++)
+		buf[n++] = r3_dpi_to_wire(cfg->mouse.dpi[i][0]);
 	return n;
 }
 
@@ -107,7 +107,7 @@ size_t r3_build_polling(const struct alloy_config *cfg, uint8_t *buf)
 {
 	uint8_t wire;
 
-	switch (cfg->polling_hz) {
+	switch (cfg->common.polling_hz) {
 	case 125:
 		wire = 0x04;
 		break;
@@ -140,10 +140,10 @@ size_t r3_build_zone_color(const struct alloy_config *cfg, int zone,
 	buf[0] = R3_CMD_ZONE_COLOR;
 	buf[1] = 0x00;
 	buf[2] = (uint8_t)(zone + 1); /* 1-based; 0 would mean "all" */
-	buf[3] = cfg->zone_color[zone].r;
-	buf[4] = cfg->zone_color[zone].g;
-	buf[5] = cfg->zone_color[zone].b;
-	buf[6] = ALLOY_MIN(cfg->brightness, 100);
+	buf[3] = cfg->common.zone_color[zone].r;
+	buf[4] = cfg->common.zone_color[zone].g;
+	buf[5] = cfg->common.zone_color[zone].b;
+	buf[6] = ALLOY_MIN(cfg->common.brightness, 100);
 	return 7;
 }
 
@@ -157,8 +157,8 @@ size_t r3_build_effect(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 4; i++) {
-		if (cfg->zone_fx[i]) {
-			idx = cfg->zone_fx[i];
+		if (cfg->common.zone_fx[i]) {
+			idx = cfg->common.zone_fx[i];
 			break;
 		}
 	}
@@ -207,7 +207,7 @@ size_t r3_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	memset(buf + 2, 0, 8 * 2);
 
 	for (i = 0; i < ALLOY_ARRAY_SIZE(r3_button_wire_id); i++) {
-		const struct alloy_action *act = &cfg->buttons[i];
+		const struct alloy_action *act = &cfg->mouse.buttons[i];
 		uint8_t *field = buf + 2 + i * 2;
 
 		field[0] = r3_action_first_byte(act);
@@ -329,6 +329,7 @@ static const struct alloy_driver_ops r3_ops = {
 #define R3_DRIVER(sym, drv_name, pid)                                       \
 	static const struct alloy_driver sym = {                          \
 		.name = drv_name,                                         \
+		.type = ALLOY_DEV_MOUSE,                                  \
 		.vendor_id = 0x1038,                                      \
 		.product_id = pid,                                        \
 		.interface = 3,                                           \
