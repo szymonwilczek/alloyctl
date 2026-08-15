@@ -16,6 +16,7 @@
 #include <string.h>
 
 #include "driver.h"
+#include "steelseries/steelseries_common.h"
 #include "art_steelseries_rival3_gen2.h"
 
 #define R3G2_CMD_SAVE 0x11
@@ -220,11 +221,8 @@ size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 		rainbow_zones |= cfg->common.zone_fx[i];
 
 	buf[0] = R3G2_CMD_STARTUP_FX;
-	buf[1] = rainbow_zones != 0 ||
-		 cfg->mouse.startup_fx == ALLOY_STARTUP_RAINBOW ||
-		 cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
-	buf[2] = (cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE ||
-		  cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	buf[1] = rainbow_zones != 0;
+	buf[2] = cfg->mouse.reactive_enabled ? 0x01 : 0x00;
 	return 3;
 }
 
@@ -312,7 +310,7 @@ static int r3g2_apply_dpi(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_dpi(cfg, buf));
+	return steelseries_cmd(&dev->hid, buf, r3g2_build_dpi(cfg, buf));
 }
 
 static int r3g2_apply_polling(struct alloy_device *dev,
@@ -320,7 +318,7 @@ static int r3g2_apply_polling(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_polling(cfg, buf));
+	return steelseries_cmd(&dev->hid, buf, r3g2_build_polling(cfg, buf));
 }
 
 /*
@@ -338,17 +336,17 @@ static int r3g2_apply_colors(struct alloy_device *dev,
 	size_t len;
 	int ret = 0;
 
-	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
+	ret |= steelseries_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
 
 	len = r3g2_build_rainbow(cfg, buf);
 	if (len)
-		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+		ret |= steelseries_cmd(&dev->hid, buf, len);
 
 	len = r3g2_build_colors(cfg, buf);
 	if (len)
-		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+		ret |= steelseries_cmd(&dev->hid, buf, len);
 
-	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_reactive(cfg, buf));
+	ret |= steelseries_cmd(&dev->hid, buf, r3g2_build_reactive(cfg, buf));
 
 	return ret ? -1 : 0;
 }
@@ -358,7 +356,7 @@ static int r3g2_apply_brightness(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_brightness(cfg, buf));
+	return steelseries_cmd(&dev->hid, buf, r3g2_build_brightness(cfg, buf));
 }
 
 static int r3g2_apply_buttons(struct alloy_device *dev,
@@ -366,14 +364,14 @@ static int r3g2_apply_buttons(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_buttons(cfg, buf));
+	return steelseries_cmd(&dev->hid, buf, r3g2_build_buttons(cfg, buf));
 }
 
 static int r3g2_save(struct alloy_device *dev)
 {
 	static const uint8_t cmd[] = { R3G2_CMD_SAVE, 0x00 };
 
-	return alloy_hid_cmd(&dev->hid, cmd, sizeof(cmd));
+	return steelseries_cmd(&dev->hid, cmd, sizeof(cmd));
 }
 
 static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
@@ -384,7 +382,8 @@ static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
 	int n;
 	size_t out;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
+	n = steelseries_cmd_read(&dev->hid, cmd, sizeof(cmd), resp,
+				 sizeof(resp));
 	if (n < 2 || resp[0] != R3G2_CMD_FIRMWARE)
 		return -1;
 
@@ -451,9 +450,11 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.num_zones = ALLOY_ARRAY_SIZE(r3g2_zones),
 	.buttons = r3g2_buttons,
 	.num_buttons = ALLOY_ARRAY_SIZE(r3g2_buttons),
-	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
-		ALLOY_CAP_COLOR | ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
-		ALLOY_CAP_FX_STARTUP,
+	.caps = ALLOY_CAP_COLOR | ALLOY_CAP_BRIGHTNESS |
+		ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_ACCEL |
+		ALLOY_CAP_ANGLE_SNAPPING | ALLOY_CAP_FX_RAINBOW |
+		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP,
+
 
 	.fx_names = r3g2_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(r3g2_fx_names),

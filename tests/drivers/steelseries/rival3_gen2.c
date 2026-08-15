@@ -42,6 +42,7 @@ ALLOY_TEST(test_registry)
 	ASSERT_EQ(drv->num_zones, 3);
 	ASSERT_EQ(drv->num_buttons, 8);
 	ASSERT_EQ(drv->num_fx, 2); /* steady + rainbow, per zone */
+	ASSERT_TRUE(drv->caps & ALLOY_CAP_ACCEL);
 	ASSERT_TRUE(alloy_driver_find(0x1038, 0xbaad) == NULL);
 }
 
@@ -189,39 +190,27 @@ ALLOY_TEST(test_startup_packet)
 {
 	struct alloy_config cfg;
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
-	static const struct {
-		uint8_t fx;
-		uint8_t rainbow;
-		uint8_t reactive;
-	} cases[] = {
-		{ ALLOY_STARTUP_OFF, 0, 0 },
-		{ ALLOY_STARTUP_REACTIVE, 0, 1 },
-		{ ALLOY_STARTUP_RAINBOW, 1, 0 },
-		{ ALLOY_STARTUP_REACTIVE_RAINBOW, 1, 1 },
-	};
-	size_t i;
-
 	r3g2()->config_defaults(r3g2(), &cfg);
-	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
-		cfg.mouse.startup_fx = cases[i].fx;
-		ASSERT_EQ(r3g2_build_startup(&cfg, buf), 3);
-		ASSERT_EQ(buf[0], 0x27);
-		ASSERT_EQ(buf[1], cases[i].rainbow);
-		ASSERT_EQ(buf[2], cases[i].reactive);
-	}
+	cfg.common.zone_fx[0] = 0;
+	cfg.common.zone_fx[1] = 0;
+	cfg.common.zone_fx[2] = 0;
+	cfg.mouse.reactive_enabled = 0;
 
-	/*
-	 * rainbow byte doubles as the live engine switch (#23):
-	 * any zone running the rainbow forces it on regardless of
-	 * the startup choice, or 0x22 masks would be silently ignored
-	 */
+	ASSERT_EQ(r3g2_build_startup(&cfg, buf), 3);
+	ASSERT_EQ(buf[0], 0x27);
+	ASSERT_EQ(buf[1], 0);
+	ASSERT_EQ(buf[2], 0);
+
+	cfg.mouse.reactive_enabled = 1;
+	ASSERT_EQ(r3g2_build_startup(&cfg, buf), 3);
+	ASSERT_EQ(buf[1], 0);
+	ASSERT_EQ(buf[2], 1);
+
+	/* any rainbow zone forces rainbow on */
 	cfg.common.zone_fx[1] = 1;
-	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
-		cfg.mouse.startup_fx = cases[i].fx;
-		r3g2_build_startup(&cfg, buf);
-		ASSERT_EQ(buf[1], 1);
-		ASSERT_EQ(buf[2], cases[i].reactive);
-	}
+	r3g2_build_startup(&cfg, buf);
+	ASSERT_EQ(buf[1], 1);
+	ASSERT_EQ(buf[2], 1);
 }
 
 ALLOY_TEST(test_buttons_packet)

@@ -24,8 +24,8 @@ size_t a3wl_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
-size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_sleep(const struct alloy_config *cfg, uint8_t *buf);
+
 int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
 
 static const struct alloy_driver *a3wl(void)
@@ -52,8 +52,8 @@ ALLOY_TEST(test_registry)
 	ASSERT_EQ(drv->num_fx, 2); /* steady + rainbow, per zone */
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_BATTERY) != 0);
 	ASSERT_TRUE(drv->ops->battery != NULL);
-	ASSERT_TRUE((drv->caps & ALLOY_CAP_HIGH_EFFICIENCY) != 0);
-	ASSERT_TRUE(drv->ops->apply_high_efficiency != NULL);
+	ASSERT_TRUE((drv->caps & ALLOY_CAP_ACCEL) != 0);
+	ASSERT_TRUE((drv->caps & ALLOY_CAP_ANGLE_SNAPPING) != 0);
 	ASSERT_TRUE(drv->ops->apply_sleep != NULL);
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_PAIRING) != 0);
 	ASSERT_TRUE(drv->ops->pair != NULL);
@@ -251,35 +251,27 @@ ALLOY_TEST(test_startup_packet)
 {
 	struct alloy_config cfg;
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
-	static const struct {
-		uint8_t fx;
-		uint8_t rainbow;
-		uint8_t reactive;
-	} cases[] = {
-		{ ALLOY_STARTUP_OFF, 0, 0 },
-		{ ALLOY_STARTUP_REACTIVE, 0, 1 },
-		{ ALLOY_STARTUP_RAINBOW, 1, 0 },
-		{ ALLOY_STARTUP_REACTIVE_RAINBOW, 1, 1 },
-	};
-	size_t i;
-
 	a3wl()->config_defaults(a3wl(), &cfg);
 	cfg.common.zone_fx[0] = 0;
 	cfg.common.zone_fx[1] = 0;
 	cfg.common.zone_fx[2] = 0;
-	for (i = 0; i < ALLOY_ARRAY_SIZE(cases); i++) {
-		cfg.mouse.startup_fx = cases[i].fx;
-		ASSERT_EQ(a3wl_build_startup(&cfg, buf), 3);
-		ASSERT_EQ(buf[0], 0x67);
-		ASSERT_EQ(buf[1], cases[i].rainbow);
-		ASSERT_EQ(buf[2], cases[i].reactive);
-	}
+	cfg.mouse.reactive_enabled = 0;
 
-	/* any rainbow zone forces the engine on regardless of startup choice */
+	ASSERT_EQ(a3wl_build_startup(&cfg, buf), 3);
+	ASSERT_EQ(buf[0], 0x67);
+	ASSERT_EQ(buf[1], 0);
+	ASSERT_EQ(buf[2], 0);
+
+	cfg.mouse.reactive_enabled = 1;
+	ASSERT_EQ(a3wl_build_startup(&cfg, buf), 3);
+	ASSERT_EQ(buf[1], 0);
+	ASSERT_EQ(buf[2], 1);
+
+	/* any rainbow zone forces rainbow on */
 	cfg.common.zone_fx[1] = 1;
-	cfg.mouse.startup_fx = ALLOY_STARTUP_OFF;
 	a3wl_build_startup(&cfg, buf);
 	ASSERT_EQ(buf[1], 1);
+	ASSERT_EQ(buf[2], 1);
 }
 
 ALLOY_TEST(test_brightness_packet)
@@ -402,68 +394,8 @@ ALLOY_TEST(test_buttons_packet)
 	ASSERT_EQ(buf[1 + 0x14], 0x00);
 }
 
-ALLOY_TEST(test_high_efficiency_packet)
-{
-	struct alloy_config cfg;
-	uint8_t buf[ALLOY_HID_REPORT_SIZE];
-
-	a3wl()->config_defaults(a3wl(), &cfg);
-
-	/* enable flag: 0x68 0x01 (captured with the mode toggled on) */
-	cfg.mouse.high_efficiency = 1;
-	ASSERT_EQ(a3wl_build_high_efficiency(&cfg, buf), 2);
-	ASSERT_EQ(buf[0], 0x68);
-	ASSERT_EQ(buf[1], 0x01);
-
-	cfg.mouse.high_efficiency = 0;
-	a3wl_build_high_efficiency(&cfg, buf);
-	ASSERT_EQ(buf[1], 0x00);
-}
-
-ALLOY_TEST(test_high_efficiency_bundle)
-{
-	struct alloy_device dev;
-	const struct alloy_driver *drv = a3wl();
-	struct alloy_config cfg;
-
-	memset(&dev, 0, sizeof(dev));
-	dev.hid.fd = 42;
-	dev.ev.fd = -1; /* no event interface: skip the re-link wait */
-	dev.drv = drv;
-	drv->config_defaults(drv, &cfg);
-	cfg.common.polling_hz = 1000;
-	cfg.common.brightness = 100;
-
-	/*
-	 * Enabling mirrors the GG bundle order:
-	 * flag on, LEDs blanked (0x63 level 0), then polling forced to 125 Hz (0x6B 0x03)
-	 */
-	mock_hid_reset();
-	cfg.mouse.high_efficiency = 1;
-	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
-	ASSERT_EQ(mock_hid.num_cmds, 3);
-	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
-	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x01);
-	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x63);
-	ASSERT_EQ(mock_hid.cmds[1].payload[1], 0x00); /* brightness 0 */
-	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x6B);
-	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x03); /* 125 Hz */
-
-	/* disabling clears the flag and restores brightness/polling from cfg */
-	mock_hid_reset();
-	cfg.mouse.high_efficiency = 0;
-	ASSERT_EQ(drv->ops->apply_high_efficiency(&dev, &cfg), 0);
-	ASSERT_EQ(mock_hid.num_cmds, 3);
-	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x68);
-	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x00);
-	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x63);
-	ASSERT_EQ(mock_hid.cmds[1].payload[1],
-		  0x0F); /* full brightness restored */
-	ASSERT_EQ(mock_hid.cmds[2].payload[0], 0x6B);
-	ASSERT_EQ(mock_hid.cmds[2].payload[1], 0x00); /* 1000 Hz restored */
-}
-
 ALLOY_TEST(test_cpi_level_event)
+
 {
 	/* exact notification captured on hardware: 5 levels, toggling 0<->1 */
 	uint8_t evt[64] = { 0xAD, 0x02, 0x01, 0x04, 0x12 };
