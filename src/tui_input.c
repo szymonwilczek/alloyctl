@@ -16,30 +16,40 @@ static void mark_dirty(struct tui *t)
 /* host-side transform steppers: edit the value and live-preview via the daemon */
 static void adjust_accel(struct tui *t, int delta)
 {
-	t->cfg.acceleration = (int8_t)ALLOY_CLAMP(
-		t->cfg.acceleration + delta, ALLOY_ACCEL_MIN, ALLOY_ACCEL_MAX);
+	if (!alloy_driver_is_mouse(t->drv))
+		return;
+	t->cfg.mouse.acceleration =
+		(int8_t)ALLOY_CLAMP(t->cfg.mouse.acceleration + delta,
+				    ALLOY_ACCEL_MIN, ALLOY_ACCEL_MAX);
 	tui_accel_changed(t);
 }
 
 static void adjust_decel(struct tui *t, int delta)
 {
-	t->cfg.deceleration = (int8_t)ALLOY_CLAMP(
-		t->cfg.deceleration + delta, ALLOY_DECEL_MIN, ALLOY_DECEL_MAX);
+	if (!alloy_driver_is_mouse(t->drv))
+		return;
+	t->cfg.mouse.deceleration =
+		(int8_t)ALLOY_CLAMP(t->cfg.mouse.deceleration + delta,
+				    ALLOY_DECEL_MIN, ALLOY_DECEL_MAX);
 	tui_accel_changed(t);
 }
 
 static void adjust_snap(struct tui *t, int delta)
 {
-	t->cfg.angle_snapping = (uint8_t)ALLOY_CLAMP(
-		t->cfg.angle_snapping + delta, ALLOY_SNAP_MIN, ALLOY_SNAP_MAX);
+	if (!alloy_driver_is_mouse(t->drv))
+		return;
+	t->cfg.mouse.angle_snapping =
+		(uint8_t)ALLOY_CLAMP(t->cfg.mouse.angle_snapping + delta,
+				     ALLOY_SNAP_MIN, ALLOY_SNAP_MAX);
 	tui_accel_changed(t);
 }
 
 /* Battery Saver stepper: the device sleep timer in minutes (0 = never) */
 static void adjust_sleep(struct tui *t, int delta)
 {
-	t->cfg.sleep_min = (uint8_t)ALLOY_CLAMP(
-		t->cfg.sleep_min + delta, ALLOY_SLEEP_MIN, ALLOY_SLEEP_MAX);
+	t->cfg.common.sleep_min =
+		(uint8_t)ALLOY_CLAMP(t->cfg.common.sleep_min + delta,
+				     ALLOY_SLEEP_MIN, ALLOY_SLEEP_MAX);
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, t->drv->ops->apply_sleep, "sleep");
@@ -53,9 +63,9 @@ static void adjust_sleep(struct tui *t, int delta)
 static void set_smart(struct tui *t, int on)
 {
 	on = on ? 1 : 0;
-	if (t->cfg.illum_smart == on)
+	if (t->cfg.common.illum_smart == on)
 		return;
-	t->cfg.illum_smart = (uint8_t)on;
+	t->cfg.common.illum_smart = (uint8_t)on;
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, t->drv->ops->apply_brightness, "smart mode");
@@ -68,8 +78,8 @@ static void set_smart(struct tui *t, int on)
  */
 static void adjust_dim(struct tui *t, int delta)
 {
-	t->cfg.illum_dim_s = (uint16_t)ALLOY_CLAMP(
-		(int)t->cfg.illum_dim_s + delta, 0, ALLOY_ILLUM_DIM_MAX);
+	t->cfg.common.illum_dim_s = (uint16_t)ALLOY_CLAMP(
+		(int)t->cfg.common.illum_dim_s + delta, 0, ALLOY_ILLUM_DIM_MAX);
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, t->drv->ops->apply_brightness, "dim timer");
@@ -88,10 +98,12 @@ static void adjust_dim(struct tui *t, int delta)
  */
 static void set_higheff(struct tui *t, int on)
 {
-	on = on ? 1 : 0;
-	if (t->cfg.high_efficiency == on)
+	if (!alloy_driver_is_mouse(t->drv))
 		return;
-	t->cfg.high_efficiency = (uint8_t)on;
+	on = on ? 1 : 0;
+	if (t->cfg.mouse.high_efficiency == on)
+		return;
+	t->cfg.mouse.high_efficiency = (uint8_t)on;
 	mark_dirty(t);
 	tui_apply(t, t->drv->ops->apply_high_efficiency, "high-efficiency");
 	tui_status(t, on ? "high-efficiency on (link re-synced)" :
@@ -101,12 +113,16 @@ static void set_higheff(struct tui *t, int on)
 static void adjust_dpi(struct tui *t, int preset, int delta)
 {
 	const struct alloy_driver *drv = t->drv;
-	int dpi = t->cfg.dpi[preset][0] + delta;
+	int dpi;
 
+	if (!alloy_driver_is_mouse(drv))
+		return;
+
+	dpi = t->cfg.mouse.dpi[preset][0] + delta;
 	dpi = ALLOY_CLAMP(dpi, drv->dpi.min, drv->dpi.max);
 	dpi = dpi / drv->dpi.step * drv->dpi.step;
-	t->cfg.dpi[preset][0] = (uint16_t)dpi;
-	t->cfg.dpi[preset][1] = (uint16_t)dpi;
+	t->cfg.mouse.dpi[preset][0] = (uint16_t)dpi;
+	t->cfg.mouse.dpi[preset][1] = (uint16_t)dpi;
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, drv->ops->apply_dpi, "dpi");
@@ -121,7 +137,7 @@ static void adjust_polling(struct tui *t, int dir, int big)
 		return;
 
 	for (i = 0; i < drv->num_polling_rates; i++) {
-		if (drv->polling_rates[i] == t->cfg.polling_hz)
+		if (drv->polling_rates[i] == t->cfg.common.polling_hz)
 			break;
 	}
 	if (i == drv->num_polling_rates)
@@ -134,7 +150,7 @@ static void adjust_polling(struct tui *t, int dir, int big)
 		i = big ? drv->num_polling_rates - 1 :
 			  ALLOY_MIN(i + 1, drv->num_polling_rates - 1);
 
-	t->cfg.polling_hz = drv->polling_rates[i];
+	t->cfg.common.polling_hz = drv->polling_rates[i];
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, drv->ops->apply_polling, "polling");
@@ -142,9 +158,11 @@ static void adjust_polling(struct tui *t, int dir, int big)
 
 static void set_active_dpi_preset(struct tui *t, int preset)
 {
-	if (preset >= t->cfg.dpi_count)
+	if (!alloy_driver_is_mouse(t->drv))
 		return;
-	t->cfg.dpi_active = (uint8_t)preset;
+	if (preset >= t->cfg.mouse.dpi_count)
+		return;
+	t->cfg.mouse.dpi_active = (uint8_t)preset;
 	mark_dirty(t);
 	if (t->live_preview)
 		tui_apply(t, t->drv->ops->apply_dpi, "dpi");
@@ -159,21 +177,25 @@ static void set_active_dpi_preset(struct tui *t, int preset)
 static void create_dpi_preset(struct tui *t)
 {
 	const struct alloy_driver *drv = t->drv;
-	uint8_t n = t->cfg.dpi_count;
+	uint8_t n;
 	int dpi;
 
+	if (!alloy_driver_is_mouse(drv))
+		return;
+
+	n = t->cfg.mouse.dpi_count;
 	if (n >= tui_dpi_preset_limit(t)) {
 		tui_status(t, "this mouse holds at most %d levels",
 			   tui_dpi_preset_limit(t));
 		return;
 	}
 
-	dpi = t->cfg.dpi[n - 1][0] * 2;
+	dpi = t->cfg.mouse.dpi[n - 1][0] * 2;
 	dpi = ALLOY_CLAMP(dpi, drv->dpi.min, drv->dpi.max);
 	dpi = dpi / drv->dpi.step * drv->dpi.step;
-	t->cfg.dpi[n][0] = (uint16_t)dpi;
-	t->cfg.dpi[n][1] = (uint16_t)dpi;
-	t->cfg.dpi_count = (uint8_t)(n + 1);
+	t->cfg.mouse.dpi[n][0] = (uint16_t)dpi;
+	t->cfg.mouse.dpi[n][1] = (uint16_t)dpi;
+	t->cfg.mouse.dpi_count = (uint8_t)(n + 1);
 	t->cursor[PANE_LEVELS] = n;
 
 	mark_dirty(t);
@@ -213,7 +235,8 @@ static void pane_adjust(struct tui *t, int dir, int big)
 
 	switch (t->focus) {
 	case PANE_LEVELS:
-		if (sel < t->cfg.dpi_count)
+		if (alloy_driver_is_mouse(t->drv) &&
+		    sel < t->cfg.mouse.dpi_count)
 			adjust_dpi(t, sel,
 				   dir * (big ? 10 : 1) * t->drv->dpi.step);
 		break;
@@ -275,16 +298,18 @@ static void pane_activate(struct tui *t)
 		break;
 	case PANE_POWER:
 		if (sel == POWER_SMART)
-			set_smart(t, !t->cfg.illum_smart);
-		else if (sel == POWER_HIGHEFF)
-			set_higheff(t, !t->cfg.high_efficiency);
+			set_smart(t, !t->cfg.common.illum_smart);
+		else if (sel == POWER_HIGHEFF && alloy_driver_is_mouse(t->drv))
+			set_higheff(t, !t->cfg.mouse.high_efficiency);
 		break;
 	case PANE_TUNING:
 		if (sel == 3)
 			tui_accel_set_enabled(t, !t->accel_running);
 		break;
 	case PANE_LEVELS:
-		if (sel < t->cfg.dpi_count)
+		if (!alloy_driver_is_mouse(t->drv))
+			break;
+		if (sel < t->cfg.mouse.dpi_count)
 			set_active_dpi_preset(t, sel);
 		else
 			create_dpi_preset(t);

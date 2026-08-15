@@ -109,81 +109,105 @@ static int parse_action(const char *val, struct alloy_action *act)
 	return 0;
 }
 
-static void parse_line(struct alloy_config *cfg, const char *key,
-		       const char *val)
+static void parse_line(const struct alloy_driver *drv, struct alloy_config *cfg,
+		       const char *key, const char *val)
 {
 	unsigned idx;
 	unsigned a;
 	unsigned b;
 	unsigned rgb;
 
-	if (!strcmp(key, "dpi_count")) {
-		cfg->dpi_count = (uint8_t)ALLOY_CLAMP(atoi(val), 1,
-						      ALLOY_MAX_DPI_PRESETS);
-	} else if (!strcmp(key, "dpi_active")) {
-		cfg->dpi_active = (uint8_t)ALLOY_CLAMP(
-			atoi(val), 0, ALLOY_MAX_DPI_PRESETS - 1);
-	} else if (sscanf(key, "dpi%u", &idx) == 1 &&
-		   idx < ALLOY_MAX_DPI_PRESETS) {
-		if (sscanf(val, "%u:%u", &a, &b) == 2) {
-			cfg->dpi[idx][0] = (uint16_t)a;
-			cfg->dpi[idx][1] = (uint16_t)b;
-		}
-	} else if (!strcmp(key, "polling_hz")) {
-		cfg->polling_hz = (uint16_t)atoi(val);
+	/* Common keys */
+	if (!strcmp(key, "polling_hz")) {
+		cfg->common.polling_hz = (uint16_t)atoi(val);
+	} else if (!strcmp(key, "brightness")) {
+		cfg->common.brightness =
+			(uint8_t)ALLOY_CLAMP(atoi(val), 0, 100);
 	} else if (sscanf(key, "zone%u", &idx) == 1 &&
 		   idx < ALLOY_MAX_LED_ZONES) {
 		if (sscanf(val, "%x", &rgb) == 1) {
-			cfg->zone_color[idx].r = (rgb >> 16) & 0xFF;
-			cfg->zone_color[idx].g = (rgb >> 8) & 0xFF;
-			cfg->zone_color[idx].b = rgb & 0xFF;
+			cfg->common.zone_color[idx].r = (rgb >> 16) & 0xFF;
+			cfg->common.zone_color[idx].g = (rgb >> 8) & 0xFF;
+			cfg->common.zone_color[idx].b = rgb & 0xFF;
 		}
 	} else if (sscanf(key, "zone_fx%u", &idx) == 1 &&
 		   idx < ALLOY_MAX_LED_ZONES) {
 		if (!strcmp(val, "rainbow"))
-			cfg->zone_fx[idx] = 1;
+			cfg->common.zone_fx[idx] = 1;
 		else if (!strcmp(val, "static"))
-			cfg->zone_fx[idx] = 0;
+			cfg->common.zone_fx[idx] = 0;
 		else
-			cfg->zone_fx[idx] =
+			cfg->common.zone_fx[idx] =
 				(uint8_t)ALLOY_CLAMP(atoi(val), 0, 255);
 	} else if (sscanf(key, "zone_freq%u", &idx) == 1 &&
 		   idx < ALLOY_MAX_LED_ZONES) {
-		cfg->zone_fx_freq[idx] = (uint8_t)ALLOY_CLAMP(
+		cfg->common.zone_fx_freq[idx] = (uint8_t)ALLOY_CLAMP(
 			atoi(val), ALLOY_FX_RATE_MIN, ALLOY_FX_RATE_MAX);
 	} else if (sscanf(key, "zone_speed%u", &idx) == 1 &&
 		   idx < ALLOY_MAX_LED_ZONES) {
-		cfg->zone_fx_speed[idx] = (uint8_t)ALLOY_CLAMP(
+		cfg->common.zone_fx_speed[idx] = (uint8_t)ALLOY_CLAMP(
 			atoi(val), ALLOY_FX_RATE_MIN, ALLOY_FX_RATE_MAX);
-	} else if (!strcmp(key, "reactive")) {
-		if (sscanf(val, "%x", &rgb) == 1) {
-			cfg->reactive_enabled = 1;
-			cfg->reactive_color.r = (rgb >> 16) & 0xFF;
-			cfg->reactive_color.g = (rgb >> 8) & 0xFF;
-			cfg->reactive_color.b = rgb & 0xFF;
-		} else {
-			cfg->reactive_enabled = 0;
-		}
-	} else if (!strcmp(key, "startup_fx")) {
-		cfg->startup_fx = (uint8_t)ALLOY_CLAMP(
-			atoi(val), 0, ALLOY_STARTUP_REACTIVE_RAINBOW);
 	} else if (!strcmp(key, "fx")) {
 		for (idx = 0; idx < ALLOY_MAX_LED_ZONES; idx++)
-			cfg->zone_fx[idx] =
+			cfg->common.zone_fx[idx] =
 				(uint8_t)ALLOY_CLAMP(atoi(val), 0, 255);
-	} else if (!strcmp(key, "brightness")) {
-		cfg->brightness = (uint8_t)ALLOY_CLAMP(atoi(val), 0, 100);
-	} else if (sscanf(key, "button%u", &idx) == 1 &&
-		   idx < ALLOY_MAX_BUTTONS) {
-		parse_action(val, &cfg->buttons[idx]);
-	} else if (!strcmp(key, "acceleration")) {
-		cfg->acceleration = (int8_t)atoi(val);
-	} else if (!strcmp(key, "deceleration")) {
-		cfg->deceleration = (int8_t)atoi(val);
-	} else if (!strcmp(key, "angle_snapping")) {
-		cfg->angle_snapping = (uint8_t)atoi(val);
-	} else if (!strcmp(key, "accel_enabled")) {
-		cfg->accel_enabled = atoi(val) ? 1 : 0;
+	} else if (!strcmp(key, "illum_smart")) {
+		cfg->common.illum_smart = atoi(val) ? 1 : 0;
+	} else if (!strcmp(key, "illum_dim_s")) {
+		cfg->common.illum_dim_s = (uint16_t)ALLOY_CLAMP(
+			atoi(val), 0, ALLOY_ILLUM_DIM_MAX);
+	} else if (!strcmp(key, "sleep_min")) {
+		cfg->common.sleep_min =
+			(uint8_t)ALLOY_CLAMP(atoi(val), 0, ALLOY_SLEEP_MAX);
+	}
+
+	/* Mouse-specific keys */
+	if (alloy_driver_is_mouse(drv)) {
+		if (!strcmp(key, "dpi_count")) {
+			cfg->mouse.dpi_count = (uint8_t)ALLOY_CLAMP(
+				atoi(val), 1, ALLOY_MAX_DPI_PRESETS);
+		} else if (!strcmp(key, "dpi_active")) {
+			cfg->mouse.dpi_active = (uint8_t)ALLOY_CLAMP(
+				atoi(val), 0, ALLOY_MAX_DPI_PRESETS - 1);
+		} else if (sscanf(key, "dpi%u", &idx) == 1 &&
+			   idx < ALLOY_MAX_DPI_PRESETS) {
+			if (sscanf(val, "%u:%u", &a, &b) == 2) {
+				cfg->mouse.dpi[idx][0] = (uint16_t)a;
+				cfg->mouse.dpi[idx][1] = (uint16_t)b;
+			}
+		} else if (!strcmp(key, "reactive")) {
+			if (sscanf(val, "%x", &rgb) == 1) {
+				cfg->mouse.reactive_enabled = 1;
+				cfg->mouse.reactive_color.r = (rgb >> 16) &
+							      0xFF;
+				cfg->mouse.reactive_color.g = (rgb >> 8) & 0xFF;
+				cfg->mouse.reactive_color.b = rgb & 0xFF;
+			} else {
+				cfg->mouse.reactive_enabled = 0;
+			}
+		} else if (!strcmp(key, "startup_fx")) {
+			cfg->mouse.startup_fx = (uint8_t)ALLOY_CLAMP(
+				atoi(val), 0, ALLOY_STARTUP_REACTIVE_RAINBOW);
+		} else if (!strcmp(key, "high_efficiency")) {
+			cfg->mouse.high_efficiency = atoi(val) ? 1 : 0;
+		} else if (sscanf(key, "button%u", &idx) == 1 &&
+			   idx < ALLOY_MAX_BUTTONS) {
+			parse_action(val, &cfg->mouse.buttons[idx]);
+		} else if (!strcmp(key, "acceleration")) {
+			cfg->mouse.acceleration = (int8_t)atoi(val);
+		} else if (!strcmp(key, "deceleration")) {
+			cfg->mouse.deceleration = (int8_t)atoi(val);
+		} else if (!strcmp(key, "angle_snapping")) {
+			cfg->mouse.angle_snapping = (uint8_t)atoi(val);
+		} else if (!strcmp(key, "accel_enabled")) {
+			cfg->mouse.accel_enabled = atoi(val) ? 1 : 0;
+		}
+	}
+
+	/* Keyboard-specific keys */
+	if (alloy_driver_is_keyboard(drv)) {
+		if (!strcmp(key, "win_lock") || !strcmp(key, "meta_lock"))
+			cfg->kbd.win_lock = atoi(val) ? 1 : 0;
 	}
 }
 
@@ -211,14 +235,85 @@ int alloy_state_load(const struct alloy_driver *drv, struct alloy_config *cfg)
 		if (!eq)
 			continue;
 		*eq = '\0';
-		parse_line(cfg, line, eq + 1);
+		parse_line(drv, cfg, line, eq + 1);
 	}
 	fclose(f);
 
-	/* edited file may point the active preset past the count */
-	if (cfg->dpi_active >= cfg->dpi_count)
-		cfg->dpi_active = (uint8_t)(cfg->dpi_count - 1);
+	/* edited file may point the active preset past the count (for mice) */
+	if (alloy_driver_is_mouse(drv) &&
+	    cfg->mouse.dpi_active >= cfg->mouse.dpi_count)
+		cfg->mouse.dpi_active = (uint8_t)(cfg->mouse.dpi_count - 1);
 	return 0;
+}
+
+static void state_store_common(FILE *f, const struct alloy_driver *drv,
+			       const struct alloy_config_common *common)
+{
+	uint8_t i;
+
+	fprintf(f, "polling_hz=%u\n", common->polling_hz);
+	for (i = 0; i < drv->num_zones; i++)
+		fprintf(f, "zone%u=%02x%02x%02x\n", i, common->zone_color[i].r,
+			common->zone_color[i].g, common->zone_color[i].b);
+	if (drv->num_fx > 1) {
+		for (i = 0; i < drv->num_zones; i++) {
+			fprintf(f, "zone_fx%u=%u\n", i, common->zone_fx[i]);
+			fprintf(f, "zone_freq%u=%u\n", i,
+				common->zone_fx_freq[i]);
+			fprintf(f, "zone_speed%u=%u\n", i,
+				common->zone_fx_speed[i]);
+		}
+	}
+	fprintf(f, "brightness=%u\n", common->brightness);
+	if (drv->caps & ALLOY_CAP_BATTERY) {
+		fprintf(f, "illum_smart=%u\n", common->illum_smart ? 1 : 0);
+		fprintf(f, "illum_dim_s=%u\n", common->illum_dim_s);
+		fprintf(f, "sleep_min=%u\n", common->sleep_min);
+	}
+}
+
+static void state_store_mouse(FILE *f, const struct alloy_driver *drv,
+			      const struct alloy_config_mouse *mouse)
+{
+	uint8_t i;
+
+	fprintf(f, "dpi_count=%u\n", mouse->dpi_count);
+	fprintf(f, "dpi_active=%u\n", mouse->dpi_active);
+	for (i = 0; i < mouse->dpi_count; i++)
+		fprintf(f, "dpi%u=%u:%u\n", i, mouse->dpi[i][0],
+			mouse->dpi[i][1]);
+
+	if (drv->caps & ALLOY_CAP_FX_REACTIVE) {
+		if (mouse->reactive_enabled)
+			fprintf(f, "reactive=%02x%02x%02x\n",
+				mouse->reactive_color.r,
+				mouse->reactive_color.g,
+				mouse->reactive_color.b);
+		else
+			fprintf(f, "reactive=off\n");
+	}
+	if (drv->caps & ALLOY_CAP_FX_STARTUP)
+		fprintf(f, "startup_fx=%u\n", mouse->startup_fx);
+	if (drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
+		fprintf(f, "high_efficiency=%u\n",
+			mouse->high_efficiency ? 1 : 0);
+
+	for (i = 0; i < drv->num_buttons; i++)
+		fprintf(f, "button%u=%s:%u\n", i,
+			action_type_name(mouse->buttons[i].type),
+			mouse->buttons[i].value);
+
+	fprintf(f, "acceleration=%d\n", mouse->acceleration);
+	fprintf(f, "deceleration=%d\n", mouse->deceleration);
+	fprintf(f, "angle_snapping=%u\n", mouse->angle_snapping);
+	fprintf(f, "accel_enabled=%u\n", mouse->accel_enabled);
+}
+
+static void state_store_keyboard(FILE *f, const struct alloy_driver *drv,
+				 const struct alloy_config_keyboard *kbd)
+{
+	if (drv->caps & ALLOY_CAP_WIN_LOCK)
+		fprintf(f, "win_lock=%u\n", kbd->win_lock ? 1 : 0);
 }
 
 int alloy_state_store(const struct alloy_driver *drv,
@@ -226,7 +321,6 @@ int alloy_state_store(const struct alloy_driver *drv,
 {
 	char path[PATH_MAX];
 	FILE *f;
-	uint8_t i;
 
 	if (state_path(drv, path, sizeof(path), 1))
 		return -1;
@@ -236,41 +330,17 @@ int alloy_state_store(const struct alloy_driver *drv,
 		return -1;
 
 	fprintf(f, "# alloyctl baseline for %s\n", drv->name);
-	fprintf(f, "dpi_count=%u\n", cfg->dpi_count);
-	fprintf(f, "dpi_active=%u\n", cfg->dpi_active);
-	for (i = 0; i < cfg->dpi_count; i++)
-		fprintf(f, "dpi%u=%u:%u\n", i, cfg->dpi[i][0], cfg->dpi[i][1]);
-	fprintf(f, "polling_hz=%u\n", cfg->polling_hz);
-	for (i = 0; i < drv->num_zones; i++)
-		fprintf(f, "zone%u=%02x%02x%02x\n", i, cfg->zone_color[i].r,
-			cfg->zone_color[i].g, cfg->zone_color[i].b);
-	if (drv->num_fx > 1) {
-		for (i = 0; i < drv->num_zones; i++) {
-			fprintf(f, "zone_fx%u=%u\n", i, cfg->zone_fx[i]);
-			fprintf(f, "zone_freq%u=%u\n", i, cfg->zone_fx_freq[i]);
-			fprintf(f, "zone_speed%u=%u\n", i,
-				cfg->zone_fx_speed[i]);
-		}
+	state_store_common(f, drv, &cfg->common);
+
+	switch (drv->type) {
+	case ALLOY_DEV_KEYBOARD:
+		state_store_keyboard(f, drv, &cfg->kbd);
+		break;
+	case ALLOY_DEV_MOUSE:
+	default:
+		state_store_mouse(f, drv, &cfg->mouse);
+		break;
 	}
-	if (drv->caps & ALLOY_CAP_FX_REACTIVE) {
-		if (cfg->reactive_enabled)
-			fprintf(f, "reactive=%02x%02x%02x\n",
-				cfg->reactive_color.r, cfg->reactive_color.g,
-				cfg->reactive_color.b);
-		else
-			fprintf(f, "reactive=off\n");
-	}
-	if (drv->caps & ALLOY_CAP_FX_STARTUP)
-		fprintf(f, "startup_fx=%u\n", cfg->startup_fx);
-	fprintf(f, "brightness=%u\n", cfg->brightness);
-	for (i = 0; i < drv->num_buttons; i++)
-		fprintf(f, "button%u=%s:%u\n", i,
-			action_type_name(cfg->buttons[i].type),
-			cfg->buttons[i].value);
-	fprintf(f, "acceleration=%d\n", cfg->acceleration);
-	fprintf(f, "deceleration=%d\n", cfg->deceleration);
-	fprintf(f, "angle_snapping=%u\n", cfg->angle_snapping);
-	fprintf(f, "accel_enabled=%u\n", cfg->accel_enabled);
 
 	fclose(f);
 	return 0;

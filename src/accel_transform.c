@@ -26,11 +26,11 @@ static const int32_t TAN_FP[ALLOY_SNAP_MAX + 1] = {
 void alloy_accel_from_config(const struct alloy_config *cfg,
 			     struct alloy_accel_params *p)
 {
-	p->accel = ALLOY_CLAMP(cfg->acceleration, ALLOY_ACCEL_MIN,
+	p->accel = ALLOY_CLAMP(cfg->mouse.acceleration, ALLOY_ACCEL_MIN,
 			       ALLOY_ACCEL_MAX);
-	p->decel = ALLOY_CLAMP(cfg->deceleration, ALLOY_DECEL_MIN,
+	p->decel = ALLOY_CLAMP(cfg->mouse.deceleration, ALLOY_DECEL_MIN,
 			       ALLOY_DECEL_MAX);
-	p->snap = ALLOY_CLAMP(cfg->angle_snapping, ALLOY_SNAP_MIN,
+	p->snap = ALLOY_CLAMP(cfg->mouse.angle_snapping, ALLOY_SNAP_MIN,
 			      ALLOY_SNAP_MAX);
 }
 

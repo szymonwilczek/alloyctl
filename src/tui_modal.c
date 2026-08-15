@@ -365,7 +365,8 @@ void tui_modal_remap(struct tui *t, int button)
 			if (remap_choices[sel].capture_key &&
 			    capture_keyboard_key(t, &action))
 				break;
-			t->cfg.buttons[button] = action;
+			if (alloy_driver_is_mouse(t->drv))
+				t->cfg.mouse.buttons[button] = action;
 			t->dirty = 1;
 			if (t->live_preview)
 				tui_apply(t, t->drv->ops->apply_buttons,

@@ -116,7 +116,7 @@ static struct alloy_rgb scale_rgb(struct alloy_rgb c, int num, int den)
 static struct alloy_rgb zone_preview_color(const struct tui *t, int zone,
 					   long ms)
 {
-	const struct alloy_config *cfg = &t->cfg;
+	const struct alloy_config_common *cfg = &t->cfg.common;
 	uint8_t fx = cfg->zone_fx[zone];
 	struct alloy_rgb c = cfg->zone_color[zone];
 	long tms = ms * cfg->zone_fx_speed[zone] / ALLOY_FX_RATE_DEF;
@@ -203,9 +203,11 @@ static void illum_sync_global_fx(struct tui *t)
 	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL))
 		return;
 	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		t->cfg.zone_fx[i] = t->cfg.zone_fx[zone];
-		t->cfg.zone_fx_freq[i] = t->cfg.zone_fx_freq[zone];
-		t->cfg.zone_fx_speed[i] = t->cfg.zone_fx_speed[zone];
+		t->cfg.common.zone_fx[i] = t->cfg.common.zone_fx[zone];
+		t->cfg.common.zone_fx_freq[i] =
+			t->cfg.common.zone_fx_freq[zone];
+		t->cfg.common.zone_fx_speed[i] =
+			t->cfg.common.zone_fx_speed[zone];
 	}
 }
 
@@ -224,15 +226,15 @@ void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg)
 	if (!(t->drv->caps & ALLOY_CAP_FX_GLOBAL))
 		return;
 	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		if (cfg->zone_fx[i]) {
+		if (cfg->common.zone_fx[i]) {
 			src = i;
 			break;
 		}
 	}
 	for (i = 0; i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		cfg->zone_fx[i] = cfg->zone_fx[src];
-		cfg->zone_fx_freq[i] = cfg->zone_fx_freq[src];
-		cfg->zone_fx_speed[i] = cfg->zone_fx_speed[src];
+		cfg->common.zone_fx[i] = cfg->common.zone_fx[src];
+		cfg->common.zone_fx_freq[i] = cfg->common.zone_fx_freq[src];
+		cfg->common.zone_fx_speed[i] = cfg->common.zone_fx_speed[src];
 	}
 }
 
@@ -324,7 +326,7 @@ static void draw_mouse_preview(struct tui *t, int py, int px, int ph, int pw)
 static void draw_rate_row(struct tui *t, int y, int x, const char *name,
 			  uint8_t val, int selected)
 {
-	int rate_disabled = !t->cfg.zone_fx[t->illum_zone];
+	int rate_disabled = !t->cfg.common.zone_fx[t->illum_zone];
 	int i;
 
 	if (selected)
@@ -382,10 +384,10 @@ static void draw_color_channel(int y, int x, int w, const char *name,
  */
 static void draw_colors_section(struct tui *t, int y, int x, int w, int focused)
 {
-	struct alloy_rgb *rgb = &t->cfg.zone_color[t->illum_zone];
+	struct alloy_rgb *rgb = &t->cfg.common.zone_color[t->illum_zone];
 	int sel = t->illum_cursor;
-	int greyed =
-		tui_fx_ignores_color(t->drv, t->cfg.zone_fx[t->illum_zone]);
+	int greyed = tui_fx_ignores_color(t->drv,
+					  t->cfg.common.zone_fx[t->illum_zone]);
 	char hex[8];
 	size_t i;
 
@@ -475,28 +477,28 @@ static void draw_device_section(struct tui *t, int y, int x, int focused)
 		mvprintw(y, x + 2, "%-10s", "BRIGHTNESS");
 		if (focused && sel == row)
 			attroff(COLOR_PAIR(CLR_SELECTED));
-		mvprintw(y, x + 13, "< %3u%% >", t->cfg.brightness);
+		mvprintw(y, x + 13, "< %3u%% >", t->cfg.common.brightness);
 	}
 
 	row = illum_idx_reactive(t);
-	if (row >= 0) {
+	if (row >= 0 && alloy_driver_is_mouse(t->drv)) {
 		y++;
 		if (focused && sel == row)
 			attron(COLOR_PAIR(CLR_SELECTED));
 		mvprintw(y, x + 2, "%-10s", "REACTIVE");
 		if (focused && sel == row)
 			attroff(COLOR_PAIR(CLR_SELECTED));
-		if (t->cfg.reactive_enabled)
+		if (t->cfg.mouse.reactive_enabled)
 			mvprintw(y, x + 13, "[#%02X%02X%02X]",
-				 t->cfg.reactive_color.r,
-				 t->cfg.reactive_color.g,
-				 t->cfg.reactive_color.b);
+				 t->cfg.mouse.reactive_color.r,
+				 t->cfg.mouse.reactive_color.g,
+				 t->cfg.mouse.reactive_color.b);
 		else
 			mvprintw(y, x + 13, "[OFF]");
 	}
 
 	row = illum_idx_startup(t);
-	if (row >= 0) {
+	if (row >= 0 && alloy_driver_is_mouse(t->drv)) {
 		y++;
 		if (focused && sel == row)
 			attron(COLOR_PAIR(CLR_SELECTED));
@@ -504,7 +506,7 @@ static void draw_device_section(struct tui *t, int y, int x, int focused)
 		if (focused && sel == row)
 			attroff(COLOR_PAIR(CLR_SELECTED));
 		mvprintw(y, x + 13, "< %s >",
-			 startup_names[t->cfg.startup_fx &
+			 startup_names[t->cfg.mouse.startup_fx &
 				       ALLOY_STARTUP_REACTIVE_RAINBOW]);
 	}
 }
@@ -523,8 +525,9 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	attroff(COLOR_PAIR(CLR_ACCENT) | A_BOLD);
 
 	if (t->drv->num_fx)
-		fx_name = t->drv->fx_names[t->cfg.zone_fx[t->illum_zone] %
-					   t->drv->num_fx];
+		fx_name =
+			t->drv->fx_names[t->cfg.common.zone_fx[t->illum_zone] %
+					 t->drv->num_fx];
 
 	if (focused && sel == ILL_EFFECT)
 		attron(COLOR_PAIR(CLR_SELECTED));
@@ -542,10 +545,10 @@ static void draw_effects_pane(struct tui *t, int y, int x, int h, int w)
 	}
 
 	draw_rate_row(t, y + 6, x + 2, "FREQUENCY",
-		      t->cfg.zone_fx_freq[t->illum_zone],
+		      t->cfg.common.zone_fx_freq[t->illum_zone],
 		      focused && sel == ILL_FREQ);
 	draw_rate_row(t, y + 7, x + 2, "SPEED",
-		      t->cfg.zone_fx_speed[t->illum_zone],
+		      t->cfg.common.zone_fx_speed[t->illum_zone],
 		      focused && sel == ILL_SPEED);
 
 	draw_colors_section(t, y + 9, x, w, focused);
@@ -570,7 +573,7 @@ static void illum_effect_modal(struct tui *t)
 		tui_modal_message("EFFECT", "only STEADY on this device");
 		return;
 	}
-	sel = t->cfg.zone_fx[t->illum_zone] % count;
+	sel = t->cfg.common.zone_fx[t->illum_zone] % count;
 
 	for (;;) {
 		tui_illum_draw(t);
@@ -606,7 +609,7 @@ static void illum_effect_modal(struct tui *t)
 			return;
 		case '\n':
 		case KEY_ENTER:
-			t->cfg.zone_fx[t->illum_zone] = (uint8_t)sel;
+			t->cfg.common.zone_fx[t->illum_zone] = (uint8_t)sel;
 			illum_sync_global_fx(t);
 			tui_lighting_changed(t);
 			return;
@@ -624,22 +627,24 @@ static void illum_adjust(struct tui *t, int dir, int big)
 	int val;
 
 	if (t->illum_cursor == illum_idx_brightness(t)) {
-		val = t->cfg.brightness + dir * (big ? 20 : 5);
-		t->cfg.brightness = (uint8_t)ALLOY_CLAMP(val, 0, 100);
+		val = t->cfg.common.brightness + dir * (big ? 20 : 5);
+		t->cfg.common.brightness = (uint8_t)ALLOY_CLAMP(val, 0, 100);
 		t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
 		if (t->live_preview)
 			tui_apply(t, t->drv->ops->apply_brightness,
 				  "brightness");
 		return;
 	}
-	if (t->illum_cursor == illum_idx_reactive(t)) {
-		t->cfg.reactive_enabled = !t->cfg.reactive_enabled;
+	if (t->illum_cursor == illum_idx_reactive(t) &&
+	    alloy_driver_is_mouse(t->drv)) {
+		t->cfg.mouse.reactive_enabled = !t->cfg.mouse.reactive_enabled;
 		tui_lighting_changed(t);
 		return;
 	}
-	if (t->illum_cursor == illum_idx_startup(t)) {
-		t->cfg.startup_fx =
-			(uint8_t)((t->cfg.startup_fx + 4 + dir) % 4);
+	if (t->illum_cursor == illum_idx_startup(t) &&
+	    alloy_driver_is_mouse(t->drv)) {
+		t->cfg.mouse.startup_fx =
+			(uint8_t)((t->cfg.mouse.startup_fx + 4 + dir) % 4);
 		tui_lighting_changed(t);
 		return;
 	}
@@ -648,19 +653,20 @@ static void illum_adjust(struct tui *t, int dir, int big)
 	case ILL_EFFECT:
 		if (t->drv->num_fx < 2)
 			return;
-		t->cfg.zone_fx[zone] = (uint8_t)((t->cfg.zone_fx[zone] +
-						  t->drv->num_fx + dir) %
-						 t->drv->num_fx);
+		t->cfg.common.zone_fx[zone] =
+			(uint8_t)((t->cfg.common.zone_fx[zone] +
+				   t->drv->num_fx + dir) %
+				  t->drv->num_fx);
 		illum_sync_global_fx(t);
 		tui_lighting_changed(t);
 		return;
 	case ILL_FREQ:
 	case ILL_SPEED:
-		if (!t->cfg.zone_fx[zone])
+		if (!t->cfg.common.zone_fx[zone])
 			return; /* steady has no rate */
 		rate = t->illum_cursor == ILL_FREQ ?
-			       &t->cfg.zone_fx_freq[zone] :
-			       &t->cfg.zone_fx_speed[zone];
+			       &t->cfg.common.zone_fx_freq[zone] :
+			       &t->cfg.common.zone_fx_speed[zone];
 		val = *rate + dir;
 		*rate = (uint8_t)ALLOY_CLAMP(val, ALLOY_FX_RATE_MIN,
 					     ALLOY_FX_RATE_MAX);
@@ -668,13 +674,13 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		tui_lighting_changed(t);
 		return;
 	case ILL_R:
-		chan = &t->cfg.zone_color[zone].r;
+		chan = &t->cfg.common.zone_color[zone].r;
 		break;
 	case ILL_G:
-		chan = &t->cfg.zone_color[zone].g;
+		chan = &t->cfg.common.zone_color[zone].g;
 		break;
 	case ILL_B:
-		chan = &t->cfg.zone_color[zone].b;
+		chan = &t->cfg.common.zone_color[zone].b;
 		break;
 	case ILL_PALETTE:
 		t->illum_swatch = (t->illum_swatch + TUI_PALETTE_SIZE + dir) %
@@ -684,7 +690,7 @@ static void illum_adjust(struct tui *t, int dir, int big)
 		return;
 	}
 
-	if (tui_fx_ignores_color(t->drv, t->cfg.zone_fx[zone]))
+	if (tui_fx_ignores_color(t->drv, t->cfg.common.zone_fx[zone]))
 		return;
 	val = *chan + dir * (big ? 16 : 1);
 	*chan = (uint8_t)ALLOY_CLAMP(val, 0, 255);
@@ -725,7 +731,8 @@ static void illum_hex_input(struct tui *t)
 	}
 	t->illum_hexbuf = NULL;
 
-	if (tui_parse_hex_color(buf, len, &t->cfg.zone_color[t->illum_zone])) {
+	if (tui_parse_hex_color(buf, len,
+				&t->cfg.common.zone_color[t->illum_zone])) {
 		tui_status(t, "invalid hex color");
 		return;
 	}
@@ -744,7 +751,8 @@ static void illum_activate(struct tui *t)
 		illum_effect_modal(t);
 		return;
 	case ILL_PALETTE:
-		t->cfg.zone_color[t->illum_zone] = tui_palette[t->illum_swatch];
+		t->cfg.common.zone_color[t->illum_zone] =
+			tui_palette[t->illum_swatch];
 		tui_lighting_changed(t);
 		return;
 	case ILL_HEX:

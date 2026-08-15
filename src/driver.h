@@ -17,6 +17,11 @@
 #include "alloy.h"
 #include "hid.h"
 
+enum alloy_device_type {
+	ALLOY_DEV_MOUSE = 0,
+	ALLOY_DEV_KEYBOARD = 1,
+};
+
 enum alloy_action_type {
 	ALLOY_ACT_DISABLED,
 	ALLOY_ACT_MOUSE, /* value: mouse button number (1-based) */
@@ -83,6 +88,9 @@ struct alloy_led_zone {
  */
 #define ALLOY_CAP_PAIRING (1u << 11)
 
+/* Keyboard-specific capabilities */
+#define ALLOY_CAP_WIN_LOCK (1u << 12) /* Windows / Meta key lock toggle */
+
 /*
  * ops->pair sentinel.
  * The receiver bind opcode has not been reverse-engineered yet, so the stub returns
@@ -102,6 +110,7 @@ struct alloy_led_zone {
 #define ALLOY_SLEEP_MIN 0
 #define ALLOY_SLEEP_MAX 20
 #define ALLOY_SLEEP_STEP 1
+#define ALLOY_SLEEP_MIN_DEFAULT 5
 #define ALLOY_ILLUM_DIM_MAX 1200
 #define ALLOY_ILLUM_DIM_STEP 15
 
@@ -123,30 +132,36 @@ enum alloy_startup_fx {
 };
 
 /*
- * Device-independent configuration.
- * TUI edits this structure and hands it to the driver ops for translation to the wire format.
+ * Common configuration across all device classes.
  */
-struct alloy_config {
+struct alloy_config_common {
+	uint16_t polling_hz;
+	uint8_t brightness; /* 0-100 */
+
+	struct alloy_rgb zone_color[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_fx[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_fx_freq[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_fx_speed[ALLOY_MAX_LED_ZONES];
+
+	/*
+	 * Wireless power knobs (ALLOY_CAP_BATTERY family).
+	 * Inert on wired devices.
+	 */
+	uint8_t illum_smart; /* 0/1: blank LEDs while device is moving/active */
+	uint16_t illum_dim_s; /* dim LEDs after N s idle, 0..1200; 0 = off */
+	uint8_t sleep_min; /* sleep after N min idle, 0..20; 0 = never */
+};
+
+/*
+ * Mouse-specific configuration.
+ */
+struct alloy_config_mouse {
 	/* DPI presets, X/Y pairs; count in [1, dpi.max_presets] */
 	uint16_t dpi[ALLOY_MAX_DPI_PRESETS][2];
 	uint8_t dpi_count;
 	uint8_t dpi_active; /* 0-based index of active preset */
 
-	uint16_t polling_hz;
-
-	struct alloy_rgb zone_color[ALLOY_MAX_LED_ZONES];
-
-	/*
-	 * Per-zone lighting effect as index into the driver's fx_names list;
-	 * index 0 is by convention the static "steady" mode.
-	 * Hardware that only runs one effect device-wide (ALLOY_CAP_FX_GLOBAL)
-	 * is driven best-effort from the first zone not running steady.
-	 */
-	uint8_t zone_fx[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_fx_freq[ALLOY_MAX_LED_ZONES]; /* ALLOY_FX_RATE_* */
-	uint8_t zone_fx_speed[ALLOY_MAX_LED_ZONES]; /* ALLOY_FX_RATE_* */
-
-	uint8_t brightness; /* 0-100 */
+	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
 
 	/* only meaningful with ALLOY_CAP_FX_REACTIVE */
 	uint8_t reactive_enabled;
@@ -159,18 +174,6 @@ struct alloy_config {
 	uint8_t high_efficiency;
 
 	/*
-	 * Wireless power knobs (ALLOY_CAP_BATTERY family).
-	 * Inert on wired mice.
-	 * illum_smart rides the illumination command (apply_brightness);
-	 * sleep_min goes out through apply_sleep.
-	 */
-	uint8_t illum_smart; /* 0/1: blank LEDs while the mouse moves */
-	uint16_t illum_dim_s; /* dim LEDs after N s idle, 0..1200; 0 = off */
-	uint8_t sleep_min; /* sleep after N min idle, 0..20; 0 = never */
-
-	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
-
-	/*
 	 * Host-side pointer transform (acceleration/deceleration/angle snapping)
 	 * applied by the accel daemon, not by the device -
 	 * these are always meaningful, independent of any ALLOY_CAP_* bit.
@@ -180,6 +183,30 @@ struct alloy_config {
 	int8_t deceleration; /* 0..100 */
 	uint8_t angle_snapping; /* 0 = off, else degrees 1..45 */
 	uint8_t accel_enabled;
+};
+
+/*
+ * Keyboard-specific configuration.
+ */
+struct alloy_config_keyboard {
+	/*
+	 * Windows / Meta key lock toggle (ALLOY_CAP_WIN_LOCK).
+	 * 0 = normal (Win key active), 1 = locked (Win key disabled).
+	 */
+	uint8_t win_lock;
+};
+
+/*
+ * Device-independent configuration wrapper.
+ * Front-ends edit this structure and hand it to the driver ops for translation
+ * to the wire format.
+ */
+struct alloy_config {
+	struct alloy_config_common common;
+	union {
+		struct alloy_config_mouse mouse;
+		struct alloy_config_keyboard kbd;
+	};
 };
 
 struct alloy_device;
@@ -247,6 +274,13 @@ struct alloy_driver_ops {
 	int (*pair)(struct alloy_device *dev);
 
 	/*
+	 * Optional (keyboards, ALLOY_CAP_WIN_LOCK):
+	 * toggle Windows / Meta key lock from cfg->win_lock_enabled
+	 */
+	int (*apply_win_lock)(struct alloy_device *dev,
+			      const struct alloy_config *cfg);
+
+	/*
 	 * Optional:
 	 * parse one unsolicited report from the driver's event interface
 	 * (see alloy_driver.event_interface).
@@ -260,6 +294,7 @@ struct alloy_driver_ops {
 
 struct alloy_driver {
 	const char *name;
+	enum alloy_device_type type;
 	uint16_t vendor_id;
 	uint16_t product_id;
 	int interface; /* USB interface carrying config reports */
@@ -384,9 +419,28 @@ int alloy_device_enumerate(const struct alloy_driver **out, int max);
 /* Open a specific device by USB id (e.g. from --device) */
 int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 			 uint16_t product_id);
+
+/* Device type query helpers */
+static inline int alloy_driver_is_mouse(const struct alloy_driver *drv)
+{
+	return !drv || drv->type == ALLOY_DEV_MOUSE;
+}
+
+static inline int alloy_driver_is_keyboard(const struct alloy_driver *drv)
+{
+	return drv && drv->type == ALLOY_DEV_KEYBOARD;
+}
+
+const char *alloy_device_type_name(enum alloy_device_type type);
 void alloy_device_close(struct alloy_device *dev);
 
-/* Generic default-config helper usable by most drivers */
+/* Default configuration initializers per device type */
+void alloy_config_common_defaults(const struct alloy_driver *drv,
+				  struct alloy_config_common *common);
+void alloy_config_mouse_defaults(const struct alloy_driver *drv,
+				 struct alloy_config *cfg);
+void alloy_config_keyboard_defaults(const struct alloy_driver *drv,
+				    struct alloy_config *cfg);
 void alloy_config_generic_defaults(const struct alloy_driver *drv,
 				   struct alloy_config *cfg);
 

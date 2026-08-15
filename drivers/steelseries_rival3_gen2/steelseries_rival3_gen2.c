@@ -81,17 +81,17 @@ size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	buf[n++] = R3G2_CMD_DPI;
-	buf[n++] = cfg->dpi_count;
+	buf[n++] = cfg->mouse.dpi_count;
 	/*
 	 * Active index is 0-based on the wire, matching the 0xAD level event
 	 * (r3g2_parse_event) the firmware reports back.
 	 * Sending dpi_active + 1 here selected the *next* level,
 	 * which SAVE then latched to flash (#41)
 	 */
-	buf[n++] = cfg->dpi_active;
-	for (i = 0; i < cfg->dpi_count; i++) {
-		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][0]);
-		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][1]);
+	buf[n++] = cfg->mouse.dpi_active;
+	for (i = 0; i < cfg->mouse.dpi_count; i++) {
+		buf[n++] = r3g2_dpi_to_wire(cfg->mouse.dpi[i][0]);
+		buf[n++] = r3g2_dpi_to_wire(cfg->mouse.dpi[i][1]);
 	}
 	return n;
 }
@@ -100,7 +100,7 @@ size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf)
 {
 	uint8_t wire;
 
-	switch (cfg->polling_hz) {
+	switch (cfg->common.polling_hz) {
 	case 125:
 		wire = 0x04;
 		break;
@@ -134,7 +134,7 @@ size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (!cfg->zone_fx[i])
+		if (!cfg->common.zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -143,9 +143,9 @@ size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 	buf[n++] = R3G2_CMD_ZONE_COLORS;
 	buf[n++] = mask;
 	for (i = 0; i < 3; i++) {
-		buf[n++] = cfg->zone_color[i].r;
-		buf[n++] = cfg->zone_color[i].g;
-		buf[n++] = cfg->zone_color[i].b;
+		buf[n++] = cfg->common.zone_color[i].r;
+		buf[n++] = cfg->common.zone_color[i].g;
+		buf[n++] = cfg->common.zone_color[i].b;
 	}
 	return n;
 }
@@ -162,7 +162,7 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->zone_fx[i])
+		if (cfg->common.zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -186,12 +186,12 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = R3G2_CMD_REACTIVE;
-	buf[1] = cfg->reactive_enabled ? 0x01 : 0x00;
+	buf[1] = cfg->mouse.reactive_enabled ? 0x01 : 0x00;
 	buf[2] = 0x00;
-	if (cfg->reactive_enabled) {
-		buf[3] = cfg->reactive_color.r;
-		buf[4] = cfg->reactive_color.g;
-		buf[5] = cfg->reactive_color.b;
+	if (cfg->mouse.reactive_enabled) {
+		buf[3] = cfg->mouse.reactive_color.r;
+		buf[4] = cfg->mouse.reactive_color.g;
+		buf[5] = cfg->mouse.reactive_color.b;
 	} else {
 		buf[3] = 0x00;
 		buf[4] = 0x00;
@@ -217,21 +217,21 @@ size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++)
-		rainbow_zones |= cfg->zone_fx[i];
+		rainbow_zones |= cfg->common.zone_fx[i];
 
 	buf[0] = R3G2_CMD_STARTUP_FX;
 	buf[1] = rainbow_zones != 0 ||
-		 cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
-		 cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
-	buf[2] = (cfg->startup_fx == ALLOY_STARTUP_REACTIVE ||
-		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+		 cfg->mouse.startup_fx == ALLOY_STARTUP_RAINBOW ||
+		 cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
+	buf[2] = (cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE ||
+		  cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
 	return 3;
 }
 
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = R3G2_CMD_BRIGHTNESS;
-	buf[1] = ALLOY_MIN(cfg->brightness, 100);
+	buf[1] = ALLOY_MIN(cfg->common.brightness, 100);
 	return 2;
 }
 
@@ -270,7 +270,7 @@ size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	memset(buf + 1, 0, 8 * 5);
 
 	for (i = 0; i < ALLOY_ARRAY_SIZE(r3g2_button_wire_id); i++) {
-		const struct alloy_action *act = &cfg->buttons[i];
+		const struct alloy_action *act = &cfg->mouse.buttons[i];
 		uint8_t *field = buf + 1 + i * 5;
 
 		field[0] = r3g2_action_first_byte(act);
@@ -301,9 +301,9 @@ int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
 	active = buf[2];
 	if (buf[1] < 1 || buf[1] > ALLOY_MAX_DPI_PRESETS || active >= buf[1])
 		return 0;
-	if (active >= cfg->dpi_count || active == cfg->dpi_active)
+	if (active >= cfg->mouse.dpi_count || active == cfg->mouse.dpi_active)
 		return 0;
-	cfg->dpi_active = active;
+	cfg->mouse.dpi_active = active;
 	return 1;
 }
 
@@ -434,6 +434,7 @@ static const struct alloy_driver_ops r3g2_ops = {
 
 static const struct alloy_driver steelseries_rival3_gen2 = {
 	.name = "SteelSeries Rival 3 Gen 2",
+	.type = ALLOY_DEV_MOUSE,
 	.vendor_id = 0x1038,
 	.product_id = 0x1870,
 	.interface = 3,

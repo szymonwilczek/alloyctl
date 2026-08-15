@@ -394,13 +394,16 @@ void tui_modal_color_reactive(struct tui *t)
 	static const char *const reactive_modes[] = { "OFF", "ON" };
 	struct picker p;
 
+	if (!alloy_driver_is_mouse(t->drv))
+		return;
+
 	memset(&p, 0, sizeof(p));
 	p.title = "REACTIVE CLICK COLOR";
-	p.rgb = &t->cfg.reactive_color;
+	p.rgb = &t->cfg.mouse.reactive_color;
 	p.mode_labels = reactive_modes;
 	p.num_modes = 2;
-	p.mode = &t->cfg.reactive_enabled;
+	p.mode = &t->cfg.mouse.reactive_enabled;
 	p.mode_greys = reactive_mode_greys;
-	p.color_rows_disabled = !t->cfg.reactive_enabled;
+	p.color_rows_disabled = !t->cfg.mouse.reactive_enabled;
 	picker_run(t, &p);
 }
