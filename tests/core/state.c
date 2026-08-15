@@ -6,6 +6,7 @@
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 
 #include "driver.h"
@@ -142,6 +143,113 @@ ALLOY_TEST(test_state_legacy_fx_keys)
 	ASSERT_EQ(out.common.zone_fx[2], 0);
 	ASSERT_EQ(out.mouse.dpi_count, 1);
 	ASSERT_EQ(out.mouse.dpi_active, 0);
+}
+
+ALLOY_TEST(test_keyboard_state_roundtrip)
+{
+	struct alloy_driver kbd_drv = {
+		.name = "Mock Apex Keyboard",
+		.vendor_id = 0x1038,
+		.product_id = 0x1234,
+		.type = ALLOY_DEV_KEYBOARD,
+		.caps = ALLOY_CAP_WIN_LOCK | ALLOY_CAP_BRIGHTNESS,
+		.num_zones = 1,
+		.zones =
+			(const struct alloy_led_zone[]){
+				{ .name = "MAIN",
+				  .def_color = { 0x00, 0x80, 0xFF } } },
+		.config_defaults = alloy_config_generic_defaults,
+	};
+	struct alloy_config in;
+	struct alloy_config out;
+	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
+	char path[128];
+	char line[128];
+	int found_win_lock = 0;
+	int found_mouse_dpi = 0;
+	FILE *f;
+
+	if (!mkdtemp(tmpl)) {
+		printf("FAIL: mkdtemp\n");
+		alloy_test_failures++;
+		return;
+	}
+	setenv("XDG_CONFIG_HOME", tmpl, 1);
+
+	/* defaults when file is absent */
+	ASSERT_EQ(alloy_state_load(&kbd_drv, &out), 1);
+	ASSERT_EQ(out.kbd.win_lock, 0);
+	ASSERT_EQ(out.common.brightness, 100);
+
+	/* set keyboard state */
+	kbd_drv.config_defaults(&kbd_drv, &in);
+	in.kbd.win_lock = 1;
+	in.common.brightness = 75;
+	in.common.polling_hz = 500;
+	in.common.zone_color[0] = (struct alloy_rgb){ 0x11, 0x22, 0x33 };
+
+	ASSERT_EQ(alloy_state_store(&kbd_drv, &in), 0);
+	ASSERT_EQ(alloy_state_load(&kbd_drv, &out), 0);
+
+	ASSERT_EQ(out.kbd.win_lock, 1);
+	ASSERT_EQ(out.common.brightness, 75);
+	ASSERT_EQ(out.common.polling_hz, 500);
+	ASSERT_EQ(out.common.zone_color[0].r, 0x11);
+	ASSERT_EQ(out.common.zone_color[0].g, 0x22);
+	ASSERT_EQ(out.common.zone_color[0].b, 0x33);
+
+	/* verify file format contains keyboard keys and no mouse keys */
+	snprintf(path, sizeof(path), "%s/alloyctl/1038-1234.conf", tmpl);
+	f = fopen(path, "r");
+	ASSERT_TRUE(f != NULL);
+	while (fgets(line, sizeof(line), f)) {
+		if (strstr(line, "win_lock=1"))
+			found_win_lock = 1;
+		if (strstr(line, "dpi"))
+			found_mouse_dpi = 1;
+	}
+	fclose(f);
+	ASSERT_TRUE(found_win_lock);
+	ASSERT_TRUE(!found_mouse_dpi);
+}
+
+ALLOY_TEST(test_keyboard_state_isolation_and_aliases)
+{
+	struct alloy_driver kbd_drv = {
+		.name = "Mock Apex Keyboard",
+		.vendor_id = 0x1038,
+		.product_id = 0x5678,
+		.type = ALLOY_DEV_KEYBOARD,
+		.caps = ALLOY_CAP_WIN_LOCK,
+		.config_defaults = alloy_config_generic_defaults,
+	};
+	struct alloy_config out;
+	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
+	char path[128];
+	FILE *f;
+
+	if (!mkdtemp(tmpl)) {
+		printf("FAIL: mkdtemp\n");
+		alloy_test_failures++;
+		return;
+	}
+	setenv("XDG_CONFIG_HOME", tmpl, 1);
+
+	snprintf(path, sizeof(path), "%s/alloyctl", tmpl);
+	mkdir(path, 0755);
+	snprintf(path, sizeof(path), "%s/alloyctl/1038-5678.conf", tmpl);
+	f = fopen(path, "w");
+	ASSERT_TRUE(f != NULL);
+	/* meta_lock alias for win_lock */
+	fprintf(f, "meta_lock=1\n");
+	/* mouse-only keys that should be safely ignored */
+	fprintf(f, "dpi_count=5\n");
+	fprintf(f, "dpi0=1600:1600\n");
+	fprintf(f, "acceleration=40\n");
+	fclose(f);
+
+	ASSERT_EQ(alloy_state_load(&kbd_drv, &out), 0);
+	ASSERT_EQ(out.kbd.win_lock, 1);
 }
 
 ALLOY_TEST(test_ops_use_mock)
