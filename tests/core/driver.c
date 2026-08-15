@@ -96,3 +96,18 @@ ALLOY_TEST(test_registered_drivers_have_valid_type)
 
 	ASSERT_TRUE(count > 0);
 }
+
+ALLOY_TEST(test_keyboard_hid_key_helpers)
+{
+	ASSERT_TRUE(!strcmp(alloy_hid_key_name(0x04), "A"));
+	ASSERT_TRUE(!strcmp(alloy_hid_key_name(0x16), "S"));
+	ASSERT_TRUE(!strcmp(alloy_hid_key_name(0x07), "D"));
+	ASSERT_TRUE(!strcmp(alloy_hid_key_name(0x1A), "W"));
+
+	ASSERT_EQ(alloy_hid_key_from_name("A"), 0x04);
+	ASSERT_EQ(alloy_hid_key_from_name("a"), 0x04);
+	ASSERT_EQ(alloy_hid_key_from_name("D"), 0x07);
+	ASSERT_EQ(alloy_hid_key_from_name("0x04"), 0x04);
+	ASSERT_EQ(alloy_hid_key_from_name(""), 0);
+	ASSERT_EQ(alloy_hid_key_from_name(NULL), 0);
+}

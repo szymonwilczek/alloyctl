@@ -87,8 +87,9 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # both trees are wildcarded, so new test file is picked up automatically
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
-	     $(wildcard tests/drivers/*.c) src/driver.c src/state.c \
-	     src/accel_transform.c src/udev.c $(wildcard drivers/*/*.c)
+	     $(wildcard tests/drivers/*.c) src/driver.c src/mouse_driver.c \
+	     src/keyboard_driver.c src/state.c src/accel_transform.c \
+	     src/udev.c $(wildcard drivers/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
