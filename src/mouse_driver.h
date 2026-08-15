@@ -29,7 +29,9 @@ struct alloy_button {
 
 /* Mouse capability flags */
 #define ALLOY_CAP_ACCELERATION (1u << 0)
+#define ALLOY_CAP_ACCEL ALLOY_CAP_ACCELERATION
 #define ALLOY_CAP_DECELERATION (1u << 1)
+#define ALLOY_CAP_DECEL ALLOY_CAP_DECELERATION
 #define ALLOY_CAP_ANGLE_SNAPPING (1u << 2)
 #define ALLOY_CAP_BATTERY (1u << 9)
 #define ALLOY_CAP_HIGH_EFFICIENCY (1u << 10)

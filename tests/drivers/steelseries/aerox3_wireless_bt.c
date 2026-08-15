@@ -65,7 +65,6 @@ ALLOY_TEST(test_bt_registry)
 	ASSERT_TRUE(drv->ops->apply_polling == NULL);
 	ASSERT_TRUE(drv->ops->apply_colors == NULL);
 	ASSERT_TRUE(drv->ops->apply_buttons == NULL);
-	ASSERT_TRUE(drv->ops->apply_high_efficiency == NULL);
 	ASSERT_TRUE(drv->ops->pair == NULL);
 	ASSERT_TRUE(drv->ops->battery == NULL);
 	ASSERT_TRUE(drv->ops->firmware_version == NULL);

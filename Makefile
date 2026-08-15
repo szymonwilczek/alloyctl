@@ -8,7 +8,7 @@ CFLAGS += -std=c11 -Wall -Wextra -Wshadow -Wmissing-prototypes \
 	  -Wstrict-prototypes -MMD -MP
 CFLAGS += $(shell $(PKG_CONFIG) --cflags ncursesw)
 VERSION ?= $(strip $(shell cat VERSION 2>/dev/null || echo "0.0.0"))
-CPPFLAGS += -Isrc -Ibuild -DALLOY_VERSION=\"$(VERSION)\"
+CPPFLAGS += -Isrc -Ibuild -Idrivers -DALLOY_VERSION=\"$(VERSION)\"
 LDLIBS += $(shell $(PKG_CONFIG) --libs ncursesw)
 
 # Optional sanitizer build.
@@ -22,27 +22,10 @@ CFLAGS += -fsanitize=$(SANITIZE) -fno-omit-frame-pointer -fno-sanitize-recover=a
 endif
 
 # Driver selection (opt-in)
-# Each directory under drivers/ is self-contained driver that registers itself
-# through the alloy_drivers ELF section, so the drivers built into the binary
-# are exactly the driver objects linked in - dropping one drops its code and its embedded art.
-# DRIVERS restricts that set; empty (the default) builds every driver, so plain `make` is unchanged.
-#   make DRIVERS="steelseries_rival3_gen2"   only this driver
-#   make list-drivers                        show the valid names
-# Test binary always links every driver (see TEST_SRCS below).
-ALL_DRIVERS := $(sort $(notdir $(patsubst %/,%,$(wildcard drivers/*/))))
-ifeq ($(strip $(DRIVERS)),)
-SEL_DRIVERS := $(ALL_DRIVERS)
-else
-SEL_DRIVERS := $(strip $(DRIVERS))
-UNKNOWN_DRIVERS := $(filter-out $(ALL_DRIVERS),$(SEL_DRIVERS))
-ifneq ($(UNKNOWN_DRIVERS),)
-$(error unknown driver(s): $(UNKNOWN_DRIVERS); available: $(ALL_DRIVERS) \
-	(run 'make list-drivers'))
-endif
-endif
-
+# Driver sources discovery across all vendor directories
 SRCS := $(wildcard src/*.c) \
-	$(foreach d,$(SEL_DRIVERS),$(wildcard drivers/$(d)/*.c))
+	$(wildcard drivers/*/*.c) \
+	$(wildcard drivers/*/*/*.c)
 OBJS := $(patsubst %.c,build/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -61,19 +44,19 @@ $(BIN): $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $(OBJS) $(LDLIBS)
 
 # Art rules exist for every driver so the all-driver test binary can link them;
-# main binary only depends on - and thus embeds - the selected drivers' art
-ALL_ART_DRIVERS := $(patsubst %_art.txt,%,$(notdir $(wildcard drivers/*/*_art.txt)))
-ALL_ART_HDRS := $(patsubst %,build/art_%.h,$(ALL_ART_DRIVERS))
-ART_HDRS := $(patsubst %,build/art_%.h,$(filter $(SEL_DRIVERS),$(ALL_ART_DRIVERS)))
+# main binary embeds all discovered art headers
+ALL_ART_FILES := $(wildcard drivers/*/*_art.txt) $(wildcard drivers/*/*/*_art.txt)
+ALL_ART_NAMES := $(patsubst %_art.txt,%,$(notdir $(ALL_ART_FILES)))
+ALL_ART_HDRS := $(patsubst %,build/art_%.h,$(ALL_ART_NAMES))
 
 define ART_RULE
-build/art_$(1).h: drivers/$(1)/$(1)_art.txt tools/txt2c.sh
+build/art_$(patsubst %_art.txt,%,$(notdir $(1))).h: $(1) tools/txt2c.sh
 	@mkdir -p build
-	sh tools/txt2c.sh alloy_art_$(1) < $$< > $$@
+	sh tools/txt2c.sh alloy_art_$(patsubst %_art.txt,%,$(notdir $(1))) < $$< > $$@
 endef
-$(foreach d,$(ALL_ART_DRIVERS),$(eval $(call ART_RULE,$(d))))
+$(foreach f,$(ALL_ART_FILES),$(eval $(call ART_RULE,$(f))))
 
-build/%.o: %.c build/default_art.h $(ART_HDRS)
+build/%.o: %.c build/default_art.h $(ALL_ART_HDRS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
 
@@ -89,9 +72,10 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # both trees are wildcarded, so new test file is picked up automatically
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
-	     $(wildcard tests/drivers/*.c) src/driver.c src/mouse_driver.c \
-	     src/keyboard_driver.c src/state.c src/cli.c \
-	     src/accel_transform.c src/udev.c $(wildcard drivers/*/*.c)
+	     $(wildcard tests/drivers/*.c) $(wildcard tests/drivers/*/*.c) \
+	     src/driver.c src/mouse_driver.c src/keyboard_driver.c src/state.c \
+	     src/cli.c src/accel_transform.c src/udev.c \
+	     $(wildcard drivers/*/*.c) $(wildcard drivers/*/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
