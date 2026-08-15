@@ -710,8 +710,9 @@ static const struct alloy_driver steelseries_aerox3_wireless = {
 	.num_buttons = ALLOY_ARRAY_SIZE(a3wl_buttons),
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
 		ALLOY_CAP_BATTERY | ALLOY_CAP_HIGH_EFFICIENCY |
-		ALLOY_CAP_PAIRING | ALLOY_CAP_FX_RAINBOW |
+		ALLOY_CAP_PAIRING | ALLOY_CAP_COLOR | ALLOY_CAP_FX_RAINBOW |
 		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP,
+
 	.fx_names = a3wl_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(a3wl_fx_names),
 	.ascii_art = alloy_art_steelseries_aerox3_wireless,

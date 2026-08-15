@@ -347,10 +347,11 @@ static const struct alloy_driver_ops r3_ops = {
 		.buttons = r3_buttons,                                    \
 		.num_buttons = ALLOY_ARRAY_SIZE(r3_buttons),              \
 		.caps = ALLOY_CAP_BRIGHTNESS |                            \
-			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_FX_GLOBAL, \
+			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_COLOR |    \
+			ALLOY_CAP_FX_GLOBAL,                              \
 		.fx_names = r3_fx_names,                                  \
 		.num_fx = ALLOY_ARRAY_SIZE(r3_fx_names),                  \
-		.ascii_art = alloy_art_steelseries_rival3,                                      \
+		.ascii_art = alloy_art_steelseries_rival3,                \
 		.ops = &r3_ops,                                           \
 		.config_defaults = alloy_config_generic_defaults,         \
 	}; \

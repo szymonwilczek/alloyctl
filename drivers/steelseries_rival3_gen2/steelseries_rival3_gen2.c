@@ -452,8 +452,9 @@ static const struct alloy_driver steelseries_rival3_gen2 = {
 	.buttons = r3g2_buttons,
 	.num_buttons = ALLOY_ARRAY_SIZE(r3g2_buttons),
 	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
-		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
+		ALLOY_CAP_COLOR | ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
 		ALLOY_CAP_FX_STARTUP,
+
 	.fx_names = r3g2_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(r3g2_fx_names),
 	.ascii_art = alloy_art_steelseries_rival3_gen2,
