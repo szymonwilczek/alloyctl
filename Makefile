@@ -7,7 +7,8 @@ CFLAGS ?= -O2
 CFLAGS += -std=c11 -Wall -Wextra -Wshadow -Wmissing-prototypes \
 	  -Wstrict-prototypes -MMD -MP
 CFLAGS += $(shell $(PKG_CONFIG) --cflags ncursesw)
-CPPFLAGS += -Isrc -Ibuild
+VERSION ?= $(strip $(shell cat VERSION 2>/dev/null || echo "0.0.0"))
+CPPFLAGS += -Isrc -Ibuild -DALLOY_VERSION=\"$(VERSION)\"
 LDLIBS += $(shell $(PKG_CONFIG) --libs ncursesw)
 
 # Optional sanitizer build.
@@ -88,8 +89,8 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
 	     $(wildcard tests/drivers/*.c) src/driver.c src/mouse_driver.c \
-	     src/keyboard_driver.c src/state.c src/accel_transform.c \
-	     src/udev.c $(wildcard drivers/*/*.c)
+	     src/keyboard_driver.c src/state.c src/cli.c \
+	     src/accel_transform.c src/udev.c $(wildcard drivers/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
