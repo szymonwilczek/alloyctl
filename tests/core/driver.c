@@ -85,12 +85,18 @@ ALLOY_TEST(test_registered_drivers_have_valid_type)
 		ASSERT_TRUE(drv != NULL);
 		ASSERT_TRUE(drv->name != NULL);
 
-		/* Existing drivers in tree are mice */
-		ASSERT_EQ(drv->type, ALLOY_DEV_MOUSE);
-		ASSERT_TRUE(alloy_driver_is_mouse(drv));
-		ASSERT_TRUE(!alloy_driver_is_keyboard(drv));
-		ASSERT_TRUE(
-			!strcmp(alloy_device_type_name(drv->type), "mouse"));
+		if (drv->type == ALLOY_DEV_KEYBOARD) {
+			ASSERT_TRUE(alloy_driver_is_keyboard(drv));
+			ASSERT_TRUE(!alloy_driver_is_mouse(drv));
+			ASSERT_TRUE(!strcmp(alloy_device_type_name(drv->type),
+					    "keyboard"));
+		} else {
+			ASSERT_EQ(drv->type, ALLOY_DEV_MOUSE);
+			ASSERT_TRUE(alloy_driver_is_mouse(drv));
+			ASSERT_TRUE(!alloy_driver_is_keyboard(drv));
+			ASSERT_TRUE(!strcmp(alloy_device_type_name(drv->type),
+					    "mouse"));
+		}
 		count++;
 	}
 

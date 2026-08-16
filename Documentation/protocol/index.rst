@@ -19,3 +19,4 @@ as much as the ones that do.
    steelseries-prime
    steelseries-aerox3-wireless
    steelseries-aerox3-wireless-bt
+   steelseries-apex100
