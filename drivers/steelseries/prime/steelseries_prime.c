@@ -12,6 +12,7 @@
 
 #include "default_art.h"
 #include "driver.h"
+#include "steelseries/steelseries_common.h"
 
 #define PRIME_CMD_SENSITIVITY 0x61
 #define PRIME_CMD_POLLING 0x5D
@@ -268,7 +269,8 @@ static const struct alloy_driver_ops prime_ops = {
 		.num_zones = ALLOY_ARRAY_SIZE(prime_zones),                   \
 		.buttons = prime_buttons,                                     \
 		.num_buttons = ALLOY_ARRAY_SIZE(prime_buttons),               \
-		.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_COLOR,              \
+		.caps = ALLOY_CAP_COLOR | ALLOY_CAP_BRIGHTNESS |              \
+			ALLOY_CAP_ACCEL | ALLOY_CAP_ANGLE_SNAPPING,           \
 		.ascii_art = alloy_default_mouse_art,                         \
 		.ops = &prime_ops,                                            \
 		.config_defaults = alloy_config_generic_defaults,            \

@@ -72,6 +72,7 @@ ALLOY_TEST(test_prime_registry)
 	ASSERT_EQ(drv->buttons[5].def.type, ALLOY_ACT_DPI_CYCLE);
 
 	ASSERT_TRUE((drv->caps & ALLOY_CAP_BRIGHTNESS) != 0);
+	ASSERT_TRUE(drv->caps & ALLOY_CAP_ACCEL);
 	ASSERT_TRUE(!(drv->caps & ALLOY_CAP_BATTERY));
 }
 

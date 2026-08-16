@@ -39,7 +39,7 @@ ALLOY_TEST(test_gen1_registry)
 	ASSERT_EQ(drv->num_zones, 4); /* strip + logo */
 	ASSERT_EQ(drv->num_fx, 7);
 	ASSERT_TRUE(drv->caps & ALLOY_CAP_FX_GLOBAL);
-	ASSERT_TRUE(!(drv->caps & ALLOY_CAP_FX_RAINBOW));
+	ASSERT_TRUE(drv->caps & ALLOY_CAP_ACCEL);
 }
 
 ALLOY_TEST(test_gen1_dpi_packet)

@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "driver.h"
+#include "steelseries/steelseries_common.h"
 #include "art_steelseries_rival3.h"
 
 #define R3_CMD_POLLING 0x04
@@ -287,7 +288,8 @@ static int r3_firmware_version(struct alloy_device *dev, char *buf, size_t len)
 	uint8_t resp[R3_REPORT_SIZE];
 	int n;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
+	n = steelseries_cmd_read(&dev->hid, cmd, sizeof(cmd), resp,
+				 sizeof(resp));
 	if (n < 2)
 		return -1;
 
@@ -346,9 +348,9 @@ static const struct alloy_driver_ops r3_ops = {
 		.num_zones = ALLOY_ARRAY_SIZE(r3_zones),                  \
 		.buttons = r3_buttons,                                    \
 		.num_buttons = ALLOY_ARRAY_SIZE(r3_buttons),              \
-		.caps = ALLOY_CAP_BRIGHTNESS |                            \
-			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_COLOR |    \
-			ALLOY_CAP_FX_GLOBAL,                              \
+		.caps = ALLOY_CAP_COLOR | ALLOY_CAP_BRIGHTNESS |              \
+			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_ACCEL |        \
+			ALLOY_CAP_ANGLE_SNAPPING | ALLOY_CAP_FX_GLOBAL,       \
 		.fx_names = r3_fx_names,                                  \
 		.num_fx = ALLOY_ARRAY_SIZE(r3_fx_names),                  \
 		.ascii_art = alloy_art_steelseries_rival3,                \

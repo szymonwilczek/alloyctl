@@ -18,6 +18,7 @@
 
 #include "art_steelseries_apex100.h"
 #include "driver.h"
+#include "steelseries/steelseries_common.h"
 
 #define APEX100_CMD_POLLING 0x04
 #define APEX100_CMD_BRIGHTNESS 0x05
@@ -179,7 +180,7 @@ static int apex100_firmware_version(struct alloy_device *dev, char *buf,
 		return -1;
 
 	cmd_len = apex100_build_firmware_query(cmd);
-	n = alloy_hid_cmd_read(&dev->hid, cmd, cmd_len, resp, sizeof(resp));
+	n = steelseries_cmd_read(&dev->hid, cmd, cmd_len, resp, sizeof(resp));
 	if (n < 1)
 		return -1;
 
