@@ -35,7 +35,8 @@ enum tui_color {
 	CLR_RGB_FALLBACK, /* stand-in tint on terminals without the color cube */
 	CLR_PICKER_PREVIEW,
 	CLR_PICKER_SWATCH, /* + swatch index */
-	CLR_RGB_CUBE_BASE = 48, /* 216-color cube, for true-color painting */
+	CLR_RGB_CUBE_BASE =
+		32, /* 216-color cube (32..247), fits safely in 256 pairs */
 };
 
 /* preview animation tick */
