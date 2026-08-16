@@ -6,8 +6,8 @@
  *
  * No device I/O involved.
  */
-#include "accel.h"
-#include "driver.h"
+#include "lib/accel.h"
+#include "lib/mouse.h"
 #include "test.h"
 
 static long labs_l(long v)
@@ -17,16 +17,20 @@ static long labs_l(long v)
 
 ALLOY_TEST(test_accel_from_config_clamps)
 {
-	struct alloy_config cfg = { 0 };
+	const struct alloy_driver *drv = alloy_driver_find(0x1038, 0x1824);
+	struct alloy_config *cfg = alloy_config_alloc(drv);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
 	struct alloy_accel_params p;
 
-	cfg.mouse.acceleration = 127; /* int8 max, above ALLOY_ACCEL_MAX */
-	cfg.mouse.deceleration = 0;
-	cfg.mouse.angle_snapping = 200; /* uint8, above ALLOY_SNAP_MAX */
-	alloy_accel_from_config(&cfg, &p);
+	m->acceleration = 127; /* int8 max, above ALLOY_ACCEL_MAX */
+	m->deceleration = 0;
+	m->angle_snapping = 200; /* uint8, above ALLOY_SNAP_MAX */
+	alloy_accel_from_config(cfg, &p);
 	ASSERT_EQ(p.accel, ALLOY_ACCEL_MAX);
 	ASSERT_EQ(p.decel, 0);
 	ASSERT_EQ(p.snap, ALLOY_SNAP_MAX);
+
+	alloy_config_free(cfg);
 }
 
 ALLOY_TEST(test_gain_neutral_is_unity)

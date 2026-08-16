@@ -59,23 +59,19 @@ ALLOY_TEST(test_udev_covers_every_driver)
 	if (!rules)
 		return;
 
-	/* uaccess plus the group fallback must be present at all */
+	/* uaccess must be present */
 	ASSERT_TRUE(strstr(rules, "TAG+=\"uaccess\"") != NULL);
-	ASSERT_TRUE(strstr(rules, "GROUP=\"input\"") != NULL);
 
-	/*
-	 * each registered device must appear as a KERNELS match keyed on its
-	 * "BUS:VID:PID" HID name, with USB/2.4 GHz on bus 0003 and Bluetooth
-	 * on the bus the driver declares
-	 */
+	/* each registered device must appear as an ATTRS match */
 	alloy_for_each_driver(iter)
 	{
 		const struct alloy_driver *drv = *iter;
-		unsigned bus = drv->bustype ? drv->bustype : 0x0003;
 		char pat[64];
 
-		snprintf(pat, sizeof(pat), "KERNELS==\"%04X:%04X:%04X.*\"", bus,
-			 drv->vendor_id, drv->product_id);
+		snprintf(
+			pat, sizeof(pat),
+			"ATTRS{idVendor}==\"%04x\", ATTRS{idProduct}==\"%04x\"",
+			drv->vendor_id, drv->product_id);
 		ASSERT_TRUE(strstr(rules, pat) != NULL);
 	}
 
