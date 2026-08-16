@@ -39,6 +39,10 @@ alloyctl currently supports the following SteelSeries devices on Linux:
      - USB (wired)
      - ``1038:160e``
      - :doc:`protocol/steelseries-apex100`
+   * - Dark Project ALU87A Onionite V2
+     - USB (wired)
+     - ``342d:e40f``
+     - :doc:`protocol/dark-project-alu87a-onionite-v2`
 
 Device support is modular: each device has its own dedicated driver under ``drivers/``.
 To contribute support for a new device, see :doc:`contributor/adding-a-driver`.
