@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * alloyctl - SteelSeries device configuration tool for Linux.
+ * alloyctl - Device configuration shell for Linux.
+ *
+ * Everything device-shaped is a driver's business.
+ * This file picks a device, hands the command line to whichever driver was bound,
+ * and otherwise gets out of the way.
  */
 #include <stdio.h>
 #include <string.h>
 
-#include "accel.h"
 #include "cli.h"
 #include "driver.h"
 #include "tui.h"
@@ -19,8 +22,8 @@ static void list_drivers(void)
 	alloy_for_each_driver(iter)
 	{
 		printf("  %04x:%04x  [%s]  %s\n", (*iter)->vendor_id,
-		       (*iter)->product_id,
-		       alloy_device_type_name((*iter)->type), (*iter)->name);
+		       (*iter)->product_id, alloy_driver_kind(*iter),
+		       (*iter)->name);
 	}
 }
 
@@ -36,9 +39,8 @@ static int open_selected(struct alloy_device *dev)
 
 	count = alloy_device_enumerate(cands, ALLOY_MAX_CANDIDATES);
 	if (count == 0) {
-		fprintf(stderr, "alloyctl: no compatible device found.\n"
-				"alloyctl configures SteelSeries devices only; "
-				"none is connected.\n");
+		fprintf(stderr,
+			"alloyctl: no supported device is connected.\n");
 		list_drivers();
 		return 1;
 	}
@@ -57,9 +59,8 @@ static int open_selected(struct alloy_device *dev)
 	if (alloy_device_open_id(dev, pick->vendor_id, pick->product_id)) {
 		fprintf(stderr,
 			"alloyctl: cannot open %s (%04x:%04x) - "
-			"no permission to open /dev/hidraw*?\n"
-			"Install the udev rules once with 'sudo make install' "
-			"(or 'sudo ./install.sh').\n",
+			"no permission for its device node?\n"
+			"Install the udev rules once with 'sudo make install'.\n",
 			pick->name, pick->vendor_id, pick->product_id);
 		return 1;
 	}
@@ -94,19 +95,17 @@ int main(int argc, char **argv)
 		alloy_udev_rules_write(stdout);
 		return 0;
 	}
-	if (opts.accel_stop)
-		return alloy_accel_stop(opts.vid, opts.pid) ? 1 : 0;
-	if (opts.accel_daemon)
-		return alloy_accel_daemon_run(opts.vid, opts.pid);
+	/* command registered by driver-library code, run without a device */
+	if (opts.command)
+		return opts.command->run(opts.command_arg);
 
 	if (opts.has_device) {
 		if (alloy_device_open_id(&dev, opts.vid, opts.pid)) {
 			fprintf(stderr,
 				"alloyctl: no supported device found for "
-				"%04x:%04x "
-				"(or no permission to open /dev/hidraw*; "
-				"install the udev rules with 'sudo make "
-				"install')\n",
+				"%04x:%04x (or no permission for its device "
+				"node; install the udev rules with "
+				"'sudo make install')\n",
 				opts.vid, opts.pid);
 			list_drivers();
 			return 1;
@@ -117,17 +116,20 @@ int main(int argc, char **argv)
 			return ret == 130 ? 0 : ret;
 	}
 
-	if (alloy_cli_validate(dev.drv, &opts, err_buf, sizeof(err_buf)) < 0) {
+	if (alloy_cli_bind(dev.drv, &opts, err_buf, sizeof(err_buf)) < 0) {
 		fprintf(stderr, "alloyctl: error: %s\n", err_buf);
+		alloy_cli_free(&opts);
 		alloy_device_close(&dev);
 		return 1;
 	}
 
 	if (opts.is_action) {
 		ret = alloy_cli_apply(&dev, &opts);
+		alloy_cli_free(&opts);
 		alloy_device_close(&dev);
 		return ret;
 	}
+	alloy_cli_free(&opts);
 
 	ret = alloy_tui_run(&dev);
 	alloy_device_close(&dev);
