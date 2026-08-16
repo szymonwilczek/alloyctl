@@ -74,6 +74,35 @@ struct alloy_config_common {
 	uint8_t sleep_min; /* sleep after N min idle, 0..20; 0 = never */
 };
 
+struct alloy_config;
+struct alloy_device;
+struct alloy_driver;
+
+enum alloy_cli_opt_category {
+	ALLOY_OPT_COMMON,
+	ALLOY_OPT_MOUSE,
+	ALLOY_OPT_KEYBOARD,
+	ALLOY_OPT_DRIVER_SPECIFIC,
+};
+
+struct alloy_cli_option {
+	const char *name; /* Primary flag, e.g. "--dpi", "--snap-tap" */
+	const char *alias; /* Alias, e.g. "--cpi", "--win-lock" (or NULL) */
+	const char *short_name; /* e.g. "-d", "-h", "-v", "-l" or NULL */
+	const char *arg_desc; /* e.g. "<cpi>", "[on|off]", "<0-100>" */
+	const char *help; /* Short description for --help */
+	enum alloy_cli_opt_category category;
+	uint32_t required_cap; /* ALLOY_CAP_* requirement (or 0) */
+	int has_arg; /* 0 = no arg, 1 = required arg, 2 = optional bool */
+
+	int (*parse)(const char *arg, struct alloy_config *cfg, char *err_buf,
+		     size_t err_len);
+	int (*validate)(const struct alloy_driver *drv,
+			const struct alloy_config *cfg, char *err_buf,
+			size_t err_len);
+	int (*apply)(struct alloy_device *dev, const struct alloy_config *cfg);
+};
+
 #include "keyboard_driver.h"
 #include "mouse_driver.h"
 
@@ -89,8 +118,6 @@ struct alloy_config {
 		struct alloy_config_keyboard kbd;
 	};
 };
-
-struct alloy_device;
 
 struct alloy_driver_ops {
 	/* push one aspect of the config to the device (live change) */
@@ -266,12 +293,18 @@ struct alloy_driver {
 	 */
 	const char *ascii_art;
 
+	const struct alloy_cli_option *cli_options;
+	uint8_t num_cli_options;
+
 	const struct alloy_driver_ops *ops;
 
 	/* fill cfg with the factory defaults of this device */
 	void (*config_defaults)(const struct alloy_driver *drv,
 				struct alloy_config *cfg);
 };
+
+extern const struct alloy_cli_option alloy_common_cli_options[];
+extern const size_t alloy_num_common_cli_options;
 
 /* opened, driver-bound device */
 struct alloy_device {

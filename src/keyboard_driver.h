@@ -41,6 +41,10 @@ struct alloy_config_keyboard {
 
 struct alloy_driver;
 struct alloy_config;
+struct alloy_cli_option;
+
+extern const struct alloy_cli_option alloy_keyboard_cli_options[];
+extern const size_t alloy_num_keyboard_cli_options;
 
 const char *alloy_hid_key_name(uint8_t hid_code);
 uint8_t alloy_hid_key_from_name(const char *name);

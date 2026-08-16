@@ -7,7 +7,8 @@ CFLAGS ?= -O2
 CFLAGS += -std=c11 -Wall -Wextra -Wshadow -Wmissing-prototypes \
 	  -Wstrict-prototypes -MMD -MP
 CFLAGS += $(shell $(PKG_CONFIG) --cflags ncursesw)
-CPPFLAGS += -Isrc -Ibuild
+VERSION ?= $(strip $(shell cat VERSION 2>/dev/null || echo "0.0.0"))
+CPPFLAGS += -Isrc -Ibuild -DALLOY_VERSION=\"$(VERSION)\"
 LDLIBS += $(shell $(PKG_CONFIG) --libs ncursesw)
 
 # Optional sanitizer build.
@@ -51,6 +52,7 @@ BIN := alloyctl
 PREFIX ?= /usr/local
 DESTDIR ?=
 BINDIR ?= $(PREFIX)/bin
+MANDIR ?= $(PREFIX)/share/man
 UDEVDIR ?= /usr/lib/udev/rules.d
 
 all: $(BIN)
@@ -88,8 +90,8 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
 	     $(wildcard tests/drivers/*.c) src/driver.c src/mouse_driver.c \
-	     src/keyboard_driver.c src/state.c src/accel_transform.c \
-	     src/udev.c $(wildcard drivers/*/*.c)
+	     src/keyboard_driver.c src/state.c src/cli.c \
+	     src/accel_transform.c src/udev.c $(wildcard drivers/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
 # -Itests lets cases under tests/core/ and tests/drivers/ pull in the shared
@@ -148,6 +150,11 @@ format:
 htmldocs:
 	$(MAKE) -C Documentation html
 
+# Build the manual pages with Sphinx (strict; see Documentation/Makefile).
+# Output lands in Documentation/_build/man/alloyctl.1.
+mandocs:
+	$(MAKE) -C Documentation man
+
 # Lint RST sources with sphinx-lint.
 checkdocs:
 	$(MAKE) -C Documentation lint
@@ -185,7 +192,7 @@ check-version-tag:
 		echo "check-version-tag: tag $$tag != v$$ver (VERSION)"; exit 1; \
 	fi
 
-# Install the binary and two udev rules:
+# Install the binary, manual page, and two udev rules:
 #   - 70-alloyctl-uinput.rules grants the pointer-transform daemon access to
 #     /dev/uinput and the mouse's evdev node (shipped static),
 #   - 71-alloyctl-hidraw.rules grants unprivileged /dev/hidraw* access, one
@@ -195,12 +202,14 @@ check-version-tag:
 # Reload udev afterwards; the message below says how.
 install: $(BIN)
 	install -Dm755 $(BIN) $(DESTDIR)$(BINDIR)/$(BIN)
+	install -Dm644 dist/man/alloyctl.1 $(DESTDIR)$(MANDIR)/man1/alloyctl.1
 	install -Dm644 dist/udev/70-alloyctl-uinput.rules \
 		$(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
 	install -d $(DESTDIR)$(UDEVDIR)
 	./$(BIN) --dump-udev > $(DESTDIR)$(UDEVDIR)/71-alloyctl-hidraw.rules
 	@echo
-	@echo "Installed $(BIN) to $(DESTDIR)$(BINDIR) and the udev rules."
+	@echo "Installed $(BIN) to $(DESTDIR)$(BINDIR), man page, and the udev rules."
+	@echo "  $(MANDIR)/man1/alloyctl.1 - Unix manual page"
 	@echo "  70-alloyctl-uinput.rules  - pointer-transform daemon (/dev/uinput, evdev)"
 	@echo "  71-alloyctl-hidraw.rules  - unprivileged /dev/hidraw* access, per device"
 	@echo "Activate them:  sudo udevadm control --reload && sudo udevadm trigger"
@@ -209,6 +218,7 @@ install: $(BIN)
 
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/$(BIN)
+	rm -f $(DESTDIR)$(MANDIR)/man1/alloyctl.1
 	rm -f $(DESTDIR)$(UDEVDIR)/70-alloyctl-uinput.rules
 	rm -f $(DESTDIR)$(UDEVDIR)/71-alloyctl-hidraw.rules
 
@@ -227,6 +237,6 @@ clean:
 -include $(DEPS) $(TEST_OBJS:.o=.d)
 
 .PHONY: all install uninstall packages test test-asan test-ubsan test-tsan \
-	test-valgrind check-format format htmldocs checkdocs docs-serve \
+	test-valgrind check-format format htmldocs mandocs checkdocs docs-serve \
 	check-patch codeowners check-codeowners check-version-tag clean \
 	list-drivers

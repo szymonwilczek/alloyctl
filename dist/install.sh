@@ -7,6 +7,7 @@
 # It installs three things:
 #   - the alloyctl binary (which is also the pointer-transform daemon:
 #     the TUI re-executes it with --accel-daemon),
+#   - the manual page alloyctl(1),
 #   - the udev rule that grants that daemon access to /dev/uinput and
 #     the mouse's evdev node,
 #   - udev rule for unprivileged /dev/hidraw* access, generated from the
@@ -54,6 +55,7 @@ while [ $# -gt 0 ]; do
 done
 
 BINDIR="$PREFIX/bin"
+MANDIR="$PREFIX/share/man"
 
 # Resolve paths relative to this script so it works from any working directory.
 # shellcheck disable=SC1007 # empty CDPATH scoped to this cd is intentional
@@ -74,10 +76,11 @@ reload_udev() {
 
 if [ "$action" = "uninstall" ]; then
 	rm -f "$DESTDIR$BINDIR/alloyctl"
+	rm -f "$DESTDIR$MANDIR/man1/alloyctl.1"
 	rm -f "$DESTDIR$UDEVDIR/$RULE"
 	rm -f "$DESTDIR$UDEVDIR/$HIDRAW_RULE"
 	reload_udev
-	echo "Removed alloyctl and its udev rules."
+	echo "Removed alloyctl, manual page, and its udev rules."
 	exit 0
 fi
 
@@ -91,6 +94,13 @@ if [ ! -f "$here/$RULE" ]; then
 fi
 
 install -Dm755 "$here/alloyctl" "$DESTDIR$BINDIR/alloyctl"
+if [ -f "$here/man/alloyctl.1" ]; then
+	install -Dm644 "$here/man/alloyctl.1" "$DESTDIR$MANDIR/man1/alloyctl.1"
+elif [ -f "$here/dist/man/alloyctl.1" ]; then
+	install -Dm644 "$here/dist/man/alloyctl.1" "$DESTDIR$MANDIR/man1/alloyctl.1"
+elif [ -f "$here/alloyctl.1" ]; then
+	install -Dm644 "$here/alloyctl.1" "$DESTDIR$MANDIR/man1/alloyctl.1"
+fi
 install -Dm644 "$here/$RULE" "$DESTDIR$UDEVDIR/$RULE"
 install -d "$DESTDIR$UDEVDIR"
 "$here/alloyctl" --dump-udev >"$DESTDIR$UDEVDIR/$HIDRAW_RULE"
@@ -98,7 +108,7 @@ chmod 0644 "$DESTDIR$UDEVDIR/$HIDRAW_RULE"
 reload_udev
 
 echo
-echo "Installed alloyctl to $DESTDIR$BINDIR and the udev rules"
+echo "Installed alloyctl to $DESTDIR$BINDIR, man page, and the udev rules"
 echo "($RULE, $HIDRAW_RULE)."
 echo "If udev was not reloaded above, run:"
 echo "  sudo udevadm control --reload && sudo udevadm trigger"

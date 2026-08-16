@@ -1,0 +1,213 @@
+.\" Man page generated from reStructuredText
+.\" by the Docutils 0.22.4 manpage writer.
+.
+.
+.nr rst2man-indent-level 0
+.
+.de1 rstReportMargin
+\\$1 \\n[an-margin]
+level \\n[rst2man-indent-level]
+level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+-
+\\n[rst2man-indent0]
+\\n[rst2man-indent1]
+\\n[rst2man-indent2]
+..
+.de1 INDENT
+.\" .rstReportMargin pre:
+. RS \\$1
+. nr rst2man-indent\\n[rst2man-indent-level] \\n[an-margin]
+. nr rst2man-indent-level +1
+.\" .rstReportMargin post:
+..
+.de UNINDENT
+. RE
+.\" indent \\n[an-margin]
+.\" old: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.nr rst2man-indent-level -1
+.\" new: \\n[rst2man-indent\\n[rst2man-indent-level]]
+.in \\n[rst2man-indent\\n[rst2man-indent-level]]u
+..
+.TH "ALLOYCTL" "1" "Aug 15, 2026" "0.2.1" "alloyctl"
+.SH NAME
+alloyctl \- Linux CLI to control and configure SteelSeries devices
+.SH LINUX CLI TO CONTROL AND CONFIGURE STEELSERIES DEVICES
+.SS SYNOPSIS
+.sp
+\fBalloyctl\fP [\fIOPTIONS\fP]
+.SS DESCRIPTION
+.sp
+\fBalloyctl\fP is a lightweight, dependency\-free configuration tool and full\-screen
+terminal user interface for SteelSeries mice and keyboards on Linux.
+.sp
+When invoked without device\-modifying arguments, \fBalloyctl\fP discovers connected
+devices and launches an interactive ncurses\-based dashboard allowing live adjustments
+of sensor resolution (CPI/DPI), USB polling rates, per\-zone RGB illumination,
+button remapping, Windows/Meta key lock, and onboard flash persistence.
+.sp
+When invoked with command\-line flags, \fBalloyctl\fP performs the requested
+configuration changes non\-interactively, applies them to the target hardware,
+updates the local baseline state, and exits immediately.
+.SS OPTIONS
+.SS General Options
+.INDENT 0.0
+.TP
+.B  \-h\fP,\fB  \-\-help
+Display a summary of available command\-line options, descriptions, and examples,
+then exit.
+.TP
+.B  \-v\fP,\fB  \-\-version
+Display version information and exit.
+.TP
+.B  \-l\fP,\fB  \-\-list
+List all supported SteelSeries device models, device types (mouse or keyboard),
+and their corresponding USB Vendor and Product IDs (VID:PID).
+.TP
+.BI \-d\fP,\fB  \-\-device \ <VID:PID>
+Target a specific connected device identified by hexadecimal Vendor ID and
+Product ID (for example, \fB1038:1824\fP). If omitted, \fBalloyctl\fP auto\-selects
+the connected device or presents an interactive chooser if multiple devices are attached.
+.TP
+.B  \-\-dump\-udev
+Generate standard udev rules granting unprivileged read/write access to
+supported \fB/dev/hidraw*\fP nodes for all registered drivers, then exit.
+.UNINDENT
+.SS Common Configuration Options
+.sp
+These options apply to both mouse and keyboard devices.
+.INDENT 0.0
+.TP
+.BI \-\-brightness \ <0\-100>
+Set global LED illumination brightness percentage (0 to 100).
+.TP
+.BI \-\-polling \ <hz>
+Set the USB report rate in Hertz (for example, 125, 250, 500, or 1000 Hz).
+.TP
+.BI \-\-color \ <[zone:]hex>
+Set illumination color using a 6\-character hex code (\fBRRGGBB\fP, optionally
+prefixed with \fB#\fP) or CSS 3\-character shorthand (\fBRGB\fP). An optional zero\-based
+zone index may prefix the hex code to target a specific LED zone (for example,
+\fB0:FF0000\fP for zone 0 red, or \fB00FF88\fP for all zones).
+.TP
+.BI \-\-fx \ <[zone:]mode>
+Set lighting effect mode. Supported values include \fBsteady\fP / \fBstatic\fP (mode 0),
+\fBbreath\fP / \fBbreathing\fP (mode 1), or a driver\-defined numeric mode ID. An optional
+zero\-based zone index may prefix the mode (for example, \fB1:breath\fP).
+.TP
+.B  \-\-save
+Commit the live configuration settings to the device\(aqs onboard flash memory so
+they persist across power cycles and system reboots.
+.UNINDENT
+.SS Mouse Configuration Options
+.sp
+These options apply exclusively to mouse devices. Passing them when targeting a keyboard
+will result in an error.
+.INDENT 0.0
+.TP
+.BI \-\-dpi \ <cpi>\fR,\fB \ \-\-cpi \ <cpi>
+Set the primary sensor CPI (counts per inch) resolution. The value is automatically
+clamped to the sensor\(aqs supported minimum, maximum, and step size.
+.TP
+.BI \-\-accel \ <0\-100>
+Configure host\-side pointer acceleration curve intensity (0 to 100).
+.TP
+.BI \-\-decel \ <0\-100>
+Configure host\-side pointer deceleration curve intensity (0 to 100).
+.TP
+.BI \-\-snap \ <0\-45>
+Set host\-side angle snapping threshold in degrees (0 to disable).
+.UNINDENT
+.INDENT 0.0
+.TP
+.B \-\-high\-efficiency [on|off]
+Toggle the wireless power\-saving high\-efficiency mode (supported wireless devices only).
+.UNINDENT
+.INDENT 0.0
+.TP
+.BI \-\-accel\-daemon \ <VID:PID>
+Launch the host\-side evdev pointer transform daemon in the background for the specified
+device.
+.TP
+.BI \-\-accel\-stop \ <VID:PID>
+Terminate any running host\-side pointer transform daemon for the specified device.
+.UNINDENT
+.SS Keyboard Configuration Options
+.sp
+These options apply exclusively to keyboard devices. Passing them when targeting a mouse
+will result in an error.
+.INDENT 0.0
+.TP
+.B \-\-meta\-lock [on|off], \-\-win\-lock [on|off]
+Enable or disable the Windows / Meta key lock. When enabled (\fBon\fP or \fB1\fP),
+accidental Windows key presses during gaming are suppressed in hardware.
+.UNINDENT
+.SS INTERACTIVE TUI MODE
+.sp
+Running \fBalloyctl\fP with no configuration arguments launches the full\-screen terminal interface.
+.SS Keybindings
+.INDENT 0.0
+.IP \(bu 2
+\fBTab / Shift\-Tab\fP: Navigate between panes.
+.IP \(bu 2
+\fBUp / Down / j / k\fP: Navigate settings, presets, and color palettes within the active pane.
+.IP \(bu 2
+\fBSpace / Enter\fP: Toggle checkboxes, activate presets, or select buttons.
+.IP \(bu 2
+\fBS\fP: Save live configuration to device onboard flash.
+.IP \(bu 2
+\fBQ / Ctrl\-C\fP: Quit \fBalloyctl\fP\&.
+.UNINDENT
+.SS CONFIGURATION FILES
+.sp
+State files are stored in INI format under:
+.INDENT 0.0
+.INDENT 3.5
+\fB$XDG_CONFIG_HOME/alloyctl/<vendor>_<product>.conf\fP
+(defaults to \fB~/.config/alloyctl/<vendor>_<product>.conf\fP)
+.UNINDENT
+.UNINDENT
+.sp
+These files preserve user settings across sessions and configure parameters such as
+active CPI levels, per\-zone illumination colors, polling rates, and button bindings.
+.SS EXIT STATUS
+.INDENT 0.0
+.TP
+.B 0
+Success. Requested command, configuration change, or TUI session completed cleanly.
+.TP
+.B 1
+Error. Invalid command\-line argument, invalid option value, unsupported hardware
+capability, device\-type mismatch, or missing permission to access \fB/dev/hidraw*\fP / \fB/dev/uinput\fP\&.
+.TP
+.B 130
+Interactive device selection menu was cancelled by user (SIGINT / Esc / Q).
+.UNINDENT
+.SS EXAMPLES
+.INDENT 0.0
+.TP
+.B Launch interactive TUI:
+$ alloyctl
+.TP
+.B Set DPI to 1600 and polling rate to 1000 Hz on Rival 3:
+$ alloyctl \-\-device 1038:1824 \-\-dpi 1600 \-\-polling 1000 \-\-save
+.TP
+.B Set illumination brightness to 50% and enable Windows key lock on keyboard:
+$ alloyctl \-\-brightness 50 \-\-meta\-lock on
+.TP
+.B Set LED zone 0 to green (\fB#00FF00\fP) with static effect:
+$ alloyctl \-\-color 0:00FF00 \-\-fx 0:steady
+.TP
+.B Generate udev rules for unprivileged device access:
+$ alloyctl \-\-dump\-udev | sudo tee /usr/lib/udev/rules.d/71\-alloyctl\-hidraw.rules
+$ sudo udevadm control \-\-reload && sudo udevadm trigger
+.UNINDENT
+.SS SEE ALSO
+.sp
+\fBudev\fP(7), \fBudevadm\fP(8), \fBevdev\fP(4)
+.sp
+Online documentation: <\%<https://\:github\:.com/\:szymonwilczek/\:alloyctl>>
+.SH Author
+Szymon Wilczek
+.SH Copyright
+2026, Szymon Wilczek
+.\" End of generated man page.

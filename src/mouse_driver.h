@@ -82,6 +82,10 @@ struct alloy_config_mouse {
 
 struct alloy_driver;
 struct alloy_config;
+struct alloy_cli_option;
+
+extern const struct alloy_cli_option alloy_mouse_cli_options[];
+extern const size_t alloy_num_mouse_cli_options;
 
 void alloy_config_mouse_defaults(const struct alloy_driver *drv,
 				 struct alloy_config *cfg);

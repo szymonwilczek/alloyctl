@@ -10,8 +10,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define ALLOY_VERSION "0.1.0"
-
 #define ALLOY_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 #define ALLOY_MIN(a, b) ((a) < (b) ? (a) : (b))
