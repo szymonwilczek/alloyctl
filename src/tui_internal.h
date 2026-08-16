@@ -32,14 +32,12 @@ enum tui_pane {
 /*
  * Items in the POWER pane, top to bottom.
  * SLEEP/SMART/DIM come with ALLOY_CAP_BATTERY;
- * HIGHEFF is last and present only with ALLOY_CAP_HIGH_EFFICIENCY,
- * so its absence never shifts the other indices (see tui_pane_item_count).
+ * SLEEP/SMART/DIM come with ALLOY_CAP_BATTERY.
  */
 enum tui_power_item {
 	POWER_SLEEP, /* Battery Saver: inactivity sleep timer stepper */
 	POWER_SMART, /* Smart Illum: blank LEDs while moving, toggle */
 	POWER_DIM, /* Dim Timer: dim LEDs after N s idle, stepper */
-	POWER_HIGHEFF, /* High-Efficiency Mode toggle */
 	POWER_COUNT,
 };
 
@@ -132,6 +130,7 @@ struct tui {
 	 * startup on the per-command wake-retry budget.
 	 */
 	int device_synced;
+	int probed_hw;
 
 	int quit;
 };
@@ -194,5 +193,17 @@ void tui_illum_render(struct tui *t);
 void tui_illum_handle_key(struct tui *t, int ch);
 void tui_illum_enter(struct tui *t);
 void tui_fx_global_normalize(struct tui *t, struct alloy_config *cfg);
+
+static inline int tui_has_illum_view(const struct alloy_driver *drv)
+{
+	if (!drv || drv->num_zones == 0)
+		return 0;
+	if (drv->num_zones > 1 || drv->num_fx > 1 ||
+	    (drv->caps & ALLOY_CAP_COLOR) ||
+	    (drv->caps & ALLOY_CAP_FX_REACTIVE))
+		return 1;
+
+	return 0;
+}
 
 #endif /* ALLOY_TUI_INTERNAL_H */

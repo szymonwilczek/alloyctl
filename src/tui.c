@@ -53,27 +53,20 @@ void tui_apply(struct tui *t,
 static void tui_apply_all_impl(struct tui *t, int with_dpi)
 {
 	const struct alloy_driver_ops *ops = t->drv->ops;
-	/*
-	 * while High-Efficiency is on, the mode owns polling, the illumination
-	 * level and the LED colors (it forces 125 Hz and blanks the LEDs)
-	 * do not push the user's values for those here or save/revert would fight
-	 * the mode and undo it;
-	 * the rest of the config still applies normally
-	 */
-	int high_eff = (alloy_driver_is_mouse(t->drv) &&
-			t->cfg.mouse.high_efficiency != 0);
 
 	if (with_dpi && ops->apply_dpi)
+
 		tui_apply(t, ops->apply_dpi, "dpi");
-	if (!high_eff && ops->apply_polling)
+	if (ops->apply_polling)
 		tui_apply(t, ops->apply_polling, "polling");
-	if (!high_eff && ops->apply_colors)
+	if (ops->apply_colors)
 		tui_apply(t, ops->apply_colors, "colors");
 	if ((t->drv->caps & (ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_BATTERY)) &&
-	    !high_eff && ops->apply_brightness)
+	    ops->apply_brightness)
 		tui_apply(t, ops->apply_brightness, "brightness");
 	if (ops->apply_buttons)
 		tui_apply(t, ops->apply_buttons, "buttons");
+
 	if ((t->drv->caps & ALLOY_CAP_BATTERY) && ops->apply_sleep)
 		tui_apply(t, ops->apply_sleep, "sleep");
 	if ((t->drv->caps & ALLOY_CAP_WIN_LOCK) && ops->apply_win_lock)
@@ -100,6 +93,9 @@ void tui_apply_all(struct tui *t)
  */
 int tui_save(struct tui *t)
 {
+	const char *devtype = alloy_driver_is_mouse(t->drv) ? "mouse" :
+							      "keyboard";
+
 	tui_apply_all(t);
 	if (t->drv->ops->save(t->dev)) {
 		tui_status(t, "save failed: no device ACK");
@@ -107,9 +103,10 @@ int tui_save(struct tui *t)
 	}
 	t->baseline = t->cfg;
 	if (alloy_state_store(t->drv, &t->cfg))
-		tui_status(t, "saved to mouse; baseline file not writable");
+		tui_status(t, "saved to %s; baseline file not writable",
+			   devtype);
 	else
-		tui_status(t, "saved to mouse flash + baseline");
+		tui_status(t, "saved to %s flash + baseline", devtype);
 	if (t->accel_running)
 		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
 	t->dirty = 0;
@@ -155,6 +152,18 @@ static void tui_poll_device_events(struct tui *t)
 					  sizeof(t->cfg)) != 0;
 			tui_status(t, "level %u active (mouse button)",
 				   t->cfg.mouse.dpi_active + 1);
+		} else if (alloy_driver_is_keyboard(t->drv)) {
+			t->baseline.kbd.snap_tap = t->cfg.kbd.snap_tap;
+			t->baseline.kbd.profile_active =
+				t->cfg.kbd.profile_active;
+			t->dirty = memcmp(&t->cfg, &t->baseline,
+					  sizeof(t->cfg)) != 0;
+			if (t->drv->caps & ALLOY_CAP_SNAP_TAP)
+				tui_status(t, "Snap Tap %s (keyboard shortcut)",
+					   t->cfg.kbd.snap_tap ? "ON" : "OFF");
+			if (t->drv->caps & ALLOY_CAP_PROFILE)
+				tui_status(t, "Profile %u active",
+					   t->cfg.kbd.profile_active);
 		}
 	}
 }
@@ -240,7 +249,8 @@ static void tui_sync_device(struct tui *t)
 			t->firmware[0] = '\0';
 	}
 
-	tui_apply_all_impl(t, 0);
+	if (!t->probed_hw)
+		tui_apply_all_impl(t, 0);
 	t->device_synced = 1;
 }
 
@@ -353,16 +363,18 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 {
 	switch (pane) {
 	case PANE_ACTIONS:
+		if (alloy_driver_is_keyboard(t->drv))
+			return 0;
 		/* one entry per button plus the Macro Editor LAUNCH */
 		return t->drv->num_buttons + 1;
 	case PANE_CENTER:
 		/*
 		 * ILLUMINATION gateway is all the pane offers, and it only makes
-		 * sense when the device has LED zones to edit.
-		 * Without them the pane holds nothing selectable and navigation
-		 * skips it
+		 * sense when the device has advanced / multi-zone lighting to edit.
+		 * Without it the pane holds nothing selectable and navigation
+		 * skips it.
 		 */
-		return t->drv->num_zones ? 1 : 0;
+		return tui_has_illum_view(t->drv) ? 1 : 0;
 	case PANE_LEVELS:
 		/* one item per preset plus CREATE below the limit */
 		if (!alloy_driver_is_mouse(t->drv))
@@ -370,20 +382,36 @@ int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
 		return t->cfg.mouse.dpi_count +
 		       (t->cfg.mouse.dpi_count < tui_dpi_preset_limit(t) ? 1 :
 									   0);
-	case PANE_POWER: {
+	case PANE_POWER:
 		/*
 		 * Wireless-only pane.
-		 * Empty (and skipped) on wired mice.
-		 * SLEEP/SMART/DIM ride ALLOY_CAP_BATTERY;
-		 * trailing HIGHEFF item appears only with ALLOY_CAP_HIGH_EFFICIENCY.
+		 * Empty (and skipped) on wired mice and keyboards.
 		 */
-		int n = (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_HIGHEFF : 0;
+		return (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_COUNT : 0;
 
-		if (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
-			n++;
-		return n;
-	}
 	case PANE_TUNING:
+		if (alloy_driver_is_keyboard(t->drv)) {
+			int count = 0;
+
+			if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
+				count++;
+			if (t->drv->num_polling_rates > 0)
+				count++;
+			if (t->drv->caps & ALLOY_CAP_SNAP_TAP) {
+				count++; /* Snap Tap toggle */
+				count += t->cfg.kbd.snap_tap_group_count *
+					 2; /* Keys + Mode for each group */
+				if (t->cfg.kbd.snap_tap_group_count <
+				    ALLOY_MAX_SNAP_TAP_GROUPS)
+					count++; /* Add group */
+				if (t->cfg.kbd.snap_tap_group_count > 1)
+					count++; /* Remove group */
+			}
+			if (t->drv->caps & ALLOY_CAP_PROFILE)
+				count++;
+			return count;
+		}
+
 		/*
 		 * acceleration, deceleration, angle snapping, engine, and -
 		 * only when the device exposes polling rates - the polling rate.
@@ -521,7 +549,8 @@ int alloy_tui_select_device(const struct alloy_driver *const *drivers,
 int alloy_tui_run(struct alloy_device *dev)
 {
 	struct tui t;
-	int used_defaults;
+	int probed_hw = 0;
+	int used_defaults = 0;
 	int ch;
 
 	memset(&t, 0, sizeof(t));
@@ -530,7 +559,18 @@ int alloy_tui_run(struct alloy_device *dev)
 	t.live_preview = 1;
 	t.battery_pct = -1; /* unknown until the first poll */
 
-	used_defaults = alloy_state_load(t.drv, &t.baseline);
+	/* try probing current live hardware state directly from device MCU */
+	if (t.drv->ops && t.drv->ops->read_config && tui_device_linked(&t)) {
+		if (t.drv->ops->read_config(t.dev, &t.baseline) == 0)
+			probed_hw = 1;
+	}
+
+	t.probed_hw = probed_hw;
+
+	/* if not probed from hardware, load baseline from disk / defaults */
+	if (!probed_hw)
+		used_defaults = alloy_state_load(t.drv, &t.baseline);
+
 	tui_fx_global_normalize(&t, &t.baseline);
 	t.cfg = t.baseline;
 
@@ -550,9 +590,15 @@ int alloy_tui_run(struct alloy_device *dev)
 	 */
 	tui_poll_battery(&t);
 	tui_sync_device(&t);
-	tui_status(&t, used_defaults ?
-			       "no saved baseline - using driver defaults" :
-			       "baseline loaded from disk");
+	while (tui_pane_item_count(&t, t.focus) == 0 &&
+	       t.focus < PANE_COUNT - 1)
+		t.focus++;
+	if (probed_hw)
+		tui_status(&t, "hardware state probed directly from device");
+	else if (used_defaults)
+		tui_status(&t, "no saved baseline - using driver defaults");
+	else
+		tui_status(&t, "baseline loaded from disk");
 
 	/*
 	 * both views animate the mouse portrait, so getch runs on timeout

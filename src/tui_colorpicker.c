@@ -205,6 +205,12 @@ static void picker_draw(struct tui *t, const struct picker *p, int row,
 
 static void picker_changed(struct tui *t)
 {
+	if (t->drv->caps & ALLOY_CAP_FX_GLOBAL) {
+		for (uint8_t i = 1;
+		     i < t->drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++)
+			t->cfg.common.zone_color[i] =
+				t->cfg.common.zone_color[0];
+	}
 	tui_lighting_changed(t);
 }
 

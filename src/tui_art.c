@@ -61,7 +61,7 @@ void tui_art_measure(const char *art, int *lines, int *width)
 			continue;
 		}
 		if (is_zone_marker(p) || is_info_marker(p))
-			p++; /* skip the selector; the char counts below */
+			p += 2; /* skip the selector; the char counts below */
 		else if (p[0] == '$' && p[1] == '$')
 			p++; /* literal dollar renders one cell */
 		cur++;
