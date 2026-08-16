@@ -15,6 +15,7 @@
 /scripts/	@szymonwilczek
 /defaults/	@szymonwilczek
 /Documentation/	@szymonwilczek
+/drivers/dark_project/	@szymonwilczek
 /Documentation/protocol/
 /drivers/steelseries/steelseries_common.c	@szymonwilczek
 /drivers/steelseries/steelseries_common.h	@szymonwilczek
@@ -24,7 +25,9 @@
 /Documentation/protocol/steelseries-rival3-gen2.rst	@szymonwilczek
 /Documentation/protocol/steelseries-aerox3-wireless.rst	@szymonwilczek
 /Documentation/protocol/steelseries-aerox3-wireless-bt.rst	@szymonwilczek
+/Documentation/protocol/dark-project-alu87a-onionite-v2.rst	@szymonwilczek
 /drivers/steelseries/prime/	@szymonwilczek
+/tests/drivers/dark_project/	@szymonwilczek
 /drivers/steelseries/rival3/	@szymonwilczek
 /drivers/steelseries/apex100/	@szymonwilczek
 /drivers/steelseries/rival3_gen2/	@szymonwilczek

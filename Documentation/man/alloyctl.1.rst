@@ -120,6 +120,22 @@ will result in an error.
     Enable or disable the Windows / Meta key lock. When enabled (``on`` or ``1``),
     accidental Windows key presses during gaming are suppressed in hardware.
 
+--snap-tap [on|off]
+    Toggle hardware Snap Tap / SOCD counter-strafing resolution.
+
+--profile <1-3>
+    Switch active onboard hardware profile (profile index 1 to 3).
+
+--multicolor [on|off]
+    Toggle multicolor effect mode against single-color effect mode for supported lighting
+    animations.
+
+--direction <0-3|right|left|down|up>, --angle <d>
+    Set animation direction for dynamic lighting effects (0/right, 1/left, 2/down, 3/up).
+
+--custom-zone <1-5>, --cust <1-5>
+    Select active custom lighting zone index (1 to 5).
+
 INTERACTIVE TUI MODE
 ====================
 
