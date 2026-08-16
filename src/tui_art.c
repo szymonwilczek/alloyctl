@@ -1,32 +1,32 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * ASCII art rendering with zone color markup.
+ * ASCII art rendering with paint-group markup.
  *
- * Art strings may prefix any character with "$N" (N = 1..8) to paint that single
- * character in the live color of LED zone N.
- * "$i" paints the single following character in the static "info" tint
- * (CLR_INFO, native terminal color).
- * "$$" renders literal dollar.
+ * Art strings may prefix any character with "$N" (N = 1..8) to hand that single
+ * character to the driver for coloring:
+ * the front-end calls desc->art_cell() with N - 1 as the group and the cell's
+ * position in the art.
  *
- * Markers take no cell, so the 40 column art budget counts rendered characters only.
- * Marker naming a zone the device lacks renders its character unpainted, which keeps
- * one piece of art valid across mouse variants with fewer zones.
+ * What a group means - LED zone, a key row, a battery segment - is entirely
+ * the driver's affair; this file only asks and paints.
  *
- * Zone color pairs (CLR_ZONE_BASE + zone) are maintained by the caller:
- * both the main view and the illumination view refresh them from the shared
- * animated preview (tui_zone_fx_pairs), so the same art breathes and cycles
- * on either screen.
+ * "$i" paints the single following character in the front-end's accent tint
+ * and "$$" renders a literal dollar.
+ * Markers take no cell, so the art's rendered width counts visible characters only.
+ *
+ * Art without markup is offered to the driver too, with group -1,
+ * so a device that tints its whole portrait need not mark every character.
  */
 #include "tui_internal.h"
 
-/* does the marker at p start zone paint? */
-static int is_zone_marker(const char *p)
+/* does the marker at p start a paint group? */
+static int is_group_marker(const char *p)
 {
 	return p[0] == '$' && p[1] >= '1' && p[1] <= '8' && p[2] != '\0' &&
 	       p[2] != '\n';
 }
 
-/* "$i" paints the single following character in the static info tint */
+/* "$i" paints the single following character in the accent tint */
 static int is_info_marker(const char *p)
 {
 	return p[0] == '$' && p[1] == 'i' && p[2] != '\0' && p[2] != '\n';
@@ -37,7 +37,7 @@ int tui_art_has_markup(const char *art)
 	const char *p;
 
 	for (p = art; *p; p++) {
-		if (is_zone_marker(p) || is_info_marker(p))
+		if (is_group_marker(p) || is_info_marker(p))
 			return 1;
 		if (p[0] == '$' && p[1] == '$')
 			p++;
@@ -60,7 +60,7 @@ void tui_art_measure(const char *art, int *lines, int *width)
 			cur = 0;
 			continue;
 		}
-		if (is_zone_marker(p) || is_info_marker(p))
+		if (is_group_marker(p) || is_info_marker(p))
 			p += 2; /* skip the selector; the char counts below */
 		else if (p[0] == '$' && p[1] == '$')
 			p++; /* literal dollar renders one cell */
@@ -71,25 +71,37 @@ void tui_art_measure(const char *art, int *lines, int *width)
 	*width = ALLOY_MAX(w, cur);
 }
 
-void tui_art_draw(const struct tui *t, const char *art, int y, int x, int max_y,
-		  int hl_zone)
+void tui_art_draw(struct alloy_ui *ui, const char *art, int y, int x, int max_y,
+		  int max_x)
 {
+	int (*art_cell)(struct alloy_ui *, int, int, int, long,
+			struct alloy_rgb *) = TUI_HOOK(ui, art_cell);
+	int marked = tui_art_has_markup(art);
+	long ms = tui_now_ms();
 	const char *p;
-	int zone;
+	int cur_y = y;
+	int cur_row = 0;
+	int cur_col = 0;
+	int group;
 	int info;
 
-	move(y, x);
-	for (p = art; *p && y < max_y; p++) {
+	move(cur_y, x);
+	for (p = art; *p && cur_y < max_y; p++) {
+		struct alloy_rgb rgb;
+
 		if (*p == '\n') {
-			y++;
-			move(y, x);
+			cur_y++;
+			cur_row++;
+			cur_col = 0;
+			move(cur_y, x);
 			continue;
 		}
 
-		zone = -1;
+		/* unmarked art is offered wholesale, as group -1 */
+		group = marked ? -2 : -1;
 		info = 0;
-		if (is_zone_marker(p)) {
-			zone = p[1] - '1';
+		if (is_group_marker(p)) {
+			group = p[1] - '1';
 			p += 2;
 		} else if (is_info_marker(p)) {
 			info = 1;
@@ -98,16 +110,31 @@ void tui_art_draw(const struct tui *t, const char *art, int y, int x, int max_y,
 			p++;
 		}
 
-		if (zone >= 0 && zone < t->drv->num_zones && COLORS >= 8) {
-			int attr = COLOR_PAIR(CLR_ZONE_BASE + zone);
+		if (x + cur_col >= max_x) {
+			cur_col++;
+			continue;
+		}
 
-			if (zone == hl_zone)
-				attr |= A_BOLD;
-			addch((chtype)*p | (chtype)attr);
-		} else if (info && COLORS >= 8) {
+		/*
+		 * Tab would smear the art past the pane border,
+		 * because the measured geometry counts it as one column while
+		 * the terminal expands it.
+		 * Render it as the single cell it was measured as.
+		 */
+		if (*p == '\t') {
+			addch(' ');
+			cur_col++;
+			continue;
+		}
+
+		if (info && COLORS >= 8) {
 			addch((chtype)*p | (chtype)COLOR_PAIR(CLR_INFO));
+		} else if (group != -2 && COLORS >= 8 && art_cell &&
+			   art_cell(ui, group, cur_row, cur_col, ms, &rgb)) {
+			addch((chtype)*p | (chtype)tui_rgb_attr(&rgb));
 		} else {
 			addch((chtype)*p);
 		}
+		cur_col++;
 	}
 }
