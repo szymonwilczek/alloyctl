@@ -2,8 +2,8 @@
 /*
  * SteelSeries vendor protocol helpers.
  *
- * Implements SteelSeries command framing and lighting preview
- * on top of the generic HID transport.
+ * Implements SteelSeries command ACKing, 0x40 0xFF idle filtering,
+ * and 2.4 GHz wireless wake-retry logic on top of the generic HID transport.
  */
 #include <string.h>
 #include <unistd.h>
@@ -11,113 +11,92 @@
 #include "hid.h"
 #include "steelseries/steelseries_common.h"
 
-int steelseries_cmd_read_want(struct alloy_hid_dev *dev, const uint8_t *payload,
+/*
+ * When an Aerox 3 Wireless sleeps, the 2.4 GHz receiver keeps answering
+ * queries with this 2-byte report instead of the command echo.
+ */
+static int is_idle_marker(const uint8_t *buf, ssize_t len)
+{
+	return len >= 2 && buf[0] == 0x40 && buf[1] == 0xff;
+}
+
+/*
+ * Read until a report matching @want arrives, draining any stale reports
+ * ahead of it.
+ * want < 0 accepts any non-idle report (e.g. firmware version queries).
+ */
+static int steelseries_read_matching(struct alloy_device *dev, int want,
+				     uint8_t *resp, size_t resp_len,
+				     int timeout_ms)
+{
+	uint8_t scratch[STEELSERIES_REPORT_SIZE];
+	int ret;
+
+	for (;;) {
+		ret = alloy_dev_read(dev, scratch, sizeof(scratch), timeout_ms);
+		if (ret <= 0)
+			return ret; /* -1 error, -2 timeout */
+
+		if (is_idle_marker(scratch, ret))
+			return -2; /* treat idle marker as silent / asleep */
+
+		if (want >= 0 && scratch[0] != (uint8_t)want)
+			continue; /* drain unrelated report */
+
+		memcpy(resp, scratch, ALLOY_MIN(resp_len, (size_t)ret));
+		return ret;
+	}
+}
+
+int steelseries_cmd_read_want(struct alloy_device *dev, const uint8_t *payload,
 			      size_t len, int want, uint8_t *resp,
 			      size_t resp_len, int attempts)
 {
-	return alloy_hid_cmd_read_want(dev, payload, len, want, resp, resp_len,
-				       attempts);
+	int n;
+
+	if (!dev || !payload || !len || !resp || !resp_len)
+		return -1;
+
+	for (int i = 0; i < attempts; i++) {
+		if (alloy_dev_write(dev, payload, len)) {
+			if (0)
+				return -1;
+			continue;
+		}
+
+		n = steelseries_read_matching(dev, want, resp, resp_len,
+					      STEELSERIES_ACK_TIMEOUT_MS);
+		if (n > 0)
+			return n;
+		if (n == -1) {
+			if (0)
+				return -1;
+			continue;
+		}
+		usleep(STEELSERIES_RETRY_DELAY_MS * 1000);
+	}
+	return -2;
 }
 
-int steelseries_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
+int steelseries_cmd_read(struct alloy_device *dev, const uint8_t *payload,
 			 size_t len, uint8_t *resp, size_t resp_len)
 {
-	return alloy_hid_cmd_read(dev, payload, len, resp, resp_len);
+	return steelseries_cmd_read_want(dev, payload, len, -1, resp, resp_len,
+					 STEELSERIES_ATTEMPTS_CMD);
 }
 
-int steelseries_cmd(struct alloy_hid_dev *dev, const uint8_t *payload,
+int steelseries_cmd(struct alloy_device *dev, const uint8_t *payload,
 		    size_t len)
 {
-	return alloy_hid_cmd(dev, payload, len);
-}
+	uint8_t resp[STEELSERIES_REPORT_SIZE];
+	int n;
 
-static struct alloy_rgb scale_rgb(struct alloy_rgb c, int num, int den)
-{
-	if (den <= 0)
-		return (struct alloy_rgb){ 0, 0, 0 };
-	c.r = (uint8_t)((int)c.r * num / den);
-	c.g = (uint8_t)((int)c.g * num / den);
-	c.b = (uint8_t)((int)c.b * num / den);
-	return c;
-}
+	if (!len)
+		return -1;
 
-static struct alloy_rgb hue_to_rgb(int hue)
-{
-	int h = ((hue % 360) + 360) % 360;
-	int sector = h / 60;
-	int frac = (h % 60) * 255 / 60;
-	int q = 255 - frac;
-
-	switch (sector) {
-	case 0:
-		return (struct alloy_rgb){ 255, (uint8_t)frac, 0 };
-	case 1:
-		return (struct alloy_rgb){ (uint8_t)q, 255, 0 };
-	case 2:
-		return (struct alloy_rgb){ 0, 255, (uint8_t)frac };
-	case 3:
-		return (struct alloy_rgb){ 0, (uint8_t)q, 255 };
-	case 4:
-		return (struct alloy_rgb){ (uint8_t)frac, 0, 255 };
-	default:
-		return (struct alloy_rgb){ 255, 0, (uint8_t)q };
-	}
-}
-
-struct alloy_rgb
-steelseries_preview_color(const struct alloy_driver *drv,
-			  const struct alloy_config_common *cfg, uint8_t zone,
-			  long ms)
-{
-	struct alloy_rgb c;
-	uint8_t fx;
-	long tms;
-	int freq;
-	const char *name = NULL;
-
-	if (zone >= ALLOY_MAX_LED_ZONES || (drv && zone >= drv->num_zones))
-		return (struct alloy_rgb){ 0, 0, 0 };
-
-	c = cfg->zone_color[zone];
-	fx = cfg->zone_fx[zone];
-	tms = ms * cfg->zone_fx_speed[zone] / ALLOY_FX_RATE_DEF;
-	freq = ALLOY_CLAMP(cfg->zone_fx_freq[zone], ALLOY_FX_RATE_MIN,
-			   ALLOY_FX_RATE_MAX);
-
-	if (drv && fx < drv->num_fx && drv->fx_names)
-		name = drv->fx_names[fx];
-
-	if (!name || fx == 0 || !strcmp(name, "STEADY"))
-		return c;
-
-	if (strstr(name, "SLOW"))
-		tms /= 2;
-	if (strstr(name, "FAST"))
-		tms *= 2;
-
-	if (strstr(name, "DISCO")) {
-		long bucket = tms / ALLOY_MAX(1000 / freq, 50);
-
-		return hue_to_rgb((int)((bucket * 137) % 360));
-	}
-
-	if (strstr(name, "RAINBOW")) {
-		long shift = (drv->caps & ALLOY_CAP_FX_GLOBAL) ?
-				     0 :
-				     (long)zone * freq * 30;
-		int hue = (int)((tms / 20 + shift) % 360);
-
-		return hue_to_rgb(hue);
-	}
-
-	if (strstr(name, "BREATH")) {
-		long period = 3000;
-		long phase = (tms * freq / ALLOY_FX_RATE_DEF) % period;
-		long level = phase < period / 2 ? phase * 510 / period :
-						  510 - phase * 510 / period;
-
-		return scale_rgb(c, (int)level, 255);
-	}
-
-	return c;
+	n = steelseries_cmd_read_want(dev, payload, len, payload[0], resp,
+				      sizeof(resp), STEELSERIES_ATTEMPTS_CMD);
+	if (n > 0)
+		return 0;
+	return n;
 }

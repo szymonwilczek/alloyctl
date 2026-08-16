@@ -8,7 +8,7 @@
 #ifndef STEELSERIES_COMMON_H
 #define STEELSERIES_COMMON_H
 
-#include "driver.h"
+#include "lib/mouse.h"
 
 #define STEELSERIES_VENDOR_ID 0x1038
 #define STEELSERIES_REPORT_SIZE 64
@@ -27,7 +27,7 @@
  * Returns the byte count of the matching report, -1 on I/O error, -2 when the
  * device stayed idle/silent for every attempt.
  */
-int steelseries_cmd_read_want(struct alloy_hid_dev *dev, const uint8_t *payload,
+int steelseries_cmd_read_want(struct alloy_device *dev, const uint8_t *payload,
 			      size_t len, int want, uint8_t *resp,
 			      size_t resp_len, int attempts);
 
@@ -36,7 +36,7 @@ int steelseries_cmd_read_want(struct alloy_hid_dev *dev, const uint8_t *payload,
  * report (want < 0) with the full config-write retry budget.
  * Returns the number of bytes read, or negative error as above.
  */
-int steelseries_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
+int steelseries_cmd_read(struct alloy_device *dev, const uint8_t *payload,
 			 size_t len, uint8_t *resp, size_t resp_len);
 
 /*
@@ -45,12 +45,7 @@ int steelseries_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
  * On wireless receiver whose mouse is asleep the send is re-tried to wake the link.
  * Returns 0 on ACK, -1 on I/O error and -2 when the device stayed silent.
  */
-int steelseries_cmd(struct alloy_hid_dev *dev, const uint8_t *payload,
+int steelseries_cmd(struct alloy_device *dev, const uint8_t *payload,
 		    size_t len);
-
-struct alloy_rgb
-steelseries_preview_color(const struct alloy_driver *drv,
-			  const struct alloy_config_common *cfg, uint8_t zone,
-			  long ms);
 
 #endif /* STEELSERIES_COMMON_H */
