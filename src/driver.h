@@ -22,41 +22,12 @@ enum alloy_device_type {
 	ALLOY_DEV_KEYBOARD = 1,
 };
 
-enum alloy_action_type {
-	ALLOY_ACT_DISABLED,
-	ALLOY_ACT_MOUSE, /* value: mouse button number (1-based) */
-	ALLOY_ACT_DPI_CYCLE,
-	ALLOY_ACT_SCROLL_UP,
-	ALLOY_ACT_SCROLL_DOWN,
-	ALLOY_ACT_KEYBOARD, /* value: USB HID keyboard usage ID */
-	ALLOY_ACT_MEDIA, /* value: vendor multimedia code */
-};
-
-struct alloy_action {
-	enum alloy_action_type type;
-	uint16_t value;
-};
-
-struct alloy_button {
-	const char *name; /* e.g. "Button 6 (CPI)" */
-	struct alloy_action def; /* factory mapping */
-};
-
 struct alloy_led_zone {
 	const char *name; /* e.g. "TOP" */
 	struct alloy_rgb def_color; /* factory color */
 };
 
-/* Optional feature flags advertised by driver */
-/*
- * Acceleration / deceleration / angle snapping are host-side features applied
- * by the accel daemon for every device, so these three bits are no longer
- * consulted; Kept only so the flag values stay stable.
- * TODO: Cut it out in the near future
- */
-#define ALLOY_CAP_ACCELERATION (1u << 0)
-#define ALLOY_CAP_DECELERATION (1u << 1)
-#define ALLOY_CAP_ANGLE_SNAPPING (1u << 2)
+/* Common feature flags across device classes */
 #define ALLOY_CAP_BRIGHTNESS (1u << 3)
 #define ALLOY_CAP_FIRMWARE_VERSION (1u << 4)
 
@@ -65,54 +36,10 @@ struct alloy_led_zone {
 #define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
 #define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
 #define ALLOY_CAP_FX_GLOBAL (1u << 8) /* one effect device-wide only */
-
-/*
- * Wireless devices carry a rechargeable pack and report its charge through ops->battery.
- * This is the marker of the wireless driver family.
- * Wired mice leave it clear.
- */
-#define ALLOY_CAP_BATTERY (1u << 9)
-
-/*
- * Wireless power-saver toggle:
- * Firmware trades runtime features for battery life.
- * Driven through ops->apply_high_efficiency.
- * Only meaningful alongside ALLOY_CAP_BATTERY.
- * Wired mice leave it clear.
- */
-#define ALLOY_CAP_HIGH_EFFICIENCY (1u << 10)
-
-/*
- * Driver can bind a new mouse to its own 2.4 GHz receiver (ops->pair).
- * Implies the wireless family, so it is only ever set alongside ALLOY_CAP_BATTERY.
- */
-#define ALLOY_CAP_PAIRING (1u << 11)
-
-/* Keyboard-specific capabilities */
-#define ALLOY_CAP_WIN_LOCK (1u << 12) /* Windows / Meta key lock toggle */
-
-/*
- * ops->pair sentinel.
- * The receiver bind opcode has not been reverse-engineered yet, so the stub returns
- * this instead of 0 and the UI reports the gap honestly rather than faking successful pair.
- * Drop it once ops->pair sends the real command.
- * Positive so it is distinct from 0 (started) and the negative errors.
- */
-#define ALLOY_PAIR_UNIMPLEMENTED 1
-
-/*
- * Wireless power knobs (the ALLOY_CAP_BATTERY family).
- * Ranges are inclusive.
- * sleep_min: idle minutes before the mouse sleeps, 0 = never.
- * illum_dim_s: idle seconds before the LEDs dim, 0 = off.
- * Both are inert on wired mice, which leave the driving ops NULL.
- */
-#define ALLOY_SLEEP_MIN 0
-#define ALLOY_SLEEP_MAX 20
-#define ALLOY_SLEEP_STEP 1
-#define ALLOY_SLEEP_MIN_DEFAULT 5
-#define ALLOY_ILLUM_DIM_MAX 1200
-#define ALLOY_ILLUM_DIM_STEP 15
+#define ALLOY_CAP_MULTICOLOR (1u << 15) /* Single / multicolor effect toggle */
+#define ALLOY_CAP_DIRECTION (1u << 16) /* Effect direction / angle selection */
+#define ALLOY_CAP_CUSTOM_ZONE \
+	(1u << 17) /* Per-key/sector custom lighting zones */
 
 /*
  * Per-zone effect rate knobs.
@@ -122,14 +49,6 @@ struct alloy_led_zone {
 #define ALLOY_FX_RATE_MIN 1
 #define ALLOY_FX_RATE_MAX 10
 #define ALLOY_FX_RATE_DEF 5
-
-/* Power-up lighting (ALLOY_CAP_FX_STARTUP) */
-enum alloy_startup_fx {
-	ALLOY_STARTUP_OFF,
-	ALLOY_STARTUP_REACTIVE,
-	ALLOY_STARTUP_RAINBOW,
-	ALLOY_STARTUP_REACTIVE_RAINBOW,
-};
 
 /*
  * Common configuration across all device classes.
@@ -142,6 +61,9 @@ struct alloy_config_common {
 	uint8_t zone_fx[ALLOY_MAX_LED_ZONES];
 	uint8_t zone_fx_freq[ALLOY_MAX_LED_ZONES];
 	uint8_t zone_fx_speed[ALLOY_MAX_LED_ZONES];
+	uint8_t zone_fx_multicolor[ALLOY_MAX_LED_ZONES]; /* 0: single, 1: multi */
+	uint8_t zone_fx_direction[ALLOY_MAX_LED_ZONES]; /* 0..3 */
+	uint8_t zone_fx_custom[ALLOY_MAX_LED_ZONES]; /* 0: Cust1, etc. */
 
 	/*
 	 * Wireless power knobs (ALLOY_CAP_BATTERY family).
@@ -152,49 +74,8 @@ struct alloy_config_common {
 	uint8_t sleep_min; /* sleep after N min idle, 0..20; 0 = never */
 };
 
-/*
- * Mouse-specific configuration.
- */
-struct alloy_config_mouse {
-	/* DPI presets, X/Y pairs; count in [1, dpi.max_presets] */
-	uint16_t dpi[ALLOY_MAX_DPI_PRESETS][2];
-	uint8_t dpi_count;
-	uint8_t dpi_active; /* 0-based index of active preset */
-
-	struct alloy_action buttons[ALLOY_MAX_BUTTONS];
-
-	/* only meaningful with ALLOY_CAP_FX_REACTIVE */
-	uint8_t reactive_enabled;
-	struct alloy_rgb reactive_color;
-
-	/* only meaningful with ALLOY_CAP_FX_STARTUP */
-	uint8_t startup_fx; /* enum alloy_startup_fx */
-
-	/* only meaningful with ALLOY_CAP_HIGH_EFFICIENCY; 0 = off, 1 = on */
-	uint8_t high_efficiency;
-
-	/*
-	 * Host-side pointer transform (acceleration/deceleration/angle snapping)
-	 * applied by the accel daemon, not by the device -
-	 * these are always meaningful, independent of any ALLOY_CAP_* bit.
-	 * accel_enabled is the persisted "engine on" intent.
-	 */
-	int8_t acceleration; /* 0..100 */
-	int8_t deceleration; /* 0..100 */
-	uint8_t angle_snapping; /* 0 = off, else degrees 1..45 */
-	uint8_t accel_enabled;
-};
-
-/*
- * Keyboard-specific configuration.
- */
-struct alloy_config_keyboard {
-	/*
-	 * Windows / Meta key lock toggle (ALLOY_CAP_WIN_LOCK).
-	 * 0 = normal (Win key active), 1 = locked (Win key disabled).
-	 */
-	uint8_t win_lock;
-};
+#include "keyboard_driver.h"
+#include "mouse_driver.h"
 
 /*
  * Device-independent configuration wrapper.
@@ -279,6 +160,12 @@ struct alloy_driver_ops {
 	 */
 	int (*apply_win_lock)(struct alloy_device *dev,
 			      const struct alloy_config *cfg);
+	int (*apply_snap_tap)(struct alloy_device *dev,
+			      const struct alloy_config *cfg);
+	int (*apply_profile)(struct alloy_device *dev,
+			     const struct alloy_config *cfg);
+
+	int (*read_config)(struct alloy_device *dev, struct alloy_config *cfg);
 
 	/*
 	 * Optional:
@@ -361,6 +248,8 @@ struct alloy_driver {
 	 */
 	const char *const *fx_names;
 	uint8_t num_fx;
+
+	uint8_t num_profiles; /* Number of onboard hardware profiles */
 
 	/*
 	 * Optional ASCII art of the mouse, drawn in the center pane.

@@ -147,6 +147,15 @@ static void parse_line(const struct alloy_driver *drv, struct alloy_config *cfg,
 		   idx < ALLOY_MAX_LED_ZONES) {
 		cfg->common.zone_fx_speed[idx] = (uint8_t)ALLOY_CLAMP(
 			atoi(val), ALLOY_FX_RATE_MIN, ALLOY_FX_RATE_MAX);
+	} else if (sscanf(key, "zone_multi%u", &idx) == 1 &&
+		   idx < ALLOY_MAX_LED_ZONES) {
+		cfg->common.zone_fx_multicolor[idx] = atoi(val) ? 1 : 0;
+	} else if (sscanf(key, "zone_dir%u", &idx) == 1 &&
+		   idx < ALLOY_MAX_LED_ZONES) {
+		cfg->common.zone_fx_direction[idx] = (uint8_t)atoi(val);
+	} else if (sscanf(key, "zone_custom%u", &idx) == 1 &&
+		   idx < ALLOY_MAX_LED_ZONES) {
+		cfg->common.zone_fx_custom[idx] = (uint8_t)atoi(val);
 	} else if (!strcmp(key, "fx")) {
 		for (idx = 0; idx < ALLOY_MAX_LED_ZONES; idx++)
 			cfg->common.zone_fx[idx] =
@@ -206,8 +215,33 @@ static void parse_line(const struct alloy_driver *drv, struct alloy_config *cfg,
 
 	/* Keyboard-specific keys */
 	if (alloy_driver_is_keyboard(drv)) {
-		if (!strcmp(key, "win_lock") || !strcmp(key, "meta_lock"))
+		if (!strcmp(key, "win_lock") || !strcmp(key, "meta_lock")) {
 			cfg->kbd.win_lock = atoi(val) ? 1 : 0;
+		} else if (!strcmp(key, "snap_tap")) {
+			cfg->kbd.snap_tap = atoi(val) ? 1 : 0;
+		} else if (!strcmp(key, "snap_tap_groups") ||
+			   !strcmp(key, "snap_tap_group_count")) {
+			cfg->kbd.snap_tap_group_count = (uint8_t)ALLOY_CLAMP(
+				atoi(val), 1, ALLOY_MAX_SNAP_TAP_GROUPS);
+		} else if (sscanf(key, "snap_tap%u", &idx) == 1 &&
+			   idx < ALLOY_MAX_SNAP_TAP_GROUPS) {
+			unsigned mode = 0, k1 = 0x04, k2 = 0x07;
+			if (sscanf(val, "%u:%u:%u", &mode, &k1, &k2) == 3 ||
+			    sscanf(val, "%u:%x:%x", &mode, &k1, &k2) == 3) {
+				cfg->kbd.snap_tap_groups[idx].mode =
+					(uint8_t)mode;
+				cfg->kbd.snap_tap_groups[idx].key1 =
+					(uint8_t)k1;
+				cfg->kbd.snap_tap_groups[idx].key2 =
+					(uint8_t)k2;
+				if (idx >= cfg->kbd.snap_tap_group_count)
+					cfg->kbd.snap_tap_group_count = idx + 1;
+			}
+		} else if (!strcmp(key, "profile_active") ||
+			   !strcmp(key, "profile")) {
+			cfg->kbd.profile_active =
+				(uint8_t)ALLOY_CLAMP(atoi(val), 1, 3);
+		}
 	}
 }
 
@@ -262,6 +296,12 @@ static void state_store_common(FILE *f, const struct alloy_driver *drv,
 				common->zone_fx_freq[i]);
 			fprintf(f, "zone_speed%u=%u\n", i,
 				common->zone_fx_speed[i]);
+			if (drv->caps & ALLOY_CAP_MULTICOLOR)
+				fprintf(f, "zone_multi%u=%u\n", i,
+					common->zone_fx_multicolor[i]);
+			if (drv->caps & ALLOY_CAP_DIRECTION)
+				fprintf(f, "zone_dir%u=%u\n", i,
+					common->zone_fx_direction[i]);
 		}
 	}
 	fprintf(f, "brightness=%u\n", common->brightness);
@@ -312,8 +352,24 @@ static void state_store_mouse(FILE *f, const struct alloy_driver *drv,
 static void state_store_keyboard(FILE *f, const struct alloy_driver *drv,
 				 const struct alloy_config_keyboard *kbd)
 {
+	uint8_t i;
+
 	if (drv->caps & ALLOY_CAP_WIN_LOCK)
 		fprintf(f, "win_lock=%u\n", kbd->win_lock ? 1 : 0);
+	if (drv->caps & ALLOY_CAP_SNAP_TAP) {
+		fprintf(f, "snap_tap=%u\n", kbd->snap_tap ? 1 : 0);
+		fprintf(f, "snap_tap_groups=%u\n", kbd->snap_tap_group_count);
+		for (i = 0; i < kbd->snap_tap_group_count &&
+			    i < ALLOY_MAX_SNAP_TAP_GROUPS;
+		     i++) {
+			fprintf(f, "snap_tap%u=%u:%02x:%02x\n", i,
+				kbd->snap_tap_groups[i].mode,
+				kbd->snap_tap_groups[i].key1,
+				kbd->snap_tap_groups[i].key2);
+		}
+	}
+	if (drv->caps & ALLOY_CAP_PROFILE)
+		fprintf(f, "profile_active=%u\n", kbd->profile_active);
 }
 
 int alloy_state_store(const struct alloy_driver *drv,
