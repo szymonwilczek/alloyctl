@@ -8,8 +8,8 @@ CFLAGS += -std=c11 -Wall -Wextra -Wshadow -Wmissing-prototypes \
 	  -Wstrict-prototypes -MMD -MP
 CFLAGS += $(shell $(PKG_CONFIG) --cflags ncursesw)
 VERSION ?= $(strip $(shell cat VERSION 2>/dev/null || echo "0.0.0"))
-CPPFLAGS += -Isrc -Ibuild -Idrivers -DALLOY_VERSION=\"$(VERSION)\"
-LDLIBS += $(shell $(PKG_CONFIG) --libs ncursesw)
+CPPFLAGS += -Isrc -Ibuild -Idrivers -Idrivers/lib -DALLOY_VERSION=\"$(VERSION)\"
+LDLIBS += $(shell $(PKG_CONFIG) --libs ncursesw) -lm
 
 # Optional sanitizer build.
 # Set SANITIZE=address,undefined (or thread) to rebuild every object under the chosen sanitizer;
@@ -92,8 +92,8 @@ build/default_art.h: defaults/mouse.txt tools/txt2c.sh
 # (the runner walks linker section, see tests/test.h).
 TEST_SRCS := $(wildcard tests/*.c) $(wildcard tests/core/*.c) \
 	     $(wildcard tests/drivers/*.c) $(wildcard tests/drivers/*/*.c) \
-	     src/driver.c src/mouse_driver.c src/keyboard_driver.c src/state.c \
-	     src/cli.c src/accel_transform.c src/udev.c \
+	     src/driver.c src/state.c src/cli.c src/udev.c src/ui.c \
+	     src/hid_transport.c \
 	     $(wildcard drivers/*/*.c) $(wildcard drivers/*/*/*.c)
 TEST_OBJS := $(patsubst %.c,build/test/%.o,$(TEST_SRCS))
 
@@ -104,7 +104,7 @@ build/test/%.o: %.c build/default_art.h $(ALL_ART_HDRS)
 	$(CC) $(CPPFLAGS) -Itests $(CFLAGS) -c -o $@ $<
 
 build/test/run-tests: $(TEST_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@ $(TEST_OBJS) -lm
 
 test: build/test/run-tests
 	./build/test/run-tests
