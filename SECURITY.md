@@ -28,7 +28,7 @@ Include, as far as you can:
 ## Supported versions
 
 alloyctl is pre-1.0 and ships from a single line of development. Security fixes
-land on `alloy-next` and go out in the next release; there are no separate
+land on `main` and go out in the next release; there are no separate
 maintenance branches for older versions yet. Always test against the latest
 release before reporting.
 

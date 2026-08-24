@@ -7,9 +7,8 @@ name: Release
 # this builds it, hashes the artifacts into a SHA256SUMS manifest, signs that manifest
 # with cosign keyless (Sigstore OIDC, no secrets), and publishes GitHub Release.
 #
-# Tag whose commit is on alloy-next but not yet on main (or any tag with pre-release
-# suffix such as -rc1) is published as pre-release.
-# Once the same commit is part of main it publishes as a normal release.
+# Any tag carrying a pre-release suffix such as -rc1 is published as a pre-release.
+# Standard tags publish as a normal release.
 #
 # Only the maintainer pushes tags, so only the maintainer cuts releases.
 
@@ -98,18 +97,11 @@ jobs:
         run: |
           set -eu
 
-          # pre-release unless the tagged commit is already part of main
-          # -rc (or any suffix) tag is always pre-release
-          git fetch --no-tags --quiet origin main || true
-          prerelease="--prerelease"
+          # pre-release if tag contains a pre-release suffix such as -rc1
+          prerelease=""
           ver="${TAG#v}"
           case "$ver" in
             *-*) prerelease="--prerelease" ;;
-            *)
-              if git merge-base --is-ancestor "$GITHUB_SHA" FETCH_HEAD 2>/dev/null; then
-                prerelease=""
-              fi
-              ;;
           esac
 
           body="$(git log -1 --format=%b "$GITHUB_SHA" \

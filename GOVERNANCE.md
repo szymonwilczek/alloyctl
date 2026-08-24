@@ -42,7 +42,7 @@ of a file, not the tree.
 
 Anyone who opens a pull request. Contributors do not need to be maintainers or
 collaborators; every change is welcome through the normal pull-request flow onto
-`alloy-next`.
+`main`.
 
 ### Collaborator (earned)
 
@@ -57,7 +57,7 @@ author is a maintainer immediately (responsibility) but not a collaborator
 
 ## Driver lifecycle
 
-- **New driver.** Lands on `alloy-next` through a pull request that adds the
+- **New driver.** Lands on `main` through a pull request that adds the
   driver, its tests, its protocol notes, a `Maintainer:` header line, and a
   `MAINTAINERS` entry with `S: Maintained` or `S: Odd Fixes`.
 - **Handover.** A maintainer may pass the role on by changing the `M:` line in a
@@ -70,12 +70,12 @@ author is a maintainer immediately (responsibility) but not a collaborator
 
 ## Decisions and reviews
 
-- Development happens on `alloy-next`; `main` carries only released code.
+- Development happens on `main` through pull requests; release tags are cut directly on `main`.
 - A pull request that touches a driver should be reviewed by that driver's
   maintainer. The lead makes the final merge decision and performs the merge.
 - Disagreements are resolved by discussion; if consensus is not reached, the
   lead decides.
-- Promotion of `alloy-next` to `main`, and every release tag, is done by the
+- Merging pull requests to `main`, and every release tag, is done by the
   lead alone.
 
 ## Changing this document

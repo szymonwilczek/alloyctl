@@ -5,55 +5,33 @@
 Branch model and releases
 =========================
 
-alloyctl uses a two-branch model:
+alloyctl follows the standard GitHub Flow model centered around the ``main`` branch:
 
-``main``
-    Stable, released code only. ``main`` is the default branch, so it is the
-    first thing a visitor sees, and every commit on it corresponds to a
-    published release.
-
-``alloy-next``
-    The integration branch. **All development lands here first.** New drivers,
-    fixes, and documentation are merged into ``alloy-next``, shaken out, and
-    only then promoted to ``main``.
+The primary development and release branch. All pull requests are opened against
+and merged into ``main``. Every release tag points to a commit on ``main``.
 
 Where to open pull requests
 ===========================
 
-Open every pull request against ``alloy-next``.
+Open every pull request directly against ``main``.
 
-``main`` is the default branch, so GitHub will offer it first; if you open a
-pull request against ``main`` by mistake, the ``PR router`` workflow
-automatically retargets it to ``alloy-next`` and leaves a comment. If that
-surfaces conflicts, rebase your branch onto ``alloy-next`` and force-push.
-
-Promotion to ``main`` happens through a single ``alloy-next`` -> ``main`` pull
-request that **only the maintainer opens**. A contributor never merges into
-``main`` directly.
+Feature branches (such as ``driver/<name>``, ``feat/<name>``, or ``fix/<name>``)
+should be branched off the latest ``main`` and kept up to date via rebase.
 
 Releases
 ========
 
-Releases are cut by the maintainer pushing a signed tag; nobody else publishes
-releases. The version lives in the bare ``VERSION`` file at the repository
-root, and a tag must equal ``v`` + that file (``make check-version-tag``
-enforces it). The single portable ``alloyctl`` binary is the release artifact,
-so one build serves every distribution.
+Releases are cut by the maintainer pushing a signed tag on ``main``; nobody else publishes
+releases. The version lives in the bare ``VERSION`` file at the repository root, and a
+tag must equal ``v`` + that file (``make check-version-tag`` enforces it). The single
+portable ``alloyctl`` binary is the release artifact, so one build serves every distribution.
 
-Pushing a ``vX.Y.Z`` tag triggers the ``Release`` workflow, which builds the
-binary, writes a ``SHA256SUMS`` manifest, signs it with cosign keyless, and
-publishes a GitHub Release. Whether it is a pre-release depends on the branch
-the tag sits on:
+Pushing a ``vX.Y.Z`` tag triggers the ``Release`` workflow, which builds the binary,
+writes a ``SHA256SUMS`` manifest, signs it with cosign keyless, and publishes a GitHub
+Release:
 
 Pre-release
-    A tag whose commit is on ``alloy-next`` but not yet on ``main`` (or any tag
-    carrying a ``-rc`` suffix) publishes as a **pre-release**. This is how an
-    integration build is shared for testing.
+    Any tag carrying a pre-release suffix (such as ``-rc1``) publishes as a **pre-release**.
 
 Release
-    Once ``alloy-next`` is promoted to ``main`` and the tag's commit is part of
-    ``main``, the same tag publishes as a normal release.
-
-So the typical flow is: land pull requests on ``alloy-next``, maintainer tag release
-candidates there as pre-releases, and when a candidate is solid, maintainer promotes
-``alloy-next`` to ``main`` and tags the final version there.
+    Standard release tags (such as ``v0.3.0``) publish as a normal public release.

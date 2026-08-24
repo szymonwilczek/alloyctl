@@ -6,7 +6,6 @@
 
 ## Checklist
 
-- [ ] This PR targets **`alloy-next`**, not `main`.
 - [ ] `make format` run; `make test` passes.
 - [ ] Commits are `feat:` / `fix:`, each with a body and a `Signed-off-by:`
       (DCO) trailer.

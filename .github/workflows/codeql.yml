@@ -7,9 +7,9 @@ name: CodeQL
 # plus weekly scheduled scan so newly published queries reach existing code.
 on:
   push:
-    branches: [main, alloy-next]
+    branches: [main]
   pull_request:
-    branches: [main, alloy-next]
+    branches: [main]
   schedule:
     - cron: '27 3 * * 1'
 
