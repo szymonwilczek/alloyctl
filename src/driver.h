@@ -2,320 +2,283 @@
 /*
  * Driver model.
  *
- * One file under drivers/ describes one mouse:
- * its USB identity, its capabilities (DPI range, LED zones, remappable buttons,
- * polling rates) and the operations that translate device-independent struct
- * alloy_config into vendor HID packets.
+ * Core knows that a driver exists, how to reach its device, and how to ask it
+ * to do things by name. It knows nothing else.
+ * There is no notion here of a mouse or a keyboard, of DPI, brightness, polling,
+ * lighting, batteries or actuation points - not even of a "capability",
+ * because naming one would mean guessing what devices can do.
  *
- * Drivers register themselves with ALLOY_DRIVER_REGISTER().
- * Registry is dedicated ELF section collected by the linker, so adding support
- * for new mouse never touches core code.
+ * Driver declares:
+ *
+ *	config_size	how many bytes of settings it owns (opaque to the core)
+ *	transport	how packets reach the device (hidraw by default)
+ *	apply_steps[]	named operations that push part of those settings
+ *	cli_options[]	command-line flags, with their own parse and apply
+ *	ui		front-end description: screens, panes, controls
+ *	ops		the few lifecycle hooks that mean the same for anything
+ *
+ * Everything a device can do is expressed through those.
+ * Adding support for a device nobody anticipated is one new file under drivers/
+ * and no core change at all.
+ *
+ * Code shared between drivers (conventional configuration layouts, a mouse
+ * or keyboard front-end, a lighting screen) lives under drivers/lib/
+ * and is strictly opt-in: a driver for an unheard-of device may use none of it.
  */
 #ifndef ALLOY_DRIVER_H
 #define ALLOY_DRIVER_H
 
 #include "alloy.h"
-#include "hid.h"
-
-enum alloy_device_type {
-	ALLOY_DEV_MOUSE = 0,
-	ALLOY_DEV_KEYBOARD = 1,
-};
-
-struct alloy_led_zone {
-	const char *name; /* e.g. "TOP" */
-	struct alloy_rgb def_color; /* factory color */
-};
-
-/* Common feature flags across device classes */
-#define ALLOY_CAP_BRIGHTNESS (1u << 3)
-#define ALLOY_CAP_FIRMWARE_VERSION (1u << 4)
-
-/* Lighting effects the hardware can run on its own */
-#define ALLOY_CAP_FX_RAINBOW (1u << 5) /* per-zone rainbow cycle */
-#define ALLOY_CAP_FX_REACTIVE (1u << 6) /* flash color on click */
-#define ALLOY_CAP_FX_STARTUP (1u << 7) /* power-up lighting choice */
-#define ALLOY_CAP_FX_GLOBAL (1u << 8) /* one effect device-wide only */
-#define ALLOY_CAP_COLOR (1u << 13) /* Full RGB color customization supported */
-#define ALLOY_CAP_FX_FREQ (1u << 14) /* Effect frequency knob supported */
-#define ALLOY_CAP_FX_SPEED (1u << 15) /* Effect speed knob supported */
-#define ALLOY_CAP_MULTICOLOR (1u << 18) /* Single / multicolor effect toggle */
-#define ALLOY_CAP_DIRECTION (1u << 19) /* Effect direction / angle selection */
-#define ALLOY_CAP_CUSTOM_ZONE \
-	(1u << 20) /* Per-key/sector custom lighting zones */
-
-/*
- * Per-zone effect rate knobs.
- * Frequency is how many cycles one period packs, speed is the tempo the
- * animation runs at; both are unitless steps the driver maps best-effort.
- */
-#define ALLOY_FX_RATE_MIN 1
-#define ALLOY_FX_RATE_MAX 10
-#define ALLOY_FX_RATE_DEF 5
-
-/*
- * Common configuration across all device classes.
- */
-struct alloy_config_common {
-	uint16_t polling_hz;
-	uint8_t brightness; /* 0-100 */
-
-	struct alloy_rgb zone_color[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_fx[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_fx_freq[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_fx_speed[ALLOY_MAX_LED_ZONES];
-	uint8_t zone_fx_multicolor[ALLOY_MAX_LED_ZONES]; /* 0: single, 1: multi */
-	uint8_t zone_fx_direction[ALLOY_MAX_LED_ZONES]; /* 0..3 */
-	uint8_t zone_fx_custom[ALLOY_MAX_LED_ZONES]; /* 0: Cust1, etc. */
-
-	/*
-	 * Wireless power knobs (ALLOY_CAP_BATTERY family).
-	 * Inert on wired devices.
-	 */
-	uint8_t illum_smart; /* 0/1: blank LEDs while device is moving/active */
-	uint16_t illum_dim_s; /* dim LEDs after N s idle, 0..1200; 0 = off */
-	uint8_t sleep_min; /* sleep after N min idle, 0..20; 0 = never */
-};
+#include "ui.h"
 
 struct alloy_config;
 struct alloy_device;
 struct alloy_driver;
 
-enum alloy_cli_opt_category {
-	ALLOY_OPT_COMMON,
-	ALLOY_OPT_MOUSE,
-	ALLOY_OPT_KEYBOARD,
-	ALLOY_OPT_DRIVER_SPECIFIC,
+/*
+ * Configuration
+ * Bag of bytes the driver owns.
+ * Core allocates it, copies it, compares it and asks the driver to serialize it,
+ * and never looks inside.
+ */
+
+struct alloy_config *alloy_config_alloc(const struct alloy_driver *drv);
+void alloy_config_free(struct alloy_config *cfg);
+void alloy_config_copy(struct alloy_config *dst,
+		       const struct alloy_config *src);
+int alloy_config_equal(const struct alloy_config *a,
+		       const struct alloy_config *b);
+void *alloy_config_data(struct alloy_config *cfg);
+const void *alloy_config_data_c(const struct alloy_config *cfg);
+const struct alloy_driver *alloy_config_driver(const struct alloy_config *cfg);
+
+/* Typed view of the block, for driver code */
+#define ALLOY_CFG(cfg, type) ((type *)alloy_config_data(cfg))
+#define ALLOY_CFG_C(cfg, type) ((const type *)alloy_config_data_c(cfg))
+
+/* Callback handed to a driver's state writer */
+typedef void (*alloy_state_emit_fn)(void *ctx, const char *key,
+				    const char *val);
+
+/*
+ * How packets reach the device.
+ * The default speaks Linux hidraw and is configured through a driver-supplied
+ * parameter block (see hid.h).
+ * Driver whose device wants something else supplies its own table and the core
+ * is none the wiser.
+ */
+struct alloy_transport {
+	const char *name;
+
+	/* is a device this driver binds currently connected? */
+	int (*present)(const struct alloy_driver *drv);
+	/* bind the config channel; returns 0 on success */
+	int (*open)(struct alloy_device *dev, const struct alloy_driver *drv);
+	/* bind the unsolicited-event channel, if the driver has one */
+	int (*open_events)(struct alloy_device *dev,
+			   const struct alloy_driver *drv);
+	void (*close)(struct alloy_device *dev);
+
+	int (*write)(struct alloy_device *dev, const uint8_t *buf, size_t len);
+	int (*read)(struct alloy_device *dev, uint8_t *buf, size_t len,
+		    int timeout_ms);
+	/* non-blocking read from the event channel */
+	int (*poll_event)(struct alloy_device *dev, uint8_t *buf, size_t len);
+
+	int (*send_feature)(struct alloy_device *dev, const uint8_t *buf,
+			    size_t len);
+	int (*get_feature)(struct alloy_device *dev, uint8_t *buf, size_t len);
+
+	/*
+	 * Optional: describe the device nodes this driver needs access to,
+	 * for the generated udev rules.
+	 * Returns the number of lines written.
+	 */
+	size_t (*udev_rules)(const struct alloy_driver *drv, char *buf,
+			     size_t len);
+};
+
+/* The default: Linux hidraw (src/hid_transport.c) */
+extern const struct alloy_transport alloy_hid_transport;
+
+/* not pushed by the one-shot startup handshake */
+#define ALLOY_APPLY_SKIP_SYNC (1u << 0)
+/*
+ * Never pushed in bulk, only by name - for writes whose side effects make
+ * replaying them on every save a bad idea.
+ */
+#define ALLOY_APPLY_MANUAL (1u << 1)
+
+/*
+ * One thing the device can be told.
+ * @name is the driver's own vocabulary; the front-end and the driver's own UI
+ * push by name, so an aspect nobody anticipated is saved, reverted and previewed
+ * without the core ever learning what it is.
+ */
+struct alloy_apply_step {
+	const char *name;
+	uint32_t flags;
+	int (*fn)(struct alloy_device *dev, const struct alloy_config *cfg);
 };
 
 struct alloy_cli_option {
-	const char *name; /* Primary flag, e.g. "--dpi", "--snap-tap" */
-	const char *alias; /* Alias, e.g. "--cpi", "--win-lock" (or NULL) */
-	const char *short_name; /* e.g. "-d", "-h", "-v", "-l" or NULL */
-	const char *arg_desc; /* e.g. "<cpi>", "[on|off]", "<0-100>" */
-	const char *help; /* Short description for --help */
-	enum alloy_cli_opt_category category;
-	uint32_t required_cap; /* ALLOY_CAP_* requirement (or 0) */
-	int has_arg; /* 0 = no arg, 1 = required arg, 2 = optional bool */
+	const char *name; /* primary flag, e.g. "--dpi" */
+	const char *alias; /* alias, e.g. "--cpi" (or NULL) */
+	const char *short_name; /* e.g. "-b" (or NULL) */
+	const char *arg_desc; /* e.g. "<cpi>", "[on|off]" */
+	const char *help; /* short description for --help */
+	int has_arg; /* 0 = none, 1 = required, 2 = optional */
 
-	int (*parse)(const char *arg, struct alloy_config *cfg, char *err_buf,
-		     size_t err_len);
+	/* optional: hide the flag on devices that do not offer it */
+	int (*available)(const struct alloy_driver *drv);
+
+	int (*parse)(const struct alloy_driver *drv, const char *arg,
+		     struct alloy_config *cfg, char *err_buf, size_t err_len);
 	int (*validate)(const struct alloy_driver *drv,
 			const struct alloy_config *cfg, char *err_buf,
 			size_t err_len);
+	/* push it; NULL falls back to the apply step named by @apply_step */
 	int (*apply)(struct alloy_device *dev, const struct alloy_config *cfg);
+	const char *apply_step;
 };
-
-#include "keyboard_driver.h"
-#include "mouse_driver.h"
 
 /*
- * Device-independent configuration wrapper.
- * Front-ends edit this structure and hand it to the driver ops for translation
- * to the wire format.
+ * A group of flags.
+ * A driver lists the tables it wants, so it can splice in a shared table from
+ * drivers/lib/ and add one of its own without either having to know about
+ * the other.
  */
-struct alloy_config {
-	struct alloy_config_common common;
-	union {
-		struct alloy_config_mouse mouse;
-		struct alloy_config_keyboard kbd;
-	};
+struct alloy_cli_table {
+	const struct alloy_cli_option *options;
+	uint8_t count;
 };
 
+/*
+ * A standalone command that runs without binding a device.
+ * Registered from anywhere, including driver-library code,
+ * so the core needs no built-in vocabulary for daemons, helpers or diagnostics.
+ * @run returns the process exit status.
+ */
+struct alloy_cli_command {
+	const char *name; /* e.g. "--accel-daemon" */
+	const char *arg_desc;
+	const char *help;
+	int has_arg;
+	int (*run)(const char *arg);
+};
+
+#define ALLOY_COMMAND_REGISTER(cmd)                                  \
+	static const struct alloy_cli_command *__alloy_command_##cmd \
+		__attribute__((used, section("alloy_commands"))) = &(cmd)
+
+const struct alloy_cli_command *const *alloy_command_first(void);
+const struct alloy_cli_command *const *alloy_command_last(void);
+
+#define alloy_for_each_command(iter) \
+	for (iter = alloy_command_first(); iter < alloy_command_last(); iter++)
+
+/*
+ * The handful of operations that mean the same thing whatever the device is.
+ * All optional.
+ */
 struct alloy_driver_ops {
-	/* push one aspect of the config to the device (live change) */
-	int (*apply_dpi)(struct alloy_device *dev,
-			 const struct alloy_config *cfg);
-	int (*apply_polling)(struct alloy_device *dev,
-			     const struct alloy_config *cfg);
-	int (*apply_colors)(struct alloy_device *dev,
-			    const struct alloy_config *cfg);
-	int (*apply_brightness)(struct alloy_device *dev,
-				const struct alloy_config *cfg);
-	int (*apply_buttons)(struct alloy_device *dev,
-			     const struct alloy_config *cfg);
+	/* fill @cfg with this device's factory defaults */
+	void (*config_defaults)(const struct alloy_driver *drv,
+				struct alloy_config *cfg);
 
-	/*
-	 * Optional (ALLOY_CAP_HIGH_EFFICIENCY):
-	 * drive the wireless power-saver toggle from cfg->high_efficiency.
-	 * Mode is device-defined bundle, so enabling it may also force other
-	 * registers (polling, brightness).
-	 * Disabling restores them from cfg.
-	 * Wired mice leave this NULL.
-	 */
-	int (*apply_high_efficiency)(struct alloy_device *dev,
-				     const struct alloy_config *cfg);
-
-	/*
-	 * Optional (wireless, ALLOY_CAP_BATTERY family):
-	 * push the idle sleep timer from cfg->sleep_min.
-	 * Wired mice leave NULL.
-	 */
-	int (*apply_sleep)(struct alloy_device *dev,
-			   const struct alloy_config *cfg);
-
-	/* commit live configuration to onboard flash */
+	/* commit the live configuration to onboard storage */
 	int (*save)(struct alloy_device *dev);
 
-	/* optional: NUL-terminated firmware version string */
+	/* read the full hardware state back into @cfg */
+	int (*read_config)(struct alloy_device *dev, struct alloy_config *cfg);
+
+	/*
+	 * Parse one unsolicited report from the event channel.
+	 * Returns 1 when @cfg was updated to reflect a device-initiated change.
+	 */
+	int (*parse_event)(struct alloy_device *dev, const uint8_t *buf,
+			   size_t len, struct alloy_config *cfg);
+
+	/* NUL-terminated firmware version string */
 	int (*firmware_version)(struct alloy_device *dev, char *buf,
 				size_t len);
 
 	/*
-	 * Optional (wireless devices, ALLOY_CAP_BATTERY):
-	 * Read the battery gauge.
-	 * Fills *percent (0-100) and *charging (0 or 1) and returns 0 on success.
-	 * Negative when the device reports no valid level - e.g 2.4 GHz receiver
-	 * whose mouse is asleep or not linked answers with an idle marker, not a charge.
+	 * Persistence.
+	 * state_save() emits key/value pairs; state_load() is offered every key
+	 * in the file and returns 1 when it consumed one; state_done() runs once
+	 * the whole file has been read.
 	 */
-	int (*battery)(struct alloy_device *dev, int *percent, int *charging);
-
-	/*
-	 * Optional (ALLOY_CAP_PAIRING):
-	 * begin binding a new mouse to the 2.4 GHz receiver - put the dongle into
-	 * pairing/listen mode over USB so a mouse doing the CPI + 2.4 GHz gesture
-	 * binds to it.
-	 * This host-side step is what GG performs on "Begin Pairing";
-	 * Mouse gesture alone does not complete the bind.
-	 * Returns 0 once the request is accepted, ALLOY_PAIR_UNIMPLEMENTED while the
-	 * opcode is still unmapped, negative on error.
-	 * Whether a mouse actually bound is observed separately,
-	 * via the link/battery coming up afterwards.
-	 */
-	int (*pair)(struct alloy_device *dev);
-
-	/*
-	 * Optional (keyboards, ALLOY_CAP_WIN_LOCK):
-	 * toggle Windows / Meta key lock from cfg->win_lock_enabled
-	 */
-	int (*apply_win_lock)(struct alloy_device *dev,
-			      const struct alloy_config *cfg);
-	int (*apply_snap_tap)(struct alloy_device *dev,
-			      const struct alloy_config *cfg);
-	int (*apply_profile)(struct alloy_device *dev,
-			     const struct alloy_config *cfg);
-
-	int (*read_config)(struct alloy_device *dev, struct alloy_config *cfg);
-
-	/*
-	 * Optional:
-	 * parse one unsolicited report from the driver's event interface
-	 * (see alloy_driver.event_interface).
-	 * Returns 1 when cfg was updated to reflect a device-initiated change
-	 * (e.g. the hardware CPI button switching the active level),
-	 * 0 when the report is not recognized event.
-	 */
-	int (*parse_event)(const uint8_t *buf, size_t len,
+	void (*state_save)(const struct alloy_driver *drv,
+			   const struct alloy_config *cfg, void *ctx,
+			   alloy_state_emit_fn emit);
+	int (*state_load)(const struct alloy_driver *drv,
+			  struct alloy_config *cfg, const char *key,
+			  const char *val);
+	void (*state_done)(const struct alloy_driver *drv,
 			   struct alloy_config *cfg);
 };
 
 struct alloy_driver {
-	const char *name;
-	enum alloy_device_type type;
+	const char *name; /* shown to the user */
+	/*
+	 * Free-form label the driver picks for its own kind of device
+	 * ("mouse", "keyboard", "headset", ...).
+	 * Core only ever prints it.
+	 */
+	const char *kind;
+
 	uint16_t vendor_id;
 	uint16_t product_id;
-	int interface; /* USB interface carrying config reports */
+
+	/* NULL selects alloy_hid_transport */
+	const struct alloy_transport *transport;
+	/* parameter block the chosen transport understands */
+	const void *transport_data;
+
+	/* bytes of driver-owned configuration */
+	size_t config_size;
+
 	/*
-	 * USB interface streaming unsolicited device events;
-	 * only consulted when ops->parse_event is set.
+	 * Opaque pointer the core never touches, for whatever code the driver
+	 * shares with: a library under drivers/lib/ uses it to find the metadata
+	 * a driver publishes for it.
 	 */
-	int event_interface;
+	const void *data;
 
 	/*
-	 * HID bus this driver binds on:
-	 * 0 (default) is USB/2.4 GHz - matched and opened by vendor/product on
-	 * the given interface.
-	 * 0x05 is Bluetooth - the mouse speaks HID-over-GATT, so it is matched
-	 * and opened by product_id alone on the single hidraw node the BLE stack
-	 * exposes (vendor and interface do not apply), and config rides the numbered
-	 * Output report named by report_id below.
-	 */
-	uint16_t bustype;
-	/*
-	 * Report number prefixed to every vendor write.
-	 * 0 (default) for the USB path's single unnumbered report;
-	 * the real Output report id for a Bluetooth (bustype 0x05) driver.
-	 */
-	uint8_t report_id;
-
-	/*
-	 * Wireless devices only:
-	 * HID product id this mouse enumerates as over Bluetooth (bus 0x05),
-	 * used purely to light the connection indicator when the mouse is paired
-	 * to the host over BT.
-	 * 0 = the driver does not track a Bluetooth link.
-	 */
-	uint16_t bt_product_id;
-
-	/* Vendor report payload size;
-	 * 0 selects the 64-byte default */
-	uint16_t report_size;
-
-	struct {
-		uint16_t min;
-		uint16_t max;
-		uint16_t step;
-		uint8_t max_presets;
-	} dpi;
-
-	const uint16_t *polling_rates; /* descending, Hz */
-	uint8_t num_polling_rates;
-
-	const struct alloy_led_zone *zones;
-	uint8_t num_zones;
-
-	const struct alloy_button *buttons;
-	uint8_t num_buttons;
-
-	uint32_t caps; /* ALLOY_CAP_* bits */
-
-	/*
-	 * Lighting effects selectable per zone:
-	 * display names, index 0 being the static/steady mode.
-	 * Driver maps the index to its wire encoding; hardware running one
-	 * effect device-wide (ALLOY_CAP_FX_GLOBAL) applies the selection
-	 * best-effort.
-	 */
-	const char *const *fx_names;
-	uint8_t num_fx;
-
-	uint8_t num_profiles; /* Number of onboard hardware profiles */
-
-	/*
-	 * Optional ASCII art of the mouse, drawn in the center pane.
-	 * Art should be provided in `drivers/<driver>/<driver>_art.txt`
-	 * and injected via the auto-generated `build/art_<driver>.h` header.
-	 * If no custom art is provided, include `build/default_art.h` and use
-	 * `alloy_default_mouse_art` as the fallback.
-	 * Keep every line at most 40 rendered columns wide, please.
+	 * Optional ASCII art of the device, painted by the front-end.
+	 * Provide it in `drivers/<vendor>/<driver>/<driver>_art.txt`;
+	 * the build turns it into `build/art_<driver>.h`.
 	 *
-	 * Prefix a character with "$N" (N = 1..8) to paint it in the
-	 * live color of zone N-1; "$$" renders a literal dollar.
-	 * Markers take no column.
-	 * Marker naming zone the device lacks renders its character unpainted.
+	 * Prefix a character with "$N" (N = 1..8) to have the driver color it:
+	 * the front-end asks ui->art_cell() for that cell, passing N - 1
+	 * as the group.
+	 * "$i" paints one character in the front-end's accent tint
+	 * and "$$" renders a literal dollar.
+	 * Markers occupy no column.
 	 */
 	const char *ascii_art;
 
-	const struct alloy_cli_option *cli_options;
-	uint8_t num_cli_options;
+	/* command-line flags, in as many groups as the driver cares to list */
+	const struct alloy_cli_table *cli_tables;
+	uint8_t num_cli_tables;
+
+	const struct alloy_apply_step *apply_steps;
+	uint8_t num_apply_steps;
+
+	/* front-end description; without one the device has no interactive UI */
+	const struct alloy_ui_desc *ui;
 
 	const struct alloy_driver_ops *ops;
-
-	/* fill cfg with the factory defaults of this device */
-	void (*config_defaults)(const struct alloy_driver *drv,
-				struct alloy_config *cfg);
 };
-
-extern const struct alloy_cli_option alloy_common_cli_options[];
-extern const size_t alloy_num_common_cli_options;
 
 /* opened, driver-bound device */
 struct alloy_device {
 	const struct alloy_driver *drv;
-	struct alloy_hid_dev hid;
-	/* unsolicited-event channel;
-	 * fd < 0 when the driver has none */
-	struct alloy_hid_dev ev;
+	const struct alloy_transport *tr;
+	/* transport-owned state */
+	void *tr_data;
 };
 
 #define ALLOY_DRIVER_REGISTER(drv)                             \
@@ -331,6 +294,11 @@ const struct alloy_driver *const *alloy_driver_last(void);
 
 const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 					     uint16_t product_id);
+const char *alloy_driver_kind(const struct alloy_driver *drv);
+
+/* Walk every flag the driver declares, across all of its tables */
+const struct alloy_cli_option *
+alloy_driver_cli_at(const struct alloy_driver *drv, size_t idx);
 
 /*
  * Scan the registry against connected hardware and collect every supported
@@ -340,33 +308,40 @@ const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
  * Pass out=NULL to only count.
  */
 int alloy_device_enumerate(const struct alloy_driver **out, int max);
+int alloy_driver_present(const struct alloy_driver *drv);
 
 /* Open a specific device by USB id (e.g. from --device) */
 int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 			 uint16_t product_id);
-
-/* Device type query helpers */
-static inline int alloy_driver_is_mouse(const struct alloy_driver *drv)
-{
-	return !drv || drv->type == ALLOY_DEV_MOUSE;
-}
-
-static inline int alloy_driver_is_keyboard(const struct alloy_driver *drv)
-{
-	return drv && drv->type == ALLOY_DEV_KEYBOARD;
-}
-
-const char *alloy_device_type_name(enum alloy_device_type type);
 void alloy_device_close(struct alloy_device *dev);
 
-/* Default configuration initializers per device type */
-void alloy_config_common_defaults(const struct alloy_driver *drv,
-				  struct alloy_config_common *common);
-void alloy_config_mouse_defaults(const struct alloy_driver *drv,
-				 struct alloy_config *cfg);
-void alloy_config_keyboard_defaults(const struct alloy_driver *drv,
-				    struct alloy_config *cfg);
-void alloy_config_generic_defaults(const struct alloy_driver *drv,
-				   struct alloy_config *cfg);
+/* Transport wrappers; every driver talks to its device through these */
+int alloy_dev_write(struct alloy_device *dev, const uint8_t *buf, size_t len);
+int alloy_dev_read(struct alloy_device *dev, uint8_t *buf, size_t len,
+		   int timeout_ms);
+int alloy_dev_poll_event(struct alloy_device *dev, uint8_t *buf, size_t len);
+int alloy_dev_send_feature(struct alloy_device *dev, const uint8_t *buf,
+			   size_t len);
+int alloy_dev_get_feature(struct alloy_device *dev, uint8_t *buf, size_t len);
+
+/* Apply-step lookup and dispatch */
+const struct alloy_apply_step *alloy_driver_step(const struct alloy_driver *drv,
+						 const char *name);
+int alloy_driver_apply(struct alloy_device *dev, const struct alloy_config *cfg,
+		       const char *name);
+/*
+ * Push every step the driver declares, skipping those carrying any bit of
+ * @skip_flags (and ALLOY_APPLY_MANUAL always).
+ * @report, when given, is called once per step with the driver's return code.
+ */
+void alloy_driver_apply_all(struct alloy_device *dev,
+			    const struct alloy_config *cfg, uint32_t skip_flags,
+			    void (*report)(void *ctx, const char *what,
+					   int err),
+			    void *ctx);
+
+/* Factory defaults */
+void alloy_config_defaults(const struct alloy_driver *drv,
+			   struct alloy_config *cfg);
 
 #endif /* ALLOY_DRIVER_H */

@@ -13,6 +13,8 @@
 #include <string.h>
 
 #include "driver.h"
+#include "hid.h"
+#include "lib/mouse.h"
 #include "mock_hid.h"
 #include "test.h"
 
@@ -27,67 +29,57 @@ static const struct alloy_driver *a3wl_bt(void)
 	return drv;
 }
 
-static void bt_dev(struct alloy_device *dev, const struct alloy_driver *drv)
-{
-	memset(dev, 0, sizeof(*dev));
-	dev->hid.fd = 42;
-	dev->ev.fd = -1;
-	dev->drv = drv;
-}
-
 ALLOY_TEST(test_bt_registry)
 {
 	const struct alloy_driver *drv = a3wl_bt();
+	const struct alloy_hid_params *hid = drv->transport_data;
+	const struct alloy_devinfo *info = alloy_devinfo(drv);
+	const struct alloy_mouse_info *mouse = alloy_mouse_info(drv);
 
 	/* binds on the Bluetooth bus by product id, config on Output report 0x04 */
-	ASSERT_EQ(drv->bustype, 0x05);
-	ASSERT_EQ(drv->report_id, 0x04);
+	ASSERT_EQ(hid->bustype, 0x05);
+	ASSERT_EQ(hid->report_id, 0x04);
 	ASSERT_EQ(drv->product_id, 0x183A);
 
 	/* same sensor range as the receiver path */
-	ASSERT_EQ(drv->dpi.min, 100);
-	ASSERT_EQ(drv->dpi.max, 18000);
+	ASSERT_EQ(mouse->dpi.min, 100);
+	ASSERT_EQ(mouse->dpi.max, 18000);
 
 	/* Bluetooth locks everything but CPI + the wireless power knobs */
-	ASSERT_EQ(drv->caps, (uint32_t)ALLOY_CAP_BATTERY);
-	ASSERT_EQ(drv->num_zones, 0);
-	ASSERT_EQ(drv->num_buttons, 0);
-	ASSERT_EQ(drv->num_polling_rates, 0);
-	ASSERT_EQ(drv->num_fx, 0);
+	ASSERT_EQ(info->caps, (uint64_t)(ALLOY_CAP_BATTERY | ALLOY_CAP_DPI));
+	ASSERT_EQ(info->num_zones, 0);
+	ASSERT_EQ(info->num_polling_rates, 0);
+	ASSERT_EQ(info->num_fx, 0);
 
-	/* four driven knobs, plus the no-op save the TUI calls unconditionally */
-	ASSERT_TRUE(drv->ops->apply_dpi != NULL);
-	ASSERT_TRUE(drv->ops->apply_sleep != NULL);
-	ASSERT_TRUE(drv->ops->apply_brightness != NULL);
+	/* driver apply steps */
+	ASSERT_TRUE(alloy_driver_step(drv, ALLOY_STEP_DPI) != NULL);
+	ASSERT_TRUE(alloy_driver_step(drv, ALLOY_STEP_SLEEP) != NULL);
+	ASSERT_TRUE(alloy_driver_step(drv, ALLOY_STEP_BRIGHTNESS) != NULL);
 	ASSERT_TRUE(drv->ops->save != NULL);
 
 	/* nothing else is reachable over Bluetooth */
-	ASSERT_TRUE(drv->ops->apply_polling == NULL);
-	ASSERT_TRUE(drv->ops->apply_colors == NULL);
-	ASSERT_TRUE(drv->ops->apply_buttons == NULL);
-	ASSERT_TRUE(drv->ops->apply_high_efficiency == NULL);
-	ASSERT_TRUE(drv->ops->pair == NULL);
-	ASSERT_TRUE(drv->ops->battery == NULL);
-	ASSERT_TRUE(drv->ops->firmware_version == NULL);
-	ASSERT_TRUE(drv->ops->parse_event == NULL);
+	ASSERT_TRUE(alloy_driver_step(drv, ALLOY_STEP_POLLING) == NULL);
+	ASSERT_TRUE(alloy_driver_step(drv, ALLOY_STEP_COLORS) == NULL);
+	ASSERT_TRUE(alloy_driver_step(drv, ALLOY_STEP_BUTTONS) == NULL);
 }
 
 /* CPI: 0x2d <count> <active> <wire...>,
  * the wired form of the receiver's 0x6d */
 ALLOY_TEST(test_bt_dpi_unflagged)
 {
-	struct alloy_device dev;
 	const struct alloy_driver *drv = a3wl_bt();
-	struct alloy_config cfg;
+	struct alloy_device dev = { 0 };
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 
-	bt_dev(&dev, drv);
-	drv->config_defaults(drv, &cfg);
-	cfg.mouse.dpi_count = 1;
-	cfg.mouse.dpi_active = 0;
-	cfg.mouse.dpi[0][0] = 400; /* wire 0x04 in the TrueMove Air table */
+	alloy_device_open_id(&dev, drv->vendor_id, drv->product_id);
+	alloy_config_defaults(drv, cfg);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
+	m->dpi_count = 1;
+	m->dpi_active = 0;
+	m->dpi[0][0] = 400; /* wire 0x04 in the TrueMove Air table */
 
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_dpi(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_DPI), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].len, 4);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0],
@@ -96,6 +88,9 @@ ALLOY_TEST(test_bt_dpi_unflagged)
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x01); /* count */
 	ASSERT_EQ(mock_hid.cmds[0].payload[2], 0x00); /* active */
 	ASSERT_EQ(mock_hid.cmds[0].payload[3], 0x04); /* 400 DPI */
+
+	alloy_device_close(&dev);
+	alloy_config_free(cfg);
 }
 
 /*
@@ -105,22 +100,26 @@ ALLOY_TEST(test_bt_dpi_unflagged)
  */
 ALLOY_TEST(test_bt_sleep_timer)
 {
-	struct alloy_device dev;
 	const struct alloy_driver *drv = a3wl_bt();
-	struct alloy_config cfg;
+	struct alloy_device dev = { 0 };
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 
-	bt_dev(&dev, drv);
-	drv->config_defaults(drv, &cfg);
-	cfg.common.sleep_min = 5;
+	alloy_device_open_id(&dev, drv->vendor_id, drv->product_id);
+	alloy_config_defaults(drv, cfg);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
+	m->sleep_min = 5;
 
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_sleep(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_SLEEP), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].len, 4);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x29); /* wired 0x69 unflagged */
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0xE0);
 	ASSERT_EQ(mock_hid.cmds[0].payload[2], 0x93);
 	ASSERT_EQ(mock_hid.cmds[0].payload[3], 0x04);
+
+	alloy_device_close(&dev);
+	alloy_config_free(cfg);
 }
 
 /*
@@ -129,18 +128,19 @@ ALLOY_TEST(test_bt_sleep_timer)
  */
 ALLOY_TEST(test_bt_dim_and_smart)
 {
-	struct alloy_device dev;
 	const struct alloy_driver *drv = a3wl_bt();
-	struct alloy_config cfg;
+	struct alloy_device dev = { 0 };
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 
-	bt_dev(&dev, drv);
-	drv->config_defaults(drv, &cfg);
-	cfg.common.brightness = 100; /* pinned to full, as GG sends over BLE */
-	cfg.common.illum_dim_s = 30;
-	cfg.common.illum_smart = 1;
+	alloy_device_open_id(&dev, drv->vendor_id, drv->product_id);
+	alloy_config_defaults(drv, cfg);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
+	m->dev.brightness = 100; /* pinned to full, as GG sends over BLE */
+	m->illum_dim_s = 30;
+	m->illum_smart = 1;
 
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_brightness(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_BRIGHTNESS), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].len, 8);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x23); /* wired 0x63 unflagged */
@@ -153,8 +153,11 @@ ALLOY_TEST(test_bt_dim_and_smart)
 	ASSERT_EQ(mock_hid.cmds[0].payload[7], 0x00);
 
 	/* smart off flips only byte 3 */
-	cfg.common.illum_smart = 0;
+	m->illum_smart = 0;
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_brightness(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_BRIGHTNESS), 0);
 	ASSERT_EQ(mock_hid.cmds[0].payload[3], 0x00);
+
+	alloy_device_close(&dev);
+	alloy_config_free(cfg);
 }

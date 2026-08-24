@@ -5,6 +5,8 @@
  * marks as connected, in registry order, and count them so the front-end can decide
  * between the silent "no device" path, a direct open and the chooser modal.
  */
+#include <string.h>
+
 #include "driver.h"
 #include "mock_hid.h"
 #include "test.h"
@@ -92,5 +94,5 @@ ALLOY_TEST(test_enumerate_keyboard)
 	ASSERT_EQ(alloy_device_enumerate(out, 4), 1);
 	ASSERT_EQ(out[0]->vendor_id, 0x1038);
 	ASSERT_EQ(out[0]->product_id, 0x160E);
-	ASSERT_EQ(out[0]->type, ALLOY_DEV_KEYBOARD);
+	ASSERT_TRUE(!strcmp(out[0]->kind, "keyboard"));
 }

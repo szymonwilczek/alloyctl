@@ -1,570 +1,286 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * Input dispatch:
- * pane navigation, steppers and footer actions.
+ * Generic input dispatch.
+ *
+ * Navigation is over the same widget model the renderer walks:
+ * panes hold items, items hold slots, and a keypress either moves the cursor
+ * or is handed to the item's own callbacks.
+ * Nothing here knows what any control means; keys the front-end does not claim
+ * go to the driver's desc->key hook.
  */
 #include <string.h>
 
-#include "accel.h"
 #include "tui_internal.h"
 
-static void mark_dirty(struct tui *t)
+int tui_translate_key(int ch)
 {
-	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
+	switch (ch) {
+	case ERR:
+		return ALLOY_UI_KEY_NONE;
+	case '\n':
+	case KEY_ENTER:
+		return ALLOY_UI_KEY_ENTER;
+	case 27:
+		return ALLOY_UI_KEY_ESC;
+	case KEY_UP:
+		return ALLOY_UI_KEY_UP;
+	case KEY_DOWN:
+		return ALLOY_UI_KEY_DOWN;
+	case KEY_LEFT:
+		return ALLOY_UI_KEY_LEFT;
+	case KEY_RIGHT:
+		return ALLOY_UI_KEY_RIGHT;
+	case KEY_BACKSPACE:
+	case 127:
+	case 8:
+		return ALLOY_UI_KEY_BACKSPACE;
+	case '\t':
+		return ALLOY_UI_KEY_TAB;
+	default:
+		return (ch > 0 && ch < 256) ? ch : ALLOY_UI_KEY_NONE;
+	}
 }
 
-/* host-side transform steppers: edit the value and live-preview via the daemon */
-static void adjust_accel(struct tui *t, int delta)
+static int item_step(const struct alloy_ui_item *it, int big)
 {
-	if (!alloy_driver_is_mouse(t->drv))
+	int step = it->step ? it->step : 1;
+
+	if (big)
+		return it->big_step ? it->big_step : step;
+	return step;
+}
+
+static void item_commit(struct alloy_ui *ui, const struct alloy_ui_item *it,
+			int val)
+{
+	if (it->set)
+		it->set(ui, it, val);
+	if (it->changed)
+		it->changed(ui, it);
+}
+
+/* the color block's own cursor stops: R, G, B, palette, hex */
+static void color_adjust(struct alloy_ui *ui, const struct alloy_ui_item *it,
+			 int sub, int dir, int big)
+{
+	struct alloy_rgb *rgb = it->color ? it->color(ui, it) : NULL;
+	uint8_t *chan;
+	int val;
+
+	if (sub == 3) {
+		ui->swatch = (ui->swatch + TUI_PALETTE_SIZE + dir) %
+			     TUI_PALETTE_SIZE;
 		return;
-	t->cfg.mouse.acceleration =
-		(int8_t)ALLOY_CLAMP(t->cfg.mouse.acceleration + delta,
-				    ALLOY_ACCEL_MIN, ALLOY_ACCEL_MAX);
-	tui_accel_changed(t);
-}
-
-static void adjust_decel(struct tui *t, int delta)
-{
-	if (!alloy_driver_is_mouse(t->drv))
-		return;
-	t->cfg.mouse.deceleration =
-		(int8_t)ALLOY_CLAMP(t->cfg.mouse.deceleration + delta,
-				    ALLOY_DECEL_MIN, ALLOY_DECEL_MAX);
-	tui_accel_changed(t);
-}
-
-static void adjust_snap(struct tui *t, int delta)
-{
-	if (!alloy_driver_is_mouse(t->drv))
-		return;
-	t->cfg.mouse.angle_snapping =
-		(uint8_t)ALLOY_CLAMP(t->cfg.mouse.angle_snapping + delta,
-				     ALLOY_SNAP_MIN, ALLOY_SNAP_MAX);
-	tui_accel_changed(t);
-}
-
-/* Battery Saver stepper: the device sleep timer in minutes (0 = never) */
-static void adjust_sleep(struct tui *t, int delta)
-{
-	t->cfg.common.sleep_min =
-		(uint8_t)ALLOY_CLAMP(t->cfg.common.sleep_min + delta,
-				     ALLOY_SLEEP_MIN, ALLOY_SLEEP_MAX);
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_sleep, "sleep");
-}
-
-/*
- * Smart Illum toggle.
- * It is byte 3 of the 0x63 illumination command, so it rides the brightness
- * apply rather than an op of its own.
- */
-static void set_smart(struct tui *t, int on)
-{
-	on = on ? 1 : 0;
-	if (t->cfg.common.illum_smart == on)
-		return;
-	t->cfg.common.illum_smart = (uint8_t)on;
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_brightness, "smart mode");
-}
-
-/*
- * Dim Timer stepper.
- * Like smart mode it is part of the 0x63 illumination command,
- * so it rides the brightness apply.
- */
-static void adjust_dim(struct tui *t, int delta)
-{
-	t->cfg.common.illum_dim_s = (uint16_t)ALLOY_CLAMP(
-		(int)t->cfg.common.illum_dim_s + delta, 0, ALLOY_ILLUM_DIM_MAX);
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_brightness, "dim timer");
-}
-
-static void adjust_brightness(struct tui *t, int delta)
-{
-	if (!(t->drv->caps & ALLOY_CAP_BRIGHTNESS))
-		return;
-	t->cfg.common.brightness = (uint8_t)ALLOY_CLAMP(
-		(int)t->cfg.common.brightness + delta, 0, 100);
-	mark_dirty(t);
-	if (t->live_preview && t->drv->ops->apply_brightness)
-		tui_apply(t, t->drv->ops->apply_brightness, "brightness");
-}
-
-static void adjust_dpi(struct tui *t, int preset, int delta)
-{
-	const struct alloy_driver *drv = t->drv;
-	int dpi;
-
-	if (!alloy_driver_is_mouse(drv))
+	}
+	if (!rgb || sub > 2 || (it->flags & ALLOY_UI_F_DISABLED))
 		return;
 
-	dpi = t->cfg.mouse.dpi[preset][0] + delta;
-	dpi = ALLOY_CLAMP(dpi, drv->dpi.min, drv->dpi.max);
-	dpi = dpi / drv->dpi.step * drv->dpi.step;
-	t->cfg.mouse.dpi[preset][0] = (uint16_t)dpi;
-	t->cfg.mouse.dpi[preset][1] = (uint16_t)dpi;
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, drv->ops->apply_dpi, "dpi");
+	chan = sub == 0 ? &rgb->r : (sub == 1 ? &rgb->g : &rgb->b);
+	val = *chan + dir * (big ? 16 : 1);
+	*chan = (uint8_t)ALLOY_CLAMP(val, 0, 255);
+	if (it->changed)
+		it->changed(ui, it);
 }
 
-static void adjust_polling(struct tui *t, int dir, int big)
+static void color_activate(struct alloy_ui *ui, const struct alloy_ui_item *it,
+			   int sub)
 {
-	const struct alloy_driver *drv = t->drv;
-	int i;
+	struct alloy_rgb *rgb = it->color ? it->color(ui, it) : NULL;
 
-	if (!drv->num_polling_rates)
+	if (!rgb || (it->flags & ALLOY_UI_F_DISABLED))
 		return;
 
-	for (i = 0; i < drv->num_polling_rates; i++) {
-		if (drv->polling_rates[i] == t->cfg.common.polling_hz)
+	if (sub == 3) {
+		*rgb = tui_palette[ui->swatch];
+	} else if (sub == 4) {
+		if (tui_prompt_hex(ui, rgb))
+			return;
+	} else {
+		return;
+	}
+	if (it->changed)
+		it->changed(ui, it);
+}
+
+void tui_item_adjust(struct alloy_ui *ui, const struct alloy_ui_item *it,
+		     int sub, int dir, int big)
+{
+	int val;
+
+	if (it->kind == ALLOY_UI_COLOR) {
+		color_adjust(ui, it, sub, dir, big);
+		return;
+	}
+	if (it->flags & ALLOY_UI_F_DISABLED)
+		return;
+
+	val = it->get ? it->get(ui, it) : 0;
+
+	switch (it->kind) {
+	case ALLOY_UI_TOGGLE:
+		item_commit(ui, it, dir > 0);
+		break;
+	case ALLOY_UI_CHOICE:
+		if (!it->num_choices)
 			break;
+		val = (val + dir + (int)it->num_choices) % (int)it->num_choices;
+		item_commit(ui, it, val);
+		break;
+	case ALLOY_UI_STEPPER:
+	case ALLOY_UI_SLIDER:
+	case ALLOY_UI_GAUGE:
+	case ALLOY_UI_CUSTOM:
+		if (!it->set)
+			break;
+		val += dir * item_step(it, big);
+		if (it->max_val > it->min_val)
+			val = ALLOY_CLAMP(val, it->min_val, it->max_val);
+		item_commit(ui, it, val);
+		break;
+	case ALLOY_UI_BUTTON:
+		break;
+	default:
+		break;
 	}
-	if (i == drv->num_polling_rates)
-		i = 0;
-	/* rates are stored descending: lower index is faster
-	 * H/L jump straight to the fastest / slowest rate */
-	else if (dir > 0)
-		i = big ? 0 : ALLOY_MAX(i - 1, 0);
-	else
-		i = big ? drv->num_polling_rates - 1 :
-			  ALLOY_MIN(i + 1, drv->num_polling_rates - 1);
-
-	t->cfg.common.polling_hz = drv->polling_rates[i];
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, drv->ops->apply_polling, "polling");
 }
 
-static void set_active_dpi_preset(struct tui *t, int preset)
+void tui_item_activate(struct alloy_ui *ui, const struct alloy_ui_item *it,
+		       int sub)
 {
-	if (!alloy_driver_is_mouse(t->drv))
-		return;
-	if (preset >= t->cfg.mouse.dpi_count)
-		return;
-	t->cfg.mouse.dpi_active = (uint8_t)preset;
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_dpi, "dpi");
-	tui_status(t, "level %d active", preset + 1);
-}
+	int val;
 
-/*
- * Append preset seeded with double the last one (clamped and snapped),
- * which reproduces the 800/1600/3200/... ladder the stock software builds,
- * and leave the cursor on the newcomer.
- */
-static void create_dpi_preset(struct tui *t)
-{
-	const struct alloy_driver *drv = t->drv;
-	uint8_t n;
-	int dpi;
-
-	if (!alloy_driver_is_mouse(drv))
-		return;
-
-	n = t->cfg.mouse.dpi_count;
-	if (n >= tui_dpi_preset_limit(t)) {
-		tui_status(t, "this mouse holds at most %d levels",
-			   tui_dpi_preset_limit(t));
+	if (it->kind == ALLOY_UI_COLOR) {
+		color_activate(ui, it, sub);
 		return;
 	}
+	if (it->activate) {
+		it->activate(ui, it);
+		return;
+	}
+	if (it->flags & ALLOY_UI_F_DISABLED)
+		return;
 
-	dpi = t->cfg.mouse.dpi[n - 1][0] * 2;
-	dpi = ALLOY_CLAMP(dpi, drv->dpi.min, drv->dpi.max);
-	dpi = dpi / drv->dpi.step * drv->dpi.step;
-	t->cfg.mouse.dpi[n][0] = (uint16_t)dpi;
-	t->cfg.mouse.dpi[n][1] = (uint16_t)dpi;
-	t->cfg.mouse.dpi_count = (uint8_t)(n + 1);
-	t->cursor[PANE_LEVELS] = n;
-
-	mark_dirty(t);
-	if (t->live_preview)
-		tui_apply(t, drv->ops->apply_dpi, "dpi");
-	tui_status(t, "level %u created", n + 1);
+	val = it->get ? it->get(ui, it) : 0;
+	switch (it->kind) {
+	case ALLOY_UI_TOGGLE:
+		item_commit(ui, it, !val);
+		break;
+	case ALLOY_UI_CHOICE:
+		if (it->num_choices)
+			item_commit(ui, it, (val + 1) % (int)it->num_choices);
+		break;
+	default:
+		break;
+	}
 }
 
-static void footer_activate(struct tui *t)
+/* resolve the focused pane's cursor to one item; returns 0 when there is none */
+static int focused_item(struct alloy_ui *ui, struct alloy_ui_item *out,
+			int *sub)
 {
-	switch (t->cursor[PANE_FOOTER]) {
+	const struct alloy_ui_screen *sc = tui_screen(ui);
+	struct alloy_ui_item items[ALLOY_UI_MAX_ITEMS];
+	struct tui_slot slots[ALLOY_UI_MAX_ITEMS];
+	size_t count;
+	int nslots;
+	int cur;
+
+	if (ui->focus < 0 || ui->focus >= sc->num_panes)
+		return 0;
+
+	count = tui_pane_items(ui, &sc->panes[ui->focus], items,
+			       ALLOY_ARRAY_SIZE(items));
+	nslots = tui_pane_slots(ui, items, count, slots,
+				(int)ALLOY_ARRAY_SIZE(slots));
+	if (!nslots)
+		return 0;
+
+	cur = ALLOY_CLAMP(ui->cursor[ui->focus], 0, nslots - 1);
+	*out = items[slots[cur].item];
+	*sub = slots[cur].sub;
+	return 1;
+}
+
+static void footer_activate(struct alloy_ui *ui)
+{
+	switch (ui->cursor[TUI_FOOTER_PANE]) {
 	case FOOTER_LIVE_PREVIEW:
-		t->live_preview = !t->live_preview;
-		if (t->live_preview) {
-			tui_apply_all(t);
-			tui_status(t, "live preview on");
+		ui->live_preview = !ui->live_preview;
+		if (ui->live_preview) {
+			tui_apply_all(ui);
+			tui_status(ui, "live preview on");
 		} else {
-			tui_status(t, "live preview off - "
-				      "changes stay on screen only");
+			tui_status(ui, "live preview off - "
+				       "changes stay on screen only");
 		}
 		break;
 	case FOOTER_REVERT:
-		tui_revert(t);
-		tui_status(t, "reverted to session baseline");
+		tui_revert(ui);
+		tui_status(ui, "reverted to session baseline");
 		break;
 	case FOOTER_SAVE:
-		tui_save(t);
+		tui_save(ui);
 		break;
 	default:
 		break;
 	}
 }
 
-static const uint8_t snap_tap_pairs[][2] = {
-	{ 0x04, 0x07 }, /* A / D */
-	{ 0x1A, 0x16 }, /* W / S */
-	{ 0x14, 0x08 }, /* Q / E */
-	{ 0x50, 0x4F }, /* Left / Right */
-	{ 0x52, 0x51 }, /* Up / Down */
-};
-
-static void snap_tap_adjust_keys(struct tui *t, uint8_t g, int dir)
+/* step focus by dir, skipping panes that hold nothing selectable */
+static void focus_step(struct alloy_ui *ui, int dir)
 {
-	int pidx = 0;
-	size_t count = ALLOY_ARRAY_SIZE(snap_tap_pairs);
+	const struct alloy_ui_screen *sc = tui_screen(ui);
+	int last = (sc->flags & ALLOY_UI_SCREEN_NOFOOTER) ? sc->num_panes - 1 :
+							    sc->num_panes;
+	int span = last + 1;
+	int tries;
+	int idx;
 
-	for (size_t pi = 0; pi < count; pi++) {
-		if (snap_tap_pairs[pi][0] ==
-			    t->cfg.kbd.snap_tap_groups[g].key1 &&
-		    snap_tap_pairs[pi][1] ==
-			    t->cfg.kbd.snap_tap_groups[g].key2) {
-			pidx = (int)pi;
-			break;
-		}
-	}
-	pidx = (int)((pidx + dir + count) % count);
-	t->cfg.kbd.snap_tap_groups[g].key1 = snap_tap_pairs[pidx][0];
-	t->cfg.kbd.snap_tap_groups[g].key2 = snap_tap_pairs[pidx][1];
-	mark_dirty(t);
-
-	if (t->drv->ops->apply_snap_tap)
-		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
-
-	tui_status(t, "Group %u Keys: %s / %s", g + 1,
-		   alloy_hid_key_name(snap_tap_pairs[pidx][0]),
-		   alloy_hid_key_name(snap_tap_pairs[pidx][1]));
-}
-
-static void snap_tap_adjust_mode(struct tui *t, uint8_t g, int dir)
-{
-	static const char *const mnames[] = { "Last Input", "Key 1", "Key 2",
-					      "Neutral" };
-	int m = (int)t->cfg.kbd.snap_tap_groups[g].mode + dir;
-
-	if (m < 0)
-		m = 3;
-	if (m > 3)
-		m = 0;
-
-	t->cfg.kbd.snap_tap_groups[g].mode = (uint8_t)m;
-	mark_dirty(t);
-
-	if (t->drv->ops->apply_snap_tap)
-		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
-
-	tui_status(t, "Group %u Mode: %s", g + 1, mnames[m]);
-}
-
-static void snap_tap_add_group(struct tui *t)
-{
-	uint8_t gc = t->cfg.kbd.snap_tap_group_count;
-
-	if (gc >= ALLOY_MAX_SNAP_TAP_GROUPS)
+	if (span <= 0)
 		return;
 
-	t->cfg.kbd.snap_tap_groups[gc].mode = 0;
-	t->cfg.kbd.snap_tap_groups[gc].key1 =
-		snap_tap_pairs[gc % ALLOY_ARRAY_SIZE(snap_tap_pairs)][0];
-	t->cfg.kbd.snap_tap_groups[gc].key2 =
-		snap_tap_pairs[gc % ALLOY_ARRAY_SIZE(snap_tap_pairs)][1];
-	t->cfg.kbd.snap_tap_group_count++;
-	mark_dirty(t);
-
-	if (t->drv->ops->apply_snap_tap)
-		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
-
-	tui_status(t, "Added Snap Tap Group %u",
-		   t->cfg.kbd.snap_tap_group_count);
-}
-
-static void snap_tap_remove_group(struct tui *t)
-{
-	if (t->cfg.kbd.snap_tap_group_count <= 1)
-		return;
-
-	t->cfg.kbd.snap_tap_group_count--;
-	mark_dirty(t);
-
-	if (t->drv->ops->apply_snap_tap)
-		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
-
-	tui_status(t, "Removed Snap Tap Group");
-}
-
-static void snap_tap_toggle(struct tui *t, int on)
-{
-	t->cfg.kbd.snap_tap = on ? 1 : 0;
-	mark_dirty(t);
-
-	if (t->drv->ops->apply_snap_tap)
-		t->drv->ops->apply_snap_tap(t->dev, &t->cfg);
-
-	tui_status(t, "Snap Tap %s", t->cfg.kbd.snap_tap ? "ON" : "OFF");
-}
-
-static void adjust_profile(struct tui *t, int dir)
-{
-	uint8_t prof = t->cfg.kbd.profile_active;
-
-	if (dir > 0)
-		prof = (prof >= 3) ? 1 : (uint8_t)(prof + 1);
-	else
-		prof = (prof <= 1) ? 3 : (uint8_t)(prof - 1);
-
-	t->cfg.kbd.profile_active = prof;
-	mark_dirty(t);
-
-	if (t->drv->ops->apply_profile)
-		t->drv->ops->apply_profile(t->dev, &t->cfg);
-
-	tui_status(t, "Profile %u active", prof);
-}
-
-static void adjust_keyboard_controls(struct tui *t, int dir, int big)
-{
-	int sel = t->cursor[PANE_TUNING];
-	int item = 0;
-
-	if ((t->drv->caps & ALLOY_CAP_BRIGHTNESS) && sel == item++) {
-		adjust_brightness(t, dir * (big ? 25 : 5));
-		return;
-	}
-
-	if (t->drv->num_polling_rates > 0 && sel == item++) {
-		adjust_polling(t, dir, big);
-		return;
-	}
-
-	if (t->drv->caps & ALLOY_CAP_SNAP_TAP) {
-		if (sel == item++) {
-			snap_tap_toggle(t, dir > 0);
+	idx = ui->focus == TUI_FOOTER_PANE ? sc->num_panes : ui->focus;
+	for (tries = 0; tries < span; tries++) {
+		idx = (idx + dir + span) % span;
+		ui->focus = idx == sc->num_panes ? TUI_FOOTER_PANE : idx;
+		if (tui_pane_slot_count(ui, ui->focus) > 0)
 			return;
-		}
-
-		for (uint8_t g = 0; g < t->cfg.kbd.snap_tap_group_count; g++) {
-			if (sel == item++) {
-				snap_tap_adjust_keys(t, g, dir);
-				return;
-			}
-			if (sel == item++) {
-				snap_tap_adjust_mode(t, g, dir);
-				return;
-			}
-		}
-
-		if (t->cfg.kbd.snap_tap_group_count <
-			    ALLOY_MAX_SNAP_TAP_GROUPS &&
-		    sel == item++) {
-			if (dir > 0)
-				snap_tap_add_group(t);
-			return;
-		}
-
-		if (t->cfg.kbd.snap_tap_group_count > 1 && sel == item++) {
-			if (dir < 0)
-				snap_tap_remove_group(t);
-			return;
-		}
 	}
-
-	if ((t->drv->caps & ALLOY_CAP_PROFILE) && sel == item++)
-		adjust_profile(t, dir);
+	ui->focus = 0;
 }
 
-static void adjust_mouse_tuning(struct tui *t, int dir, int big)
+void tui_handle_key(struct alloy_ui *ui, int ch)
 {
-	int sel = t->cursor[PANE_TUNING];
-
-	switch (sel) {
-	case 0:
-		adjust_accel(t, dir * (big ? ALLOY_ACCEL_STEP * 10 :
-					     ALLOY_ACCEL_STEP));
-		break;
-	case 1:
-		adjust_decel(t, dir * (big ? ALLOY_DECEL_STEP * 10 :
-					     ALLOY_DECEL_STEP));
-		break;
-	case 2:
-		adjust_snap(t, dir * (big ? ALLOY_SNAP_STEP * 5 :
-					    ALLOY_SNAP_STEP));
-		break;
-	case 3:
-		tui_status(t, "enter: toggle the OS accel engine");
-		break;
-	case 4:
-		adjust_polling(t, dir, big);
-		break;
-	default:
-		break;
-	}
-}
-
-static void pane_adjust(struct tui *t, int dir, int big)
-{
-	int sel = t->cursor[t->focus];
-
-	switch (t->focus) {
-	case PANE_LEVELS:
-		if (alloy_driver_is_mouse(t->drv) &&
-		    sel < t->cfg.mouse.dpi_count)
-			adjust_dpi(t, sel,
-				   dir * (big ? 10 : 1) * t->drv->dpi.step);
-		break;
-	case PANE_POWER:
-		if (sel == POWER_SLEEP)
-			adjust_sleep(t, dir * (big ? ALLOY_SLEEP_STEP * 5 :
-						     ALLOY_SLEEP_STEP));
-		else if (sel == POWER_SMART)
-			set_smart(t, dir > 0);
-		else if (sel == POWER_DIM)
-			adjust_dim(t, dir * (big ? ALLOY_ILLUM_DIM_STEP * 4 :
-						   ALLOY_ILLUM_DIM_STEP));
-		break;
-	case PANE_TUNING:
-		if (alloy_driver_is_keyboard(t->drv))
-			adjust_keyboard_controls(t, dir, big);
-		else
-			adjust_mouse_tuning(t, dir, big);
-		break;
-	default:
-		break;
-	}
-}
-
-static void activate_keyboard_controls(struct tui *t)
-{
-	int sel = t->cursor[PANE_TUNING];
-	int item = 0;
-
-	if (t->drv->caps & ALLOY_CAP_BRIGHTNESS)
-		item++;
-
-	if (t->drv->num_polling_rates > 0)
-		item++;
-
-	if (t->drv->caps & ALLOY_CAP_SNAP_TAP) {
-		if (sel == item++) {
-			snap_tap_toggle(t, !t->cfg.kbd.snap_tap);
-			return;
-		}
-
-		for (uint8_t g = 0; g < t->cfg.kbd.snap_tap_group_count; g++) {
-			if (sel == item++) {
-				snap_tap_adjust_keys(t, g, 1);
-				return;
-			}
-			if (sel == item++) {
-				snap_tap_adjust_mode(t, g, 1);
-				return;
-			}
-		}
-
-		if (t->cfg.kbd.snap_tap_group_count <
-			    ALLOY_MAX_SNAP_TAP_GROUPS &&
-		    sel == item++) {
-			snap_tap_add_group(t);
-			return;
-		}
-
-		if (t->cfg.kbd.snap_tap_group_count > 1 && sel == item++) {
-			snap_tap_remove_group(t);
-			return;
-		}
-	}
-
-	if ((t->drv->caps & ALLOY_CAP_PROFILE) && sel == item++)
-		adjust_profile(t, 1);
-}
-
-static void pane_activate(struct tui *t)
-{
-	int sel = t->cursor[t->focus];
-
-	switch (t->focus) {
-	case PANE_ACTIONS:
-		if (sel < t->drv->num_buttons)
-			tui_modal_remap(t, sel);
-		else
-			tui_modal_message("MACRO EDITOR", "TBA");
-		break;
-	case PANE_CENTER:
-		if (tui_has_illum_view(t->drv))
-			tui_illum_enter(t);
-		break;
-	case PANE_POWER:
-		if (sel == POWER_SMART)
-			set_smart(t, !t->cfg.common.illum_smart);
-		break;
-	case PANE_TUNING:
-		if (alloy_driver_is_keyboard(t->drv))
-			activate_keyboard_controls(t);
-		else if (sel == 3)
-			tui_accel_set_enabled(t, !t->accel_running);
-		break;
-	case PANE_LEVELS:
-		if (!alloy_driver_is_mouse(t->drv))
-			break;
-		if (sel < t->cfg.mouse.dpi_count)
-			set_active_dpi_preset(t, sel);
-		else
-			create_dpi_preset(t);
-		break;
-	case PANE_FOOTER:
-		footer_activate(t);
-		break;
-	default:
-		break;
-	}
-}
-
-/* step focus by dir, skipping panes that hold no items (e.g. POWER on wired) */
-static void focus_step(struct tui *t, int dir)
-{
-	do {
-		t->focus = (enum tui_pane)((t->focus + dir + PANE_COUNT) %
-					   PANE_COUNT);
-	} while (tui_pane_item_count(t, t->focus) == 0);
-}
-
-void tui_handle_key(struct tui *t, int ch)
-{
+	struct alloy_ui_item it;
+	int sub = 0;
+	int have;
 	int count;
+	int dir;
+	int big;
 
 	switch (ch) {
 	case 'q':
-		if (t->dirty)
-			tui_modal_confirm_quit(t);
+		if (ui->screen != 0) {
+			alloy_ui_goto_screen(ui, ui->desc->screens[0].id);
+			return;
+		}
+		if (ui->dirty)
+			tui_modal_confirm_quit(ui);
 		else
-			t->quit = 1;
+			ui->quit = 1;
+		return;
+	case 27: /* esc leaves a sub-screen, never the program */
+		if (ui->screen != 0)
+			alloy_ui_goto_screen(ui, ui->desc->screens[0].id);
 		return;
 	case 's':
-		tui_save(t);
-		return;
-	case 'p':
-		/* PAIR button in the DEVICE box: only when a mouse can be bound */
-		if (tui_device_needs_pairing(t))
-			tui_modal_pair(t);
+		tui_save(ui);
 		return;
 	case '\t':
-		focus_step(t, 1);
+		focus_step(ui, 1);
 		return;
 	case KEY_BTAB:
-		focus_step(t, -1);
+		focus_step(ui, -1);
 		return;
 	case KEY_RESIZE:
 		return;
@@ -572,40 +288,56 @@ void tui_handle_key(struct tui *t, int ch)
 		break;
 	}
 
-	count = tui_pane_item_count(t, t->focus);
+	count = tui_pane_slot_count(ui, ui->focus);
+	have = focused_item(ui, &it, &sub);
 
 	switch (ch) {
 	case KEY_UP:
 	case 'k':
-		t->cursor[t->focus] = (t->cursor[t->focus] + count - 1) % count;
-		break;
+		if (count)
+			ui->cursor[ui->focus] =
+				(ui->cursor[ui->focus] + count - 1) % count;
+		return;
 	case KEY_DOWN:
 	case 'j':
-		t->cursor[t->focus] = (t->cursor[t->focus] + 1) % count;
-		break;
+		if (count)
+			ui->cursor[ui->focus] =
+				(ui->cursor[ui->focus] + 1) % count;
+		return;
 	case KEY_LEFT:
 	case 'h':
-		pane_adjust(t, -1, 0);
-		break;
 	case KEY_RIGHT:
 	case 'l':
-		pane_adjust(t, 1, 0);
-		break;
 	case 'H':
-		pane_adjust(t, -1, 1);
-		break;
 	case 'L':
-		pane_adjust(t, 1, 1);
-		break;
-	case 'a':
-		if (t->focus == PANE_LEVELS)
-			set_active_dpi_preset(t, t->cursor[PANE_LEVELS]);
-		break;
+		dir = (ch == KEY_LEFT || ch == 'h' || ch == 'H') ? -1 : 1;
+		big = (ch == 'H' || ch == 'L');
+		if (have)
+			tui_item_adjust(ui, &it, sub, dir, big);
+		return;
 	case '\n':
 	case KEY_ENTER:
-		pane_activate(t);
+		if (ui->focus == TUI_FOOTER_PANE)
+			footer_activate(ui);
+		else if (have)
+			tui_item_activate(ui, &it, sub);
+		return;
+	case 'x':
+		/* jump straight into the hex field of a focused color block */
+		if (have && it.kind == ALLOY_UI_COLOR) {
+			ui->cursor[ui->focus] += 4 - sub;
+			tui_item_activate(ui, &it, 4);
+			return;
+		}
 		break;
 	default:
 		break;
+	}
+
+	{
+		int (*key)(struct alloy_ui *, int) = TUI_HOOK(ui, key);
+
+		if (key)
+			key(ui, tui_translate_key(ch));
 	}
 }

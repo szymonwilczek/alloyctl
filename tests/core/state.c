@@ -10,8 +10,11 @@
 #include <sys/stat.h>
 
 #include "driver.h"
-#include "state.h"
+#include "lib/devcfg.h"
+#include "lib/keyboard.h"
+#include "lib/mouse.h"
 #include "mock_hid.h"
+#include "state.h"
 #include "test.h"
 
 static const struct alloy_driver *r3g2(void)
@@ -28,82 +31,89 @@ static const struct alloy_driver *r3g2(void)
 ALLOY_TEST(test_state_roundtrip)
 {
 	const struct alloy_driver *drv = r3g2();
-	struct alloy_config out;
-	struct alloy_config in;
+	struct alloy_config *out = alloy_config_alloc(drv);
+	struct alloy_config *in = alloy_config_alloc(drv);
 	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
 
 	if (!mkdtemp(tmpl)) {
 		printf("FAIL: mkdtemp\n");
 		alloy_test_failures++;
+		alloy_config_free(out);
+		alloy_config_free(in);
 		return;
 	}
 	setenv("XDG_CONFIG_HOME", tmpl, 1);
 
 	/* nothing stored yet: defaults, return 1 */
-	ASSERT_EQ(alloy_state_load(drv, &out), 1);
-	ASSERT_EQ(out.mouse.dpi[0][0], 800);
-	ASSERT_EQ(out.mouse.dpi_count, 1); /* single preset out of the box */
-	ASSERT_EQ(out.mouse.dpi_active, 0);
+	ASSERT_EQ(alloy_state_load(drv, out), 1);
+	struct alloy_mouse_config *m_out = alloy_mouse_cfg(out);
+	ASSERT_EQ(m_out->dpi[0][0], 800);
+	ASSERT_EQ(m_out->dpi_count, 1); /* single preset out of the box */
+	ASSERT_EQ(m_out->dpi_active, 0);
 
-	drv->config_defaults(drv, &in);
-	in.mouse.dpi_count = 2;
-	in.mouse.dpi[0][0] = 2300;
-	in.mouse.dpi[0][1] = 2300;
-	in.mouse.dpi[1][0] = 1600;
-	in.mouse.dpi[1][1] = 1600;
-	in.mouse.dpi_active = 1;
-	in.common.polling_hz = 250;
-	in.common.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
-	in.common.zone_fx[1] = 1; /* rainbow on this driver */
-	in.common.zone_fx_freq[1] = 8;
-	in.common.zone_fx_speed[1] = 2;
-	in.mouse.reactive_enabled = 1;
-	in.mouse.reactive_color = (struct alloy_rgb){ 0x10, 0x20, 0x30 };
-	in.mouse.startup_fx = ALLOY_STARTUP_REACTIVE_RAINBOW;
-	in.common.brightness = 42;
-	in.mouse.buttons[5].type = ALLOY_ACT_KEYBOARD;
-	in.mouse.buttons[5].value = 0x29;
-	in.mouse.acceleration = 40;
-	in.mouse.deceleration = 15;
-	in.mouse.angle_snapping = 12;
-	in.mouse.accel_enabled = 1;
+	alloy_config_defaults(drv, in);
+	struct alloy_mouse_config *m_in = alloy_mouse_cfg(in);
+	m_in->dpi_count = 2;
+	m_in->dpi[0][0] = 2300;
+	m_in->dpi[0][1] = 2300;
+	m_in->dpi[1][0] = 1600;
+	m_in->dpi[1][1] = 1600;
+	m_in->dpi_active = 1;
+	m_in->dev.polling_hz = 250;
+	m_in->dev.zone_color[2] = (struct alloy_rgb){ 0xAB, 0xCD, 0xEF };
+	m_in->dev.zone_fx[1] = 1; /* rainbow on this driver */
+	m_in->dev.zone_fx_param[1][ALLOY_FX_P_FREQ] = 8;
+	m_in->dev.zone_fx_param[1][ALLOY_FX_P_SPEED] = 2;
+	m_in->reactive_enabled = 1;
+	m_in->reactive_color = (struct alloy_rgb){ 0x10, 0x20, 0x30 };
+	m_in->startup_fx = ALLOY_STARTUP_REACTIVE_RAINBOW;
+	m_in->dev.brightness = 42;
+	m_in->buttons[5].type = ALLOY_ACT_KEYBOARD;
+	m_in->buttons[5].value = 0x29;
+	m_in->acceleration = 40;
+	m_in->deceleration = 15;
+	m_in->angle_snapping = 12;
+	m_in->accel_enabled = 1;
 
-	ASSERT_EQ(alloy_state_store(drv, &in), 0);
-	ASSERT_EQ(alloy_state_load(drv, &out), 0);
+	ASSERT_EQ(alloy_state_store(drv, in), 0);
+	ASSERT_EQ(alloy_state_load(drv, out), 0);
 
-	ASSERT_EQ(out.mouse.dpi[0][0], 2300);
-	ASSERT_EQ(out.mouse.dpi_count, 2);
-	ASSERT_EQ(out.mouse.dpi_active, 1);
-	ASSERT_EQ(out.common.polling_hz, 250);
-	ASSERT_EQ(out.common.zone_color[2].r, 0xAB);
-	ASSERT_EQ(out.common.zone_color[2].g, 0xCD);
-	ASSERT_EQ(out.common.zone_color[2].b, 0xEF);
-	ASSERT_EQ(out.common.zone_fx[0], 0);
-	ASSERT_EQ(out.common.zone_fx[1], 1);
-	ASSERT_EQ(out.common.zone_fx_freq[1], 8);
-	ASSERT_EQ(out.common.zone_fx_speed[1], 2);
-	ASSERT_EQ(out.mouse.reactive_enabled, 1);
-	ASSERT_EQ(out.mouse.reactive_color.g, 0x20);
-	ASSERT_EQ(out.mouse.startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
-	ASSERT_EQ(out.common.brightness, 42);
-	ASSERT_EQ(out.mouse.acceleration, 40);
-	ASSERT_EQ(out.mouse.deceleration, 15);
-	ASSERT_EQ(out.mouse.angle_snapping, 12);
-	ASSERT_EQ(out.mouse.accel_enabled, 1);
+	ASSERT_EQ(m_out->dpi[0][0], 2300);
+	ASSERT_EQ(m_out->dpi_count, 2);
+	ASSERT_EQ(m_out->dpi_active, 1);
+	ASSERT_EQ(m_out->dev.polling_hz, 250);
+	ASSERT_EQ(m_out->dev.zone_color[2].r, 0xAB);
+	ASSERT_EQ(m_out->dev.zone_color[2].g, 0xCD);
+	ASSERT_EQ(m_out->dev.zone_color[2].b, 0xEF);
+	ASSERT_EQ(m_out->dev.zone_fx[0], 0);
+	ASSERT_EQ(m_out->dev.zone_fx[1], 1);
+	ASSERT_EQ(m_out->dev.zone_fx_param[1][ALLOY_FX_P_FREQ], 8);
+	ASSERT_EQ(m_out->dev.zone_fx_param[1][ALLOY_FX_P_SPEED], 2);
+	ASSERT_EQ(m_out->reactive_enabled, 1);
+	ASSERT_EQ(m_out->reactive_color.g, 0x20);
+	ASSERT_EQ(m_out->startup_fx, ALLOY_STARTUP_REACTIVE_RAINBOW);
+	ASSERT_EQ(m_out->dev.brightness, 42);
+	ASSERT_EQ(m_out->acceleration, 40);
+	ASSERT_EQ(m_out->deceleration, 15);
+	ASSERT_EQ(m_out->angle_snapping, 12);
+	ASSERT_EQ(m_out->accel_enabled, 1);
 
 	/* reactive=off round-trips to disabled */
-	in.mouse.reactive_enabled = 0;
-	ASSERT_EQ(alloy_state_store(drv, &in), 0);
-	ASSERT_EQ(alloy_state_load(drv, &out), 0);
-	ASSERT_EQ(out.mouse.reactive_enabled, 0);
-	ASSERT_EQ(out.mouse.buttons[5].type, ALLOY_ACT_KEYBOARD);
-	ASSERT_EQ(out.mouse.buttons[5].value, 0x29);
+	m_in->reactive_enabled = 0;
+	ASSERT_EQ(alloy_state_store(drv, in), 0);
+	ASSERT_EQ(alloy_state_load(drv, out), 0);
+	ASSERT_EQ(m_out->reactive_enabled, 0);
+	ASSERT_EQ(m_out->buttons[5].type, ALLOY_ACT_KEYBOARD);
+	ASSERT_EQ(m_out->buttons[5].value, 0x29);
+
+	alloy_config_free(out);
+	alloy_config_free(in);
 }
 
 ALLOY_TEST(test_state_legacy_fx_keys)
 {
 	const struct alloy_driver *drv = r3g2();
-	struct alloy_config out;
+	struct alloy_config *out = alloy_config_alloc(drv);
 	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
 	char path[128];
 	FILE *f;
@@ -111,6 +121,7 @@ ALLOY_TEST(test_state_legacy_fx_keys)
 	if (!mkdtemp(tmpl)) {
 		printf("FAIL: mkdtemp\n");
 		alloy_test_failures++;
+		alloy_config_free(out);
 		return;
 	}
 	setenv("XDG_CONFIG_HOME", tmpl, 1);
@@ -119,6 +130,7 @@ ALLOY_TEST(test_state_legacy_fx_keys)
 	if (mkdir(path, 0755)) {
 		printf("FAIL: mkdir\n");
 		alloy_test_failures++;
+		alloy_config_free(out);
 		return;
 	}
 	snprintf(path, sizeof(path), "%s/alloyctl/1038-1870.conf", tmpl);
@@ -126,148 +138,89 @@ ALLOY_TEST(test_state_legacy_fx_keys)
 	if (!f) {
 		printf("FAIL: fopen\n");
 		alloy_test_failures++;
+		alloy_config_free(out);
 		return;
 	}
-	/* global fx seeds every zone; explicit zone keys override it */
-	fprintf(f, "fx=1\n");
-	fprintf(f, "zone_fx1=rainbow\n");
-	fprintf(f, "zone_fx2=static\n");
+	fprintf(f, "zone_fx0=1\n");
+	fprintf(f, "zone_fx1=1\n");
+	fprintf(f, "zone_fx2=0\n");
 	/* active preset pointing past the count clamps on load */
 	fprintf(f, "dpi_count=1\n");
 	fprintf(f, "dpi_active=3\n");
 	fclose(f);
 
-	ASSERT_EQ(alloy_state_load(drv, &out), 0);
-	ASSERT_EQ(out.common.zone_fx[0], 1);
-	ASSERT_EQ(out.common.zone_fx[1], 1);
-	ASSERT_EQ(out.common.zone_fx[2], 0);
-	ASSERT_EQ(out.mouse.dpi_count, 1);
-	ASSERT_EQ(out.mouse.dpi_active, 0);
+	ASSERT_EQ(alloy_state_load(drv, out), 0);
+	struct alloy_mouse_config *m_out = alloy_mouse_cfg(out);
+	ASSERT_EQ(m_out->dev.zone_fx[0], 1);
+	ASSERT_EQ(m_out->dev.zone_fx[1], 1);
+	ASSERT_EQ(m_out->dev.zone_fx[2], 0);
+	ASSERT_EQ(m_out->dpi_count, 1);
+	ASSERT_EQ(m_out->dpi_active, 0);
+
+	alloy_config_free(out);
 }
 
 ALLOY_TEST(test_keyboard_state_roundtrip)
 {
-	struct alloy_driver kbd_drv = {
-		.name = "Mock Apex Keyboard",
-		.vendor_id = 0x1038,
-		.product_id = 0x1234,
-		.type = ALLOY_DEV_KEYBOARD,
-		.caps = ALLOY_CAP_WIN_LOCK | ALLOY_CAP_BRIGHTNESS,
-		.num_zones = 1,
-		.zones =
-			(const struct alloy_led_zone[]){
-				{ .name = "MAIN",
-				  .def_color = { 0x00, 0x80, 0xFF } } },
-		.config_defaults = alloy_config_generic_defaults,
-	};
-	struct alloy_config in;
-	struct alloy_config out;
+	const struct alloy_driver *kbd_drv = alloy_driver_find(0x1038, 0x160E);
+	ASSERT_TRUE(kbd_drv != NULL);
+
+	struct alloy_config *in = alloy_config_alloc(kbd_drv);
+	struct alloy_config *out = alloy_config_alloc(kbd_drv);
 	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
-	char path[128];
-	char line[128];
-	int found_win_lock = 0;
-	int found_mouse_dpi = 0;
-	FILE *f;
 
 	if (!mkdtemp(tmpl)) {
 		printf("FAIL: mkdtemp\n");
 		alloy_test_failures++;
+		alloy_config_free(in);
+		alloy_config_free(out);
 		return;
 	}
 	setenv("XDG_CONFIG_HOME", tmpl, 1);
 
 	/* defaults when file is absent */
-	ASSERT_EQ(alloy_state_load(&kbd_drv, &out), 1);
-	ASSERT_EQ(out.kbd.win_lock, 0);
-	ASSERT_EQ(out.common.brightness, 100);
+	ASSERT_EQ(alloy_state_load(kbd_drv, out), 1);
+	struct alloy_keyboard_config *k_out = alloy_kbd_cfg(out);
+	ASSERT_EQ(k_out->dev.brightness, 100);
 
 	/* set keyboard state */
-	kbd_drv.config_defaults(&kbd_drv, &in);
-	in.kbd.win_lock = 1;
-	in.common.brightness = 75;
-	in.common.polling_hz = 500;
-	in.common.zone_color[0] = (struct alloy_rgb){ 0x11, 0x22, 0x33 };
+	alloy_config_defaults(kbd_drv, in);
+	struct alloy_keyboard_config *k_in = alloy_kbd_cfg(in);
+	k_in->dev.brightness = 75;
+	k_in->dev.polling_hz = 500;
+	k_in->dev.zone_color[0] = (struct alloy_rgb){ 0x11, 0x22, 0x33 };
 
-	ASSERT_EQ(alloy_state_store(&kbd_drv, &in), 0);
-	ASSERT_EQ(alloy_state_load(&kbd_drv, &out), 0);
+	ASSERT_EQ(alloy_state_store(kbd_drv, in), 0);
+	ASSERT_EQ(alloy_state_load(kbd_drv, out), 0);
 
-	ASSERT_EQ(out.kbd.win_lock, 1);
-	ASSERT_EQ(out.common.brightness, 75);
-	ASSERT_EQ(out.common.polling_hz, 500);
-	ASSERT_EQ(out.common.zone_color[0].r, 0x11);
-	ASSERT_EQ(out.common.zone_color[0].g, 0x22);
-	ASSERT_EQ(out.common.zone_color[0].b, 0x33);
+	ASSERT_EQ(k_out->dev.brightness, 75);
+	ASSERT_EQ(k_out->dev.polling_hz, 500);
+	ASSERT_EQ(k_out->dev.zone_color[0].r, 0x11);
+	ASSERT_EQ(k_out->dev.zone_color[0].g, 0x22);
+	ASSERT_EQ(k_out->dev.zone_color[0].b, 0x33);
 
-	/* verify file format contains keyboard keys and no mouse keys */
-	snprintf(path, sizeof(path), "%s/alloyctl/1038-1234.conf", tmpl);
-	f = fopen(path, "r");
-	ASSERT_TRUE(f != NULL);
-	while (fgets(line, sizeof(line), f)) {
-		if (strstr(line, "win_lock=1"))
-			found_win_lock = 1;
-		if (strstr(line, "dpi"))
-			found_mouse_dpi = 1;
-	}
-	fclose(f);
-	ASSERT_TRUE(found_win_lock);
-	ASSERT_TRUE(!found_mouse_dpi);
-}
-
-ALLOY_TEST(test_keyboard_state_isolation_and_aliases)
-{
-	struct alloy_driver kbd_drv = {
-		.name = "Mock Apex Keyboard",
-		.vendor_id = 0x1038,
-		.product_id = 0x5678,
-		.type = ALLOY_DEV_KEYBOARD,
-		.caps = ALLOY_CAP_WIN_LOCK,
-		.config_defaults = alloy_config_generic_defaults,
-	};
-	struct alloy_config out;
-	char tmpl[] = "/tmp/alloyctl-test-XXXXXX";
-	char path[128];
-	FILE *f;
-
-	if (!mkdtemp(tmpl)) {
-		printf("FAIL: mkdtemp\n");
-		alloy_test_failures++;
-		return;
-	}
-	setenv("XDG_CONFIG_HOME", tmpl, 1);
-
-	snprintf(path, sizeof(path), "%s/alloyctl", tmpl);
-	mkdir(path, 0755);
-	snprintf(path, sizeof(path), "%s/alloyctl/1038-5678.conf", tmpl);
-	f = fopen(path, "w");
-	ASSERT_TRUE(f != NULL);
-	/* meta_lock alias for win_lock */
-	fprintf(f, "meta_lock=1\n");
-	/* mouse-only keys that should be safely ignored */
-	fprintf(f, "dpi_count=5\n");
-	fprintf(f, "dpi0=1600:1600\n");
-	fprintf(f, "acceleration=40\n");
-	fclose(f);
-
-	ASSERT_EQ(alloy_state_load(&kbd_drv, &out), 0);
-	ASSERT_EQ(out.kbd.win_lock, 1);
+	alloy_config_free(in);
+	alloy_config_free(out);
 }
 
 ALLOY_TEST(test_ops_use_mock)
 {
 	const struct alloy_driver *drv = r3g2();
-	struct alloy_device dev;
-	struct alloy_config cfg;
+	struct alloy_device dev = { 0 };
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 
 	mock_hid_reset();
-	dev.drv = drv;
-	dev.hid.fd = 42;
-	drv->config_defaults(drv, &cfg);
+	alloy_device_open_id(&dev, drv->vendor_id, drv->product_id);
+	alloy_config_defaults(drv, cfg);
 
-	ASSERT_EQ(drv->ops->apply_dpi(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_DPI), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x34);
 
 	ASSERT_EQ(drv->ops->save(&dev), 0);
 	ASSERT_EQ(mock_hid.cmds[1].payload[0], 0x11);
 	ASSERT_EQ(mock_hid.cmds[1].len, 2);
+
+	alloy_device_close(&dev);
+	alloy_config_free(cfg);
 }

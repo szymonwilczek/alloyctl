@@ -9,7 +9,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "driver.h"
+#include "hid.h"
+#include "lib/devcfg.h"
+#include "lib/keyboard.h"
 #include "test.h"
 
 size_t apex100_build_polling(uint16_t polling_hz, uint8_t *buf);
@@ -32,21 +34,23 @@ static const struct alloy_driver *apex100(void)
 ALLOY_TEST(test_apex100_registry)
 {
 	const struct alloy_driver *drv = apex100();
+	const struct alloy_hid_params *hid = drv->transport_data;
+	const struct alloy_devinfo *info = alloy_devinfo(drv);
 
 	ASSERT_EQ(drv->vendor_id, 0x1038);
 	ASSERT_EQ(drv->product_id, 0x160E);
-	ASSERT_EQ(drv->type, ALLOY_DEV_KEYBOARD);
-	ASSERT_EQ(drv->interface, 1);
-	ASSERT_EQ(drv->report_size, 32);
-	ASSERT_EQ(drv->num_zones, 1);
-	ASSERT_EQ(drv->num_fx, 2);
-	ASSERT_TRUE(drv->caps & ALLOY_CAP_BRIGHTNESS);
-	ASSERT_TRUE(drv->caps & ALLOY_CAP_FIRMWARE_VERSION);
-	ASSERT_TRUE(drv->caps & ALLOY_CAP_FX_GLOBAL);
-	ASSERT_TRUE(drv->caps & ALLOY_CAP_FX_SPEED);
-	ASSERT_TRUE(!(drv->caps & ALLOY_CAP_COLOR));
-	ASSERT_TRUE(!(drv->caps & ALLOY_CAP_FX_FREQ));
-	ASSERT_TRUE(!(drv->caps & ALLOY_CAP_WIN_LOCK));
+	ASSERT_TRUE(!strcmp(drv->kind, "keyboard"));
+	ASSERT_EQ(hid->interface, 1);
+	ASSERT_EQ(hid->report_size, 32);
+	ASSERT_EQ(info->num_zones, 1);
+	ASSERT_EQ(info->num_fx, 2);
+	ASSERT_TRUE(info->caps & ALLOY_CAP_BRIGHTNESS);
+	ASSERT_TRUE(drv->ops->firmware_version != NULL);
+	ASSERT_TRUE(info->caps & ALLOY_CAP_FX_GLOBAL);
+	ASSERT_TRUE(info->caps & ALLOY_CAP_FX_SPEED);
+	ASSERT_TRUE(!(info->caps & ALLOY_CAP_COLOR));
+	ASSERT_TRUE(!(info->caps & ALLOY_CAP_FX_FREQ));
+	ASSERT_TRUE(!(info->caps & ALLOY_CAP_WIN_LOCK));
 }
 
 ALLOY_TEST(test_apex100_polling_packets)

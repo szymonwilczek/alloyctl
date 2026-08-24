@@ -11,6 +11,8 @@
 #include <string.h>
 
 #include "driver.h"
+#include "hid.h"
+#include "lib/mouse.h"
 #include "mock_hid.h"
 #include "test.h"
 
@@ -37,6 +39,9 @@ ALLOY_TEST(test_prime_registry)
 	const struct alloy_driver *drv = drv_prime();
 	const struct alloy_driver *drv_ice = alloy_driver_find(0x1038, 0x182A);
 	const struct alloy_driver *drv_noir = alloy_driver_find(0x1038, 0x1856);
+	const struct alloy_hid_params *hid = drv->transport_data;
+	const struct alloy_devinfo *info = alloy_devinfo(drv);
+	const struct alloy_mouse_info *mouse = alloy_mouse_info(drv);
 
 	ASSERT_TRUE(drv_ice != NULL);
 	ASSERT_TRUE(drv_noir != NULL);
@@ -49,46 +54,49 @@ ALLOY_TEST(test_prime_registry)
 
 	ASSERT_EQ(drv->vendor_id, 0x1038);
 	ASSERT_EQ(drv->product_id, 0x182E);
-	ASSERT_EQ(drv->interface, 0);
+	ASSERT_EQ(hid->interface, 0);
 
-	ASSERT_EQ(drv->dpi.min, 50);
-	ASSERT_EQ(drv->dpi.max, 18000);
-	ASSERT_EQ(drv->dpi.step, 50);
-	ASSERT_EQ(drv->dpi.max_presets, 5);
+	ASSERT_EQ(mouse->dpi.min, 50);
+	ASSERT_EQ(mouse->dpi.max, 18000);
+	ASSERT_EQ(mouse->dpi.step, 50);
+	ASSERT_EQ(mouse->dpi.max_presets, 5);
 
-	ASSERT_EQ(drv->num_polling_rates, 4);
-	ASSERT_EQ(drv->polling_rates[0], 1000);
-	ASSERT_EQ(drv->polling_rates[1], 500);
-	ASSERT_EQ(drv->polling_rates[2], 250);
-	ASSERT_EQ(drv->polling_rates[3], 125);
+	ASSERT_EQ(info->num_polling_rates, 4);
+	ASSERT_EQ(info->polling_rates[0], 1000);
+	ASSERT_EQ(info->polling_rates[1], 500);
+	ASSERT_EQ(info->polling_rates[2], 250);
+	ASSERT_EQ(info->polling_rates[3], 125);
 
-	ASSERT_EQ(drv->num_zones, 1);
-	ASSERT_TRUE(strcmp(drv->zones[0].name, "WHEEL") == 0);
-	ASSERT_EQ(drv->zones[0].def_color.r, 0xFF);
-	ASSERT_EQ(drv->zones[0].def_color.g, 0x52);
-	ASSERT_EQ(drv->zones[0].def_color.b, 0x00);
+	ASSERT_EQ(info->num_zones, 1);
+	ASSERT_TRUE(strcmp(info->zones[0].name, "WHEEL") == 0);
+	ASSERT_EQ(info->zones[0].def_color.r, 0xFF);
+	ASSERT_EQ(info->zones[0].def_color.g, 0x52);
+	ASSERT_EQ(info->zones[0].def_color.b, 0x00);
 
-	ASSERT_EQ(drv->num_buttons, 6);
-	ASSERT_EQ(drv->buttons[5].def.type, ALLOY_ACT_DPI_CYCLE);
+	ASSERT_EQ(mouse->num_buttons, 6);
+	ASSERT_EQ(mouse->buttons[5].def.type, ALLOY_ACT_DPI_CYCLE);
 
-	ASSERT_TRUE((drv->caps & ALLOY_CAP_BRIGHTNESS) != 0);
-	ASSERT_TRUE(!(drv->caps & ALLOY_CAP_BATTERY));
+	ASSERT_TRUE((info->caps & ALLOY_CAP_BRIGHTNESS) != 0);
+	ASSERT_TRUE(info->caps & ALLOY_CAP_ACCEL);
+	ASSERT_TRUE(!(info->caps & ALLOY_CAP_BATTERY));
 }
 
 ALLOY_TEST(test_prime_dpi_packets)
 {
-	struct alloy_config cfg;
+	const struct alloy_driver *drv = drv_prime();
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	drv_prime()->config_defaults(drv_prime(), &cfg);
+	alloy_config_defaults(drv, cfg);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
 
 	/* 1 preset at 400 DPI */
-	cfg.mouse.dpi_count = 1;
-	cfg.mouse.dpi_active = 0;
-	cfg.mouse.dpi[0][0] = 400;
+	m->dpi_count = 1;
+	m->dpi_active = 0;
+	m->dpi[0][0] = 400;
 
-	len = prime_build_dpi(&cfg, buf);
+	len = prime_build_dpi(cfg, buf);
 	ASSERT_EQ(len, 5);
 	ASSERT_EQ(buf[0], 0x61);
 	ASSERT_EQ(buf[1], 1); /* count */
@@ -97,15 +105,15 @@ ALLOY_TEST(test_prime_dpi_packets)
 	ASSERT_EQ(buf[4], 0);
 
 	/* 5 presets at 400, 800, 1200, 2400, 3200 with active preset 2 */
-	cfg.mouse.dpi_count = 5;
-	cfg.mouse.dpi_active = 2;
-	cfg.mouse.dpi[0][0] = 400;
-	cfg.mouse.dpi[1][0] = 800;
-	cfg.mouse.dpi[2][0] = 1200;
-	cfg.mouse.dpi[3][0] = 2400;
-	cfg.mouse.dpi[4][0] = 3200;
+	m->dpi_count = 5;
+	m->dpi_active = 2;
+	m->dpi[0][0] = 400;
+	m->dpi[1][0] = 800;
+	m->dpi[2][0] = 1200;
+	m->dpi[3][0] = 2400;
+	m->dpi[4][0] = 3200;
 
-	len = prime_build_dpi(&cfg, buf);
+	len = prime_build_dpi(cfg, buf);
 	ASSERT_EQ(len, 13);
 	ASSERT_EQ(buf[0], 0x61);
 	ASSERT_EQ(buf[1], 5);
@@ -122,22 +130,24 @@ ALLOY_TEST(test_prime_dpi_packets)
 	ASSERT_EQ(buf[12], 0x00);
 
 	/* clamping min (20 -> 50) and max (20000 -> 18000) */
-	cfg.mouse.dpi_count = 2;
-	cfg.mouse.dpi_active = 0;
-	cfg.mouse.dpi[0][0] = 20;
-	cfg.mouse.dpi[1][0] = 20000;
-	len = prime_build_dpi(&cfg, buf);
+	m->dpi_count = 2;
+	m->dpi_active = 0;
+	m->dpi[0][0] = 20;
+	m->dpi[1][0] = 20000;
+	len = prime_build_dpi(cfg, buf);
 	ASSERT_EQ(buf[3], 0x01); /* 50 DPI -> 1 */
 	ASSERT_EQ(buf[4], 0x00);
 	ASSERT_EQ(buf[5], 0x68); /* 18000 DPI -> 360 = 0x0168 */
 	ASSERT_EQ(buf[6], 0x01);
 
 	/* rounding to nearest 50 */
-	cfg.mouse.dpi[0][0] = 820;
-	cfg.mouse.dpi[1][0] = 830;
-	len = prime_build_dpi(&cfg, buf);
+	m->dpi[0][0] = 820;
+	m->dpi[1][0] = 830;
+	len = prime_build_dpi(cfg, buf);
 	ASSERT_EQ(buf[3], 0x10); /* 800 DPI -> 16 */
 	ASSERT_EQ(buf[5], 0x11); /* 850 DPI -> 17 */
+
+	alloy_config_free(cfg);
 }
 
 ALLOY_TEST(test_prime_polling_packets)
@@ -213,14 +223,16 @@ ALLOY_TEST(test_prime_brightness_packet)
 
 ALLOY_TEST(test_prime_button_packets)
 {
-	struct alloy_config cfg;
+	const struct alloy_driver *drv = drv_prime();
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	drv_prime()->config_defaults(drv_prime(), &cfg);
+	alloy_config_defaults(drv, cfg);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
 
 	/* default mappings */
-	len = prime_build_buttons(&cfg, buf);
+	len = prime_build_buttons(cfg, buf);
 	ASSERT_EQ(len, 31);
 	ASSERT_EQ(buf[0], 0x5B);
 	ASSERT_EQ(buf[1], 0x01); /* Button 1 */
@@ -231,14 +243,14 @@ ALLOY_TEST(test_prime_button_packets)
 	ASSERT_EQ(buf[26], 0x30); /* Button 6 (CPI) */
 
 	/* custom mapping */
-	cfg.mouse.buttons[0] = (struct alloy_action){ ALLOY_ACT_SCROLL_UP, 0 };
-	cfg.mouse.buttons[1] = (struct alloy_action){ ALLOY_ACT_DISABLED, 0 };
-	cfg.mouse.buttons[2] = (struct alloy_action){ ALLOY_ACT_MOUSE, 1 };
-	cfg.mouse.buttons[3] =
+	m->buttons[0] = (struct alloy_action){ ALLOY_ACT_SCROLL_UP, 0 };
+	m->buttons[1] = (struct alloy_action){ ALLOY_ACT_DISABLED, 0 };
+	m->buttons[2] = (struct alloy_action){ ALLOY_ACT_MOUSE, 1 };
+	m->buttons[3] =
 		(struct alloy_action){ ALLOY_ACT_KEYBOARD, 0x04 }; /* key 'a' */
-	cfg.mouse.buttons[4] = (struct alloy_action){ ALLOY_ACT_MEDIA, 0xCD };
-	cfg.mouse.buttons[5] = (struct alloy_action){ ALLOY_ACT_DPI_CYCLE, 0 };
-	len = prime_build_buttons(&cfg, buf);
+	m->buttons[4] = (struct alloy_action){ ALLOY_ACT_MEDIA, 0xCD };
+	m->buttons[5] = (struct alloy_action){ ALLOY_ACT_DPI_CYCLE, 0 };
+	len = prime_build_buttons(cfg, buf);
 	ASSERT_EQ(len, 31);
 	ASSERT_EQ(buf[0], 0x5B);
 	ASSERT_EQ(buf[1], 0x31); /* Button 1 -> Scroll Up */
@@ -251,9 +263,11 @@ ALLOY_TEST(test_prime_button_packets)
 	ASSERT_EQ(buf[26], 0x30); /* Button 6 -> CPI Cycle */
 
 	/* test remapping right click (Button 2) to Middle click */
-	cfg.mouse.buttons[1] = (struct alloy_action){ ALLOY_ACT_MOUSE, 3 };
-	len = prime_build_buttons(&cfg, buf);
+	m->buttons[1] = (struct alloy_action){ ALLOY_ACT_MOUSE, 3 };
+	len = prime_build_buttons(cfg, buf);
 	ASSERT_EQ(buf[6], 0x03); /* Button 2 -> Middle Click */
+
+	alloy_config_free(cfg);
 }
 
 ALLOY_TEST(test_prime_save_packet)
@@ -268,38 +282,36 @@ ALLOY_TEST(test_prime_save_packet)
 
 ALLOY_TEST(test_prime_ops_execution)
 {
-	struct alloy_device dev;
-	struct alloy_config cfg;
 	const struct alloy_driver *drv = drv_prime();
+	struct alloy_device dev = { 0 };
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 
-	memset(&dev, 0, sizeof(dev));
-	dev.hid.fd = 42;
-	dev.drv = drv;
-
-	drv->config_defaults(drv, &cfg);
+	alloy_device_open_id(&dev, drv->vendor_id, drv->product_id);
+	alloy_config_defaults(drv, cfg);
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
 
 	/* Apply DPI */
-	cfg.mouse.dpi_count = 2;
-	cfg.mouse.dpi[0][0] = 800;
-	cfg.mouse.dpi[1][0] = 1600;
+	m->dpi_count = 2;
+	m->dpi[0][0] = 800;
+	m->dpi[1][0] = 1600;
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_dpi(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_DPI), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x61);
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 2);
 
 	/* Apply Polling */
-	cfg.common.polling_hz = 500;
+	m->dev.polling_hz = 500;
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_polling(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_POLLING), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x5D);
 	ASSERT_EQ(mock_hid.cmds[0].payload[1], 0x02);
 
 	/* Apply Colors */
-	cfg.common.zone_color[0] = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
+	m->dev.zone_color[0] = (struct alloy_rgb){ 0x12, 0x34, 0x56 };
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_colors(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_COLORS), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x62);
 	ASSERT_EQ(mock_hid.cmds[0].payload[2], 0x12);
@@ -307,15 +319,15 @@ ALLOY_TEST(test_prime_ops_execution)
 	ASSERT_EQ(mock_hid.cmds[0].payload[4], 0x56);
 
 	/* Apply Brightness */
-	cfg.common.brightness = 75;
+	m->dev.brightness = 75;
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_brightness(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_BRIGHTNESS), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x5F);
 
 	/* Apply Buttons */
 	mock_hid_reset();
-	ASSERT_EQ(drv->ops->apply_buttons(&dev, &cfg), 0);
+	ASSERT_EQ(alloy_driver_apply(&dev, cfg, ALLOY_STEP_BUTTONS), 0);
 	ASSERT_EQ(mock_hid.num_cmds, 1);
 	ASSERT_EQ(mock_hid.cmds[0].payload[0], 0x5B);
 
@@ -328,20 +340,23 @@ ALLOY_TEST(test_prime_ops_execution)
 	/* Error propagation */
 	mock_hid_reset();
 	mock_hid.fail_cmds = 1;
-	ASSERT_TRUE(drv->ops->apply_dpi(&dev, &cfg) < 0);
+	ASSERT_TRUE(alloy_driver_apply(&dev, cfg, ALLOY_STEP_DPI) < 0);
 	mock_hid_reset();
 	mock_hid.fail_cmds = 1;
-	ASSERT_TRUE(drv->ops->apply_polling(&dev, &cfg) < 0);
+	ASSERT_TRUE(alloy_driver_apply(&dev, cfg, ALLOY_STEP_POLLING) < 0);
 	mock_hid_reset();
 	mock_hid.fail_cmds = 1;
-	ASSERT_TRUE(drv->ops->apply_colors(&dev, &cfg) < 0);
+	ASSERT_TRUE(alloy_driver_apply(&dev, cfg, ALLOY_STEP_COLORS) < 0);
 	mock_hid_reset();
 	mock_hid.fail_cmds = 1;
-	ASSERT_TRUE(drv->ops->apply_brightness(&dev, &cfg) < 0);
+	ASSERT_TRUE(alloy_driver_apply(&dev, cfg, ALLOY_STEP_BRIGHTNESS) < 0);
 	mock_hid_reset();
 	mock_hid.fail_cmds = 1;
-	ASSERT_TRUE(drv->ops->apply_buttons(&dev, &cfg) < 0);
+	ASSERT_TRUE(alloy_driver_apply(&dev, cfg, ALLOY_STEP_BUTTONS) < 0);
 	mock_hid_reset();
 	mock_hid.fail_cmds = 1;
 	ASSERT_TRUE(drv->ops->save(&dev) < 0);
+
+	alloy_device_close(&dev);
+	alloy_config_free(cfg);
 }

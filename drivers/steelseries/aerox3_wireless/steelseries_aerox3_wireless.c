@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
  * SteelSeries Aerox 3 Wireless (2.4 GHz receiver mode), USB ID 1038:1838.
  *
@@ -27,8 +27,10 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "driver.h"
+#include "hid.h"
+#include "lib/mouse.h"
 #include "art_steelseries_aerox3_wireless.h"
+#include "steelseries/steelseries_common.h"
 
 /*
  * Command bytes.
@@ -142,9 +144,9 @@ size_t a3wl_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
-size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf);
 size_t a3wl_build_sleep(const struct alloy_config *cfg, uint8_t *buf);
-int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
+int a3wl_parse_event(struct alloy_device *dev, const uint8_t *buf, size_t len,
+		     struct alloy_config *cfg);
 
 size_t a3wl_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 {
@@ -152,19 +154,19 @@ size_t a3wl_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	buf[n++] = A3WL_CMD_DPI;
-	buf[n++] = cfg->mouse.dpi_count;
+	buf[n++] = alloy_mouse_cfg_c(cfg)->dpi_count;
 	/*
 	 * active index is 0-based on the wire, matching the 0xAD level event
 	 * (a3wl_parse_event) the receiver reports back
 	 */
-	buf[n++] = cfg->mouse.dpi_active;
+	buf[n++] = alloy_mouse_cfg_c(cfg)->dpi_active;
 	/*
 	 * one byte per preset (TrueMove Air single-value CPI);
 	 * sensor has no independent X/Y axis here,
 	 * so the Y column of cfg->dpi is unused
 	 */
-	for (i = 0; i < cfg->mouse.dpi_count; i++)
-		buf[n++] = a3wl_dpi_to_wire(cfg->mouse.dpi[i][0]);
+	for (i = 0; i < alloy_mouse_cfg_c(cfg)->dpi_count; i++)
+		buf[n++] = a3wl_dpi_to_wire(alloy_mouse_cfg_c(cfg)->dpi[i][0]);
 	return n;
 }
 
@@ -173,7 +175,7 @@ size_t a3wl_build_polling(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t wire;
 
 	/* note the encoding differs from the Rival 3 line (1000 Hz is 0x00) */
-	switch (cfg->common.polling_hz) {
+	switch (alloy_devcfg_c(cfg)->polling_hz) {
 	case 125:
 		wire = 0x03;
 		break;
@@ -206,9 +208,9 @@ size_t a3wl_build_zone_color(const struct alloy_config *cfg, int zone,
 	buf[0] = A3WL_CMD_ZONE_COLOR;
 	buf[1] = 0x01;
 	buf[2] = (uint8_t)zone;
-	buf[3] = cfg->common.zone_color[zone].r;
-	buf[4] = cfg->common.zone_color[zone].g;
-	buf[5] = cfg->common.zone_color[zone].b;
+	buf[3] = alloy_devcfg_c(cfg)->zone_color[zone].r;
+	buf[4] = alloy_devcfg_c(cfg)->zone_color[zone].g;
+	buf[5] = alloy_devcfg_c(cfg)->zone_color[zone].b;
 	return 6;
 }
 
@@ -224,7 +226,7 @@ size_t a3wl_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->common.zone_fx[i])
+		if (alloy_devcfg_c(cfg)->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -243,12 +245,12 @@ size_t a3wl_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 size_t a3wl_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = A3WL_CMD_REACTIVE;
-	buf[1] = cfg->mouse.reactive_enabled ? 0x01 : 0x00;
+	buf[1] = alloy_mouse_cfg_c(cfg)->reactive_enabled ? 0x01 : 0x00;
 	buf[2] = 0x00;
-	if (cfg->mouse.reactive_enabled) {
-		buf[3] = cfg->mouse.reactive_color.r;
-		buf[4] = cfg->mouse.reactive_color.g;
-		buf[5] = cfg->mouse.reactive_color.b;
+	if (alloy_mouse_cfg_c(cfg)->reactive_enabled) {
+		buf[3] = alloy_mouse_cfg_c(cfg)->reactive_color.r;
+		buf[4] = alloy_mouse_cfg_c(cfg)->reactive_color.g;
+		buf[5] = alloy_mouse_cfg_c(cfg)->reactive_color.b;
 	} else {
 		buf[3] = 0x00;
 		buf[4] = 0x00;
@@ -269,14 +271,11 @@ size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++)
-		rainbow_zones |= cfg->common.zone_fx[i];
+		rainbow_zones |= alloy_devcfg_c(cfg)->zone_fx[i];
 
 	buf[0] = A3WL_CMD_STARTUP_FX;
-	buf[1] = rainbow_zones != 0 ||
-		 cfg->mouse.startup_fx == ALLOY_STARTUP_RAINBOW ||
-		 cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
-	buf[2] = (cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE ||
-		  cfg->mouse.startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	buf[1] = rainbow_zones != 0;
+	buf[2] = alloy_mouse_cfg_c(cfg)->reactive_enabled ? 0x01 : 0x00;
 	return 3;
 }
 
@@ -288,14 +287,14 @@ size_t a3wl_build_startup(const struct alloy_config *cfg, uint8_t *buf)
  */
 size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
 {
-	uint16_t dim_s =
-		ALLOY_MIN(cfg->common.illum_dim_s, ALLOY_ILLUM_DIM_MAX);
+	uint16_t dim_s = ALLOY_MIN(alloy_mouse_cfg_c(cfg)->illum_dim_s,
+				   ALLOY_ILLUM_DIM_MAX);
 	uint32_t dim_ms = (uint32_t)dim_s * 1000u;
 
 	buf[0] = A3WL_CMD_ILLUM;
-	buf[1] = a3wl_brightness_to_wire(cfg->common.brightness);
+	buf[1] = a3wl_brightness_to_wire(alloy_devcfg_c(cfg)->brightness);
 	buf[2] = 0x01; /* apply-illumination flag (constant in GG captures) */
-	buf[3] = cfg->common.illum_smart ? 0x01 : 0x00;
+	buf[3] = alloy_mouse_cfg_c(cfg)->illum_smart ? 0x01 : 0x00;
 	buf[4] = 0x00;
 	buf[5] = (uint8_t)(dim_ms & 0xFF);
 	buf[6] = (uint8_t)((dim_ms >> 8) & 0xFF);
@@ -305,12 +304,13 @@ size_t a3wl_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
 
 /*
  * Sleep timer: 0x69 <t0 t1 t2>, idle time before the mouse sleeps as a 3-byte
- * little-endian millisecond count (cfg->common.sleep_min minutes, 0 = never).
+ * little-endian millisecond count (alloy_mouse_cfg_c(cfg)->sleep_min minutes, 0 = never).
  * Captured: 5 min -> 69 e0 93 04 (0x000493E0 = 300000 ms).
  */
 size_t a3wl_build_sleep(const struct alloy_config *cfg, uint8_t *buf)
 {
-	uint8_t min = ALLOY_MIN(cfg->common.sleep_min, ALLOY_SLEEP_MAX);
+	uint8_t min =
+		ALLOY_MIN(alloy_mouse_cfg_c(cfg)->sleep_min, ALLOY_SLEEP_MAX);
 	uint32_t ms = (uint32_t)min * 60000u;
 
 	buf[0] = A3WL_CMD_SLEEP;
@@ -355,7 +355,8 @@ size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	memset(buf + 1, 0, 8 * 5);
 
 	for (i = 0; i < ALLOY_ARRAY_SIZE(a3wl_button_wire_id); i++) {
-		const struct alloy_action *act = &cfg->mouse.buttons[i];
+		const struct alloy_action *act =
+			&alloy_mouse_cfg_c(cfg)->buttons[i];
 		uint8_t *field = buf + 1 + i * 5;
 
 		field[0] = a3wl_action_first_byte(act);
@@ -367,20 +368,8 @@ size_t a3wl_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 }
 
 /*
- * High-Efficiency Mode enable flag: 0x68 <enable>.
- * This is only the mode's flag byte;
- * Full power-saver behaviour is the register bundle
- * applied in a3wl_apply_high_efficiency.
- */
-size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf)
-{
-	buf[0] = A3WL_CMD_HIGHEFF;
-	buf[1] = cfg->mouse.high_efficiency ? 0x01 : 0x00;
-	return 2;
-}
-
-/*
  * CPI-level switch notification, captured on hardware (fw 1.3.1):
+
  *
  *   0xAD <count> <active> <wire1> ... <wireN>
  *
@@ -396,8 +385,12 @@ size_t a3wl_build_high_efficiency(const struct alloy_config *cfg, uint8_t *buf)
  * surfaced host-side through ops->battery, which the UI polls; the wake edge
  * is also what prompts the host to re-push the non-persistent lighting.
  */
-int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
+int a3wl_parse_event(struct alloy_device *dev, const uint8_t *buf, size_t len,
+		     struct alloy_config *cfg)
 {
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
+
+	(void)dev;
 	uint8_t active;
 
 	if (len < 3 || buf[0] != A3WL_EVT_CPI_LEVEL)
@@ -405,9 +398,9 @@ int a3wl_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
 	active = buf[2];
 	if (buf[1] < 1 || buf[1] > ALLOY_MAX_DPI_PRESETS || active >= buf[1])
 		return 0;
-	if (active >= cfg->mouse.dpi_count || active == cfg->mouse.dpi_active)
+	if (active >= m->dpi_count || active == m->dpi_active)
 		return 0;
-	cfg->mouse.dpi_active = active;
+	m->dpi_active = active;
 	return 1;
 }
 
@@ -416,7 +409,7 @@ static int a3wl_apply_dpi(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_dpi(cfg, buf));
+	return steelseries_cmd(dev, buf, a3wl_build_dpi(cfg, buf));
 }
 
 static int a3wl_apply_polling(struct alloy_device *dev,
@@ -424,7 +417,7 @@ static int a3wl_apply_polling(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(cfg, buf));
+	return steelseries_cmd(dev, buf, a3wl_build_polling(cfg, buf));
 }
 
 /*
@@ -441,20 +434,20 @@ static int a3wl_apply_colors(struct alloy_device *dev,
 	int ret = 0;
 	int zone;
 
-	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_startup(cfg, buf));
+	ret |= steelseries_cmd(dev, buf, a3wl_build_startup(cfg, buf));
 
 	len = a3wl_build_rainbow(cfg, buf);
 	if (len)
-		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+		ret |= steelseries_cmd(dev, buf, len);
 
 	for (zone = 0; zone < 3; zone++) {
-		if (cfg->common.zone_fx[zone])
+		if (alloy_devcfg_c(cfg)->zone_fx[zone])
 			continue; /* zone on the rainbow, leave it cycling */
-		ret |= alloy_hid_cmd(&dev->hid, buf,
-				     a3wl_build_zone_color(cfg, zone, buf));
+		ret |= steelseries_cmd(dev, buf,
+				       a3wl_build_zone_color(cfg, zone, buf));
 	}
 
-	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_reactive(cfg, buf));
+	ret |= steelseries_cmd(dev, buf, a3wl_build_reactive(cfg, buf));
 
 	return ret ? -1 : 0;
 }
@@ -464,7 +457,7 @@ static int a3wl_apply_brightness(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_brightness(cfg, buf));
+	return steelseries_cmd(dev, buf, a3wl_build_brightness(cfg, buf));
 }
 
 static int a3wl_apply_buttons(struct alloy_device *dev,
@@ -472,87 +465,23 @@ static int a3wl_apply_buttons(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_buttons(cfg, buf));
-}
-
-static long a3wl_now_ms(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-}
-
-/*
- * Block (bounded) until the link comes back after a High-Efficiency toggle,
- * i.e. until a 0xBC 0x01 wake lands on the event interface.
- * Discards the 0xBC 0x00 sleep edge and the 0x12 battery push that ride alongside it.
- * Stale event fd (the interface can re-enumerate too) or the timeout just ends the wait;
- * The caller proceeds best-effort.
- */
-static void a3wl_wait_relink(struct alloy_device *dev)
-{
-	uint8_t buf[ALLOY_HID_REPORT_SIZE];
-	long deadline = a3wl_now_ms() + A3WL_RELINK_TIMEOUT_MS;
-
-	if (dev->ev.fd < 0)
-		return;
-
-	while (a3wl_now_ms() < deadline) {
-		int n = alloy_hid_poll(&dev->ev, buf, sizeof(buf));
-
-		if (n >= 2 && buf[0] == A3WL_EVT_POWER && buf[1] == 0x01)
-			return; /* re-linked */
-		usleep(A3WL_RELINK_POLL_MS * 1000);
-	}
-}
-
-/*
- * High-Efficiency Mode is not a single opcode but the register bundle GG emits,
- * mirrored here byte-for-byte from the hardware capture:
- * Enabling sets the 0x68 flag, blanks the LEDs (0x63 level 0) and forces polling
- * to 125 Hz (0x6B 0x03), in that order;
- * Disabling clears the flag and restores the user's brightness and polling from cfg.
- * The flag alone changes nothing - the host drives the saver.
- * All three ACK before the link drops;
- * a3wl_wait_relink then waits for the mouse to come back so the caller's next command
- * finds a live link.
- */
-static int a3wl_apply_high_efficiency(struct alloy_device *dev,
-				      const struct alloy_config *cfg)
-{
-	uint8_t buf[ALLOY_HID_REPORT_SIZE];
-	struct alloy_config eff = *cfg;
-	int ret = 0;
-
-	if (cfg->mouse.high_efficiency) {
-		eff.common.polling_hz = A3WL_HIGHEFF_POLLING_HZ;
-		eff.common.brightness = A3WL_HIGHEFF_BRIGHTNESS;
-	}
-
-	ret |= alloy_hid_cmd(&dev->hid, buf,
-			     a3wl_build_high_efficiency(cfg, buf));
-	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_brightness(&eff, buf));
-	ret |= alloy_hid_cmd(&dev->hid, buf, a3wl_build_polling(&eff, buf));
-
-	a3wl_wait_relink(dev);
-
-	return ret ? -1 : 0;
+	return steelseries_cmd(dev, buf, a3wl_build_buttons(cfg, buf));
 }
 
 static int a3wl_apply_sleep(struct alloy_device *dev,
 			    const struct alloy_config *cfg)
+
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, a3wl_build_sleep(cfg, buf));
+	return steelseries_cmd(dev, buf, a3wl_build_sleep(cfg, buf));
 }
 
 static int a3wl_save(struct alloy_device *dev)
 {
 	static const uint8_t cmd[] = { A3WL_CMD_SAVE, 0x00 };
 
-	return alloy_hid_cmd(&dev->hid, cmd, sizeof(cmd));
+	return steelseries_cmd(dev, cmd, sizeof(cmd));
 }
 
 static int a3wl_firmware_version(struct alloy_device *dev, char *buf,
@@ -566,7 +495,7 @@ static int a3wl_firmware_version(struct alloy_device *dev, char *buf,
 	if (!len)
 		return -1;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
+	n = steelseries_cmd_read(dev, cmd, sizeof(cmd), resp, sizeof(resp));
 	if (n < 1)
 		return -1;
 
@@ -598,9 +527,9 @@ static int a3wl_battery(struct alloy_device *dev, int *percent, int *charging)
 	 * emits the 0x40 0xFF idle marker, which hid_read_matching skips,
 	 * so the call returns "no reading" instead of bogus level
 	 */
-	n = alloy_hid_cmd_read_want(&dev->hid, cmd, sizeof(cmd),
-				    A3WL_CMD_BATTERY, resp, sizeof(resp),
-				    ALLOY_HID_ATTEMPTS_POLL);
+	n = steelseries_cmd_read_want(dev, cmd, sizeof(cmd), A3WL_CMD_BATTERY,
+				      resp, sizeof(resp),
+				      STEELSERIES_ATTEMPTS_POLL);
 	if (n < 2 || resp[0] != A3WL_CMD_BATTERY)
 		return -1;
 
@@ -641,11 +570,11 @@ static int a3wl_pair(struct alloy_device *dev)
 	static const uint8_t bind[] = { A3WL_CMD_PAIR };
 
 	/* -1 is a hard I/O error / device gone; -2 (no echo) is tolerated */
-	if (alloy_hid_cmd(&dev->hid, arm_a, sizeof(arm_a)) == -1)
+	if (steelseries_cmd(dev, arm_a, sizeof(arm_a)) == -1)
 		return -1;
-	if (alloy_hid_cmd(&dev->hid, arm_b, sizeof(arm_b)) == -1)
+	if (steelseries_cmd(dev, arm_b, sizeof(arm_b)) == -1)
 		return -1;
-	return alloy_hid_send(&dev->hid, bind, sizeof(bind));
+	return alloy_dev_write(dev, bind, sizeof(bind));
 }
 
 static const uint16_t a3wl_polling_rates[] = { 1000, 500, 250, 125 };
@@ -673,51 +602,78 @@ static const struct alloy_button a3wl_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
-static const struct alloy_driver_ops a3wl_ops = {
-	.apply_dpi = a3wl_apply_dpi,
-	.apply_polling = a3wl_apply_polling,
-	.apply_colors = a3wl_apply_colors,
-	.apply_brightness = a3wl_apply_brightness,
-	.apply_buttons = a3wl_apply_buttons,
-	.apply_high_efficiency = a3wl_apply_high_efficiency,
-	.apply_sleep = a3wl_apply_sleep,
-	.save = a3wl_save,
-	.firmware_version = a3wl_firmware_version,
-	.battery = a3wl_battery,
-	.pair = a3wl_pair,
-	.parse_event = a3wl_parse_event,
-};
-
-static const struct alloy_driver steelseries_aerox3_wireless = {
-	.name = "SteelSeries Aerox 3 Wireless",
-	.type = ALLOY_DEV_MOUSE,
-	.vendor_id = 0x1038,
-	.product_id = 0x1838,
-	.interface = 3,
-	.event_interface = 4,
-	.bt_product_id = 0x183A, /* product id the mouse shows over Bluetooth */
+static const struct alloy_mouse_info a3wl_mouse = {
 	.dpi = {
 		.min = A3WL_DPI_MIN,
 		.max = A3WL_DPI_MAX,
 		.step = A3WL_DPI_STEP,
 		.max_presets = 5,
 	},
+	.buttons = a3wl_buttons,
+	.num_buttons = ALLOY_ARRAY_SIZE(a3wl_buttons),
+	.bt_product_id = 0x183A, /* product id the mouse shows over Bluetooth */
+	.battery = a3wl_battery,
+	.pair = a3wl_pair,
+};
+
+static const struct alloy_devinfo a3wl_info = {
+	.caps = ALLOY_CAP_COLOR | ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_BATTERY |
+		ALLOY_CAP_PAIRING | ALLOY_CAP_ACCEL | ALLOY_CAP_DECEL |
+		ALLOY_CAP_ANGLE_SNAPPING | ALLOY_CAP_FX_REACTIVE |
+		ALLOY_CAP_DPI | ALLOY_CAP_BUTTONS,
 	.polling_rates = a3wl_polling_rates,
 	.num_polling_rates = ALLOY_ARRAY_SIZE(a3wl_polling_rates),
 	.zones = a3wl_zones,
 	.num_zones = ALLOY_ARRAY_SIZE(a3wl_zones),
-	.buttons = a3wl_buttons,
-	.num_buttons = ALLOY_ARRAY_SIZE(a3wl_buttons),
-	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
-		ALLOY_CAP_BATTERY | ALLOY_CAP_HIGH_EFFICIENCY |
-		ALLOY_CAP_PAIRING | ALLOY_CAP_COLOR | ALLOY_CAP_FX_RAINBOW |
-		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP,
-
 	.fx_names = a3wl_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(a3wl_fx_names),
+	.ext = &a3wl_mouse,
+};
+
+static const struct alloy_apply_step a3wl_steps[] = {
+	{ ALLOY_STEP_DPI, ALLOY_APPLY_SKIP_SYNC, a3wl_apply_dpi },
+	{ ALLOY_STEP_POLLING, 0, a3wl_apply_polling },
+	{ ALLOY_STEP_COLORS, 0, a3wl_apply_colors },
+	{ ALLOY_STEP_BRIGHTNESS, 0, a3wl_apply_brightness },
+	{ ALLOY_STEP_BUTTONS, 0, a3wl_apply_buttons },
+	{ ALLOY_STEP_SLEEP, 0, a3wl_apply_sleep },
+};
+
+static const struct alloy_driver_ops a3wl_ops = {
+	.config_defaults = alloy_mouse_defaults,
+	.state_save = alloy_mouse_state_save,
+	.state_load = alloy_mouse_state_load,
+	.state_done = alloy_mouse_state_done,
+	.save = a3wl_save,
+	.firmware_version = a3wl_firmware_version,
+	.parse_event = a3wl_parse_event,
+};
+
+static const struct alloy_cli_table a3wl_cli[] = {
+	{ alloy_devcfg_cli_options, ALLOY_DEVCFG_CLI_COUNT },
+	{ alloy_mouse_cli_options, ALLOY_MOUSE_CLI_COUNT },
+};
+
+static const struct alloy_hid_params a3wl_hid = {
+	.interface = 3,
+	.event_interface = 4,
+};
+
+static const struct alloy_driver steelseries_aerox3_wireless = {
+	.name = "SteelSeries Aerox 3 Wireless",
+	.kind = "mouse",
+	.vendor_id = 0x1038,
+	.product_id = 0x1838,
+	.transport_data = &a3wl_hid,
+	.config_size = sizeof(struct alloy_mouse_config),
+	.data = &a3wl_info,
 	.ascii_art = alloy_art_steelseries_aerox3_wireless,
+	.cli_tables = a3wl_cli,
+	.num_cli_tables = ALLOY_ARRAY_SIZE(a3wl_cli),
+	.apply_steps = a3wl_steps,
+	.num_apply_steps = ALLOY_ARRAY_SIZE(a3wl_steps),
+	.ui = &alloy_mouse_ui,
 	.ops = &a3wl_ops,
-	.config_defaults = alloy_config_generic_defaults,
 };
 
 ALLOY_DRIVER_REGISTER(steelseries_aerox3_wireless);

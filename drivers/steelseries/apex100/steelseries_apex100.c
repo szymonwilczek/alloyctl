@@ -17,7 +17,9 @@
 #include <string.h>
 
 #include "art_steelseries_apex100.h"
-#include "driver.h"
+#include "hid.h"
+#include "lib/keyboard.h"
+#include "steelseries/steelseries_common.h"
 
 #define APEX100_CMD_POLLING 0x04
 #define APEX100_CMD_BRIGHTNESS 0x05
@@ -127,8 +129,8 @@ static int apex100_apply_polling(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	len = apex100_build_polling(cfg->common.polling_hz, buf);
-	return alloy_hid_send(&dev->hid, buf, len);
+	len = apex100_build_polling(alloy_devcfg_c(cfg)->polling_hz, buf);
+	return alloy_dev_write(dev, buf, len);
 }
 
 static int apex100_apply_brightness(struct alloy_device *dev,
@@ -137,8 +139,8 @@ static int apex100_apply_brightness(struct alloy_device *dev,
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 	size_t len;
 
-	len = apex100_build_brightness(cfg->common.brightness, buf);
-	return alloy_hid_send(&dev->hid, buf, len);
+	len = apex100_build_brightness(alloy_devcfg_c(cfg)->brightness, buf);
+	return alloy_dev_write(dev, buf, len);
 }
 
 static int apex100_apply_colors(struct alloy_device *dev,
@@ -148,14 +150,15 @@ static int apex100_apply_colors(struct alloy_device *dev,
 	size_t len;
 	int ret;
 
-	len = apex100_build_brightness(cfg->common.brightness, buf);
-	ret = alloy_hid_send(&dev->hid, buf, len);
+	len = apex100_build_brightness(alloy_devcfg_c(cfg)->brightness, buf);
+	ret = alloy_dev_write(dev, buf, len);
 	if (ret)
 		return ret;
 
-	len = apex100_build_effect(cfg->common.zone_fx[0],
-				   cfg->common.zone_fx_speed[0], buf);
-	return alloy_hid_send(&dev->hid, buf, len);
+	len = apex100_build_effect(
+		alloy_devcfg_c(cfg)->zone_fx[0],
+		alloy_devcfg_c(cfg)->zone_fx_param[0][ALLOY_FX_P_SPEED], buf);
+	return alloy_dev_write(dev, buf, len);
 }
 
 static int apex100_save(struct alloy_device *dev)
@@ -164,7 +167,7 @@ static int apex100_save(struct alloy_device *dev)
 	size_t len;
 
 	len = apex100_build_save(buf);
-	return alloy_hid_send(&dev->hid, buf, len);
+	return alloy_dev_write(dev, buf, len);
 }
 
 static int apex100_firmware_version(struct alloy_device *dev, char *buf,
@@ -179,7 +182,7 @@ static int apex100_firmware_version(struct alloy_device *dev, char *buf,
 		return -1;
 
 	cmd_len = apex100_build_firmware_query(cmd);
-	n = alloy_hid_cmd_read(&dev->hid, cmd, cmd_len, resp, sizeof(resp));
+	n = steelseries_cmd_read(dev, cmd, cmd_len, resp, sizeof(resp));
 	if (n < 1)
 		return -1;
 
@@ -193,31 +196,55 @@ static const struct alloy_led_zone apex100_zones[] = {
 	{ .name = "BACKLIGHT", .def_color = { 0x00, 0x84, 0xFF } },
 };
 
-static const struct alloy_driver_ops apex100_ops = {
-	.apply_polling = apex100_apply_polling,
-	.apply_colors = apex100_apply_colors,
-	.apply_brightness = apex100_apply_brightness,
-	.save = apex100_save,
-	.firmware_version = apex100_firmware_version,
-};
-
-static const struct alloy_driver steelseries_apex100 = {
-	.name = "SteelSeries Apex 100",
-	.type = ALLOY_DEV_KEYBOARD,
-	.vendor_id = 0x1038,
-	.product_id = 0x160E,
-	.interface = 1,
-	.report_size = APEX100_REPORT_SIZE,
+static const struct alloy_devinfo apex100_info = {
+	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FX_GLOBAL | ALLOY_CAP_FX_SPEED,
 	.polling_rates = apex100_polling_rates,
 	.num_polling_rates = ALLOY_ARRAY_SIZE(apex100_polling_rates),
 	.zones = apex100_zones,
 	.num_zones = ALLOY_ARRAY_SIZE(apex100_zones),
 	.fx_names = apex100_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(apex100_fx_names),
-	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
-		ALLOY_CAP_FX_GLOBAL | ALLOY_CAP_FX_SPEED,
+};
+
+static const struct alloy_apply_step apex100_steps[] = {
+	{ ALLOY_STEP_POLLING, 0, apex100_apply_polling },
+	{ ALLOY_STEP_COLORS, 0, apex100_apply_colors },
+	{ ALLOY_STEP_BRIGHTNESS, 0, apex100_apply_brightness },
+};
+
+static const struct alloy_driver_ops apex100_ops = {
+	.config_defaults = alloy_keyboard_defaults,
+	.state_save = alloy_keyboard_state_save,
+	.state_load = alloy_keyboard_state_load,
+	.state_done = alloy_keyboard_state_done,
+	.save = apex100_save,
+	.firmware_version = apex100_firmware_version,
+};
+
+static const struct alloy_cli_table apex100_cli[] = {
+	{ alloy_devcfg_cli_options, ALLOY_DEVCFG_CLI_COUNT },
+	{ alloy_keyboard_cli_options, ALLOY_KEYBOARD_CLI_COUNT },
+};
+
+static const struct alloy_hid_params apex100_hid = {
+	.interface = 1,
+	.report_size = APEX100_REPORT_SIZE,
+};
+
+static const struct alloy_driver steelseries_apex100 = {
+	.name = "SteelSeries Apex 100",
+	.kind = "keyboard",
+	.vendor_id = 0x1038,
+	.product_id = 0x160E,
+	.transport_data = &apex100_hid,
+	.config_size = sizeof(struct alloy_keyboard_config),
+	.data = &apex100_info,
 	.ascii_art = alloy_art_steelseries_apex100,
+	.cli_tables = apex100_cli,
+	.num_cli_tables = ALLOY_ARRAY_SIZE(apex100_cli),
+	.apply_steps = apex100_steps,
+	.num_apply_steps = ALLOY_ARRAY_SIZE(apex100_steps),
+	.ui = &alloy_keyboard_ui,
 	.ops = &apex100_ops,
-	.config_defaults = alloy_config_generic_defaults,
 };
 ALLOY_DRIVER_REGISTER(steelseries_apex100);

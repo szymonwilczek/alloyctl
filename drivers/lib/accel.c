@@ -34,9 +34,9 @@
 #include <linux/input.h>
 #include <linux/uinput.h>
 
-#include "accel.h"
+#include "lib/accel.h"
 #include "alloy.h"
-#include "driver.h"
+#include "lib/mouse.h"
 #include "state.h"
 
 #define LONG_BITS (8 * (int)sizeof(long))
@@ -501,10 +501,13 @@ static int accel_pump(int src, int uinp, const struct alloy_accel_params *p,
 static void load_params(const struct alloy_driver *drv,
 			struct alloy_accel_params *p)
 {
-	struct alloy_config cfg;
+	struct alloy_config *cfg = alloy_config_alloc(drv);
 
-	alloy_state_load(drv, &cfg);
-	alloy_accel_from_config(&cfg, p);
+	if (!cfg)
+		return;
+	alloy_state_load(drv, cfg);
+	alloy_accel_from_config(cfg, p);
+	alloy_config_free(cfg);
 }
 
 int alloy_accel_daemon_run(uint16_t vid, uint16_t pid)
@@ -577,3 +580,64 @@ int alloy_accel_daemon_run(uint16_t vid, uint16_t pid)
 	accel_remove_pidfile(vid, pid);
 	return 0;
 }
+
+/* ------------------------------------------------------------------ *
+ * Command-line entry points
+ * ------------------------------------------------------------------ *
+ *
+ * The transform is a feature of this library, not of the program, so it
+ * registers its own commands rather than being wired into main().
+ */
+
+static int parse_device_arg(const char *arg, uint16_t *vid, uint16_t *pid)
+{
+	unsigned v;
+	unsigned p;
+
+	if (!arg || sscanf(arg, "%x:%x", &v, &p) != 2) {
+		fprintf(stderr,
+			"alloyctl: expected a device ID (VID:PID in hex)\n");
+		return -1;
+	}
+	*vid = (uint16_t)v;
+	*pid = (uint16_t)p;
+	return 0;
+}
+
+static int cmd_accel_daemon(const char *arg)
+{
+	uint16_t vid;
+	uint16_t pid;
+
+	if (parse_device_arg(arg, &vid, &pid))
+		return 1;
+	return alloy_accel_daemon_run(vid, pid);
+}
+
+static int cmd_accel_stop(const char *arg)
+{
+	uint16_t vid;
+	uint16_t pid;
+
+	if (parse_device_arg(arg, &vid, &pid))
+		return 1;
+	return alloy_accel_stop(vid, pid) ? 1 : 0;
+}
+
+static const struct alloy_cli_command accel_daemon_cmd = {
+	.name = "--accel-daemon",
+	.arg_desc = "<VID:PID>",
+	.help = "Run the host pointer-transform daemon for a device",
+	.has_arg = 1,
+	.run = cmd_accel_daemon,
+};
+ALLOY_COMMAND_REGISTER(accel_daemon_cmd);
+
+static const struct alloy_cli_command accel_stop_cmd = {
+	.name = "--accel-stop",
+	.arg_desc = "<VID:PID>",
+	.help = "Stop the host pointer-transform daemon for a device",
+	.has_arg = 1,
+	.run = cmd_accel_stop,
+};
+ALLOY_COMMAND_REGISTER(accel_stop_cmd);

@@ -1,32 +1,24 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * hidraw transport layer.
+ * Generic Linux hidraw transport layer.
  *
  * Device discovery walks /sys/class/hidraw and matches two
  * uevent fields of the parent HID device:
  *
  *   HID_ID=0003:00001038:00001870          -> bus:VID:PID
  *   HID_PHYS=usb-0000:2f:00.3-2/input3    -> USB interface number
- *
- * Mice do not use numbered HID reports, so write() on the hidraw node
- * is the report number 0x00 followed by the 64-byte payload.
- *
- * Recognized commands are echoed back on the interrupt IN endpoint.
- * Silence means the firmware ignored the command.
  */
 #include <dirent.h>
 #include <fcntl.h>
+#include <linux/hidraw.h>
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <time.h>
 #include <unistd.h>
 
 #include "hid.h"
-
-#define ALLOY_HID_ACK_TIMEOUT_MS 400
-/* pause between wake attempts, so sleeping link has moment to come back */
-#define ALLOY_HID_RETRY_DELAY_MS 40
 
 static int uevent_matches(const char *path, uint16_t vendor_id,
 			  uint16_t product_id, int interface)
@@ -62,11 +54,6 @@ static int uevent_matches(const char *path, uint16_t vendor_id,
 	return id_ok && phys_ok;
 }
 
-/*
- * Locate the hidraw node matching the VID/PID/interface triple.
- * On a match, copies "/dev/hidrawN" into node (when non-NULL) and returns 1;
- * returns 0 when no connected device matches.
- */
 static int hid_find_node(uint16_t vendor_id, uint16_t product_id, int interface,
 			 char *node, size_t node_len)
 {
@@ -103,13 +90,37 @@ int alloy_hid_present(uint16_t vendor_id, uint16_t product_id, int interface)
 	return hid_find_node(vendor_id, product_id, interface, NULL, 0);
 }
 
-/*
- * Locate the hidraw node device exposes on the given bus type, matched by product id
- * only (vendor and interface ignored - Bluetooth re-brands the vendor and carries every
- * report on one node).
- * On a match, copies "/dev/hidrawN" into node (when non-NULL) and returns 1;
- * returns 0 when no connected device matches.
- */
+static int uevent_matches_bus(const char *path, uint16_t bustype,
+			      uint16_t product_id)
+{
+	char buf[512];
+	char want_prefix[16];
+	char want_suffix[16];
+	FILE *f;
+	int match = 0;
+
+	f = fopen(path, "re");
+	if (!f)
+		return 0;
+
+	snprintf(want_prefix, sizeof(want_prefix), "%04X:", bustype);
+	snprintf(want_suffix, sizeof(want_suffix), ":%08X", product_id);
+
+	while (fgets(buf, sizeof(buf), f)) {
+		buf[strcspn(buf, "\n")] = '\0';
+		if (!strncmp(buf, "HID_ID=", 7)) {
+			const char *val = buf + 7;
+			if (!strncmp(val, want_prefix, strlen(want_prefix))) {
+				const char *colon = strrchr(val, ':');
+				if (colon && !strcmp(colon, want_suffix))
+					match = 1;
+			}
+		}
+	}
+	fclose(f);
+	return match;
+}
+
 static int hid_find_node_bus(uint16_t bustype, uint16_t product_id, char *node,
 			     size_t node_len)
 {
@@ -123,37 +134,18 @@ static int hid_find_node_bus(uint16_t bustype, uint16_t product_id, char *node,
 		return 0;
 
 	while ((ent = readdir(dir))) {
-		unsigned int bus = 0;
-		unsigned int vid = 0;
-		unsigned int pid = 0;
-		char buf[256];
-		FILE *f;
-
 		if (strncmp(ent->d_name, "hidraw", 6))
 			continue;
 
 		snprintf(path, sizeof(path),
 			 "/sys/class/hidraw/%s/device/uevent", ent->d_name);
-		f = fopen(path, "re");
-		if (!f)
+		if (!uevent_matches_bus(path, bustype, product_id))
 			continue;
-		while (fgets(buf, sizeof(buf), f)) {
-			if (strncmp(buf, "HID_ID=", 7))
-				continue;
-			if (sscanf(buf + 7, "%x:%x:%x", &bus, &vid, &pid) ==
-				    3 &&
-			    (uint16_t)bus == bustype &&
-			    (uint16_t)pid == product_id)
-				found = 1;
-			break;
-		}
-		fclose(f);
-		if (found) {
-			if (node)
-				snprintf(node, node_len, "/dev/%s",
-					 ent->d_name);
-			break;
-		}
+
+		if (node)
+			snprintf(node, node_len, "/dev/%s", ent->d_name);
+		found = 1;
+		break;
 	}
 	closedir(dir);
 
@@ -171,11 +163,12 @@ int alloy_hid_open(struct alloy_hid_dev *dev, uint16_t vendor_id,
 	char node[288];
 
 	dev->fd = -1;
-	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
 	dev->vendor_id = vendor_id;
 	dev->product_id = product_id;
 	dev->interface = interface;
-	dev->report_id = 0; /* USB path: single unnumbered report */
+	dev->report_id = 0;
+	dev->report_size = report_size ? report_size :
+					 ALLOY_HID_DEFAULT_REPORT_SIZE;
 
 	if (!hid_find_node(vendor_id, product_id, interface, node,
 			   sizeof(node)))
@@ -192,11 +185,12 @@ int alloy_hid_open_bus(struct alloy_hid_dev *dev, uint16_t bustype,
 	char node[288];
 
 	dev->fd = -1;
-	dev->report_size = report_size ? report_size : ALLOY_HID_REPORT_SIZE;
-	dev->vendor_id = 0; /* bus re-brands it; unused on this path */
+	dev->vendor_id = 0;
 	dev->product_id = product_id;
-	dev->interface = -1; /* one node carries every report */
+	dev->interface = -1;
 	dev->report_id = report_id;
+	dev->report_size = report_size ? report_size :
+					 ALLOY_HID_DEFAULT_REPORT_SIZE;
 
 	if (!hid_find_node_bus(bustype, product_id, node, sizeof(node)))
 		return -1;
@@ -205,12 +199,7 @@ int alloy_hid_open_bus(struct alloy_hid_dev *dev, uint16_t bustype,
 	return dev->fd < 0 ? -1 : 0;
 }
 
-/*
- * Re-open hidraw node after the receiver re-enumerates and the old fd goes stale.
- * Re-runs discovery because the node number typically changes.
- * Returns 0 on fresh fd, -1 when the device is gone.
- */
-static int hid_reopen(struct alloy_hid_dev *dev)
+int alloy_hid_reopen(struct alloy_hid_dev *dev)
 {
 	char node[288];
 
@@ -249,40 +238,37 @@ int alloy_hid_poll(struct alloy_hid_dev *dev, uint8_t *buf, size_t len)
 	return n < 0 ? -1 : (int)n;
 }
 
-static int hid_write_report(struct alloy_hid_dev *dev, const uint8_t *payload,
-			    size_t len)
+int alloy_hid_write(struct alloy_hid_dev *dev, const uint8_t *payload,
+		    size_t len)
 {
-	uint8_t buf[1 + ALLOY_HID_REPORT_SIZE];
-	size_t total = 1 + dev->report_size;
+	uint8_t buf[512];
+	size_t total;
 	ssize_t n;
 
-	if (len > dev->report_size)
+	if (!dev || dev->fd < 0 || !payload || !len)
 		return -1;
 
-	memset(buf, 0, sizeof(buf));
-	buf[0] = dev->report_id; /* report number; 0 = unnumbered (USB path) */
+	total = 1 + dev->report_size;
+	if (total > sizeof(buf) || len > dev->report_size)
+		return -1;
+
+	memset(buf, 0, total);
+	buf[0] = dev->report_id;
 	memcpy(buf + 1, payload, len);
 
 	n = write(dev->fd, buf, total);
-	if (n != (ssize_t)total)
-		return -1;
-	return 0;
+	return (n == (ssize_t)total) ? 0 : -1;
 }
 
-int alloy_hid_send(struct alloy_hid_dev *dev, const uint8_t *payload,
-		   size_t len)
-{
-	if (!len)
-		return -1;
-	return hid_write_report(dev, payload, len);
-}
-
-static int hid_read_report(struct alloy_hid_dev *dev, uint8_t *resp,
-			   size_t resp_len, int timeout_ms)
+int alloy_hid_read(struct alloy_hid_dev *dev, uint8_t *resp, size_t resp_len,
+		   int timeout_ms)
 {
 	struct pollfd pfd;
 	ssize_t n;
 	int ret;
+
+	if (!dev || dev->fd < 0 || !resp || !resp_len)
+		return -1;
 
 	pfd.fd = dev->fd;
 	pfd.events = POLLIN;
@@ -299,126 +285,23 @@ static int hid_read_report(struct alloy_hid_dev *dev, uint8_t *resp,
 	return (int)n;
 }
 
-static void hid_drain(struct alloy_hid_dev *dev)
+int alloy_hid_send_feature(struct alloy_hid_dev *dev, const uint8_t *payload,
+			   size_t len)
 {
-	uint8_t scratch[ALLOY_HID_REPORT_SIZE];
-
-	while (hid_read_report(dev, scratch, sizeof(scratch), 0) > 0)
-		;
-}
-
-static long hid_now_ms(void)
-{
-	struct timespec ts;
-
-	clock_gettime(CLOCK_MONOTONIC, &ts);
-	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
-}
-
-/*
- * Receiver's "mouse asleep / not linked" reply.
- * On the config interface it arrives instead of the command echo whenever
- * the 2.4 GHz link has idled, and is also pushed unsolicited while idle -
- * so it must be skipped, not mistaken for rejected command.
- */
-static int hid_is_idle_marker(const uint8_t *resp, int n)
-{
-	return n >= 2 && resp[0] == 0x40 && resp[1] == 0xFF;
-}
-
-/*
- * Read reports until one whose first byte is @want arrives
- * (want < 0 accepts any report that is not the idle marker),
- * discarding the idle marker and any unrelated report (e.g. a stray event)
- * that lands first, within an overall deadline.
- * Reading single report is not enough:
- * config interface interleaves idle markers with echoes, so the first report
- * back is not necessarily the ACK.
- * Returns the matching report length, -1 on I/O error, -2 on deadline.
- */
-static int hid_read_matching(struct alloy_hid_dev *dev, int want, uint8_t *resp,
-			     size_t resp_len, int deadline_ms)
-{
-	long deadline = hid_now_ms() + deadline_ms;
-	long remaining;
-
-	while ((remaining = deadline - hid_now_ms()) > 0) {
-		int n = hid_read_report(dev, resp, resp_len, (int)remaining);
-
-		if (n == -2)
-			return -2; /* poll timed out */
-		if (n < 0)
-			return -1; /* I/O error */
-		if (hid_is_idle_marker(resp, n))
-			continue; /* mouse asleep/unlinked, keep waiting */
-		if (want >= 0 && (n < 1 || resp[0] != (uint8_t)want))
-			continue; /* not our echo, skip stray report */
-		return n;
-	}
-	return -2;
-}
-
-int alloy_hid_cmd_read_want(struct alloy_hid_dev *dev, const uint8_t *payload,
-			    size_t len, int want, uint8_t *resp,
-			    size_t resp_len, int attempts)
-{
-	int i;
-
-	if (!len)
-		return -1;
-	if (attempts < 1)
-		attempts = 1;
-
-	for (i = 0; i < attempts; i++) {
-		int n;
-
-		if (dev->fd < 0 && hid_reopen(dev))
-			return -1;
-
-		hid_drain(dev);
-
-		if (hid_write_report(dev, payload, len)) {
-			/* stale node after re-enumeration: re-open and retry */
-			if (hid_reopen(dev))
-				return -1;
-			continue;
-		}
-
-		n = hid_read_matching(dev, want, resp, resp_len,
-				      ALLOY_HID_ACK_TIMEOUT_MS);
-		if (n > 0)
-			return n; /* got the echo / reply */
-		if (n == -1) {
-			/* node likely went away mid-exchange: re-open and retry */
-			if (hid_reopen(dev))
-				return -1;
-			continue;
-		}
-		/* n == -2: idle marker / silence, the mouse is asleep - nudge again */
-		usleep(ALLOY_HID_RETRY_DELAY_MS * 1000);
-	}
-	return -2;
-}
-
-int alloy_hid_cmd_read(struct alloy_hid_dev *dev, const uint8_t *payload,
-		       size_t len, uint8_t *resp, size_t resp_len)
-{
-	return alloy_hid_cmd_read_want(dev, payload, len, -1, resp, resp_len,
-				       ALLOY_HID_ATTEMPTS_CMD);
-}
-
-int alloy_hid_cmd(struct alloy_hid_dev *dev, const uint8_t *payload, size_t len)
-{
-	uint8_t resp[ALLOY_HID_REPORT_SIZE];
-	int n;
-
-	if (!len)
+	if (!dev || dev->fd < 0 || !payload || !len)
 		return -1;
 
-	/* ACK echoes the command byte; wake the link hard for config writes */
-	n = alloy_hid_cmd_read_want(dev, payload, len, payload[0], resp,
-				    sizeof(resp), ALLOY_HID_ATTEMPTS_CMD);
-	if (n > 0)
-		return 0;
-	return n; /* -1 I/O error, -2 no ACK */
+	if (ioctl(dev->fd, HIDIOCSFEATURE(len), payload) < 0)
+		return -1;
+	return 0;
+}
+
+int alloy_hid_get_feature(struct alloy_hid_dev *dev, uint8_t *buf, size_t len)
+{
+	if (!dev || dev->fd < 0 || !buf || !len)
+		return -1;
+
+	if (ioctl(dev->fd, HIDIOCGFEATURE(len), buf) < 0)
+		return -1;
+	return 0;
 }
