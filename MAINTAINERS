@@ -75,6 +75,13 @@ S:    Maintained
 F:    .github/
 F:    scripts/
 
+DARK PROJECT ALU87A ONIONITE V2 DRIVER
+M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
+S:    Maintained
+F:    Documentation/protocol/dark-project-alu87a-onionite-v2.rst
+F:    drivers/dark_project/
+F:    tests/drivers/dark_project/
+
 STEELSERIES AEROX 3 WIRELESS DRIVER
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained
