@@ -1,8 +1,12 @@
 /* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * alloyctl - SteelSeries device configuration TUI for Linux
+ * alloyctl - Device configuration shell for Linux.
  *
- * Common definitions shared by every translation unit
+ * Definitions shared by every translation unit.
+ *
+ * Nothing here describes any kind of device:
+ * the core is a shell that binds drivers, runs a front-end and persists
+ * whatever the driver tells it to persist.
  */
 #ifndef ALLOY_H
 #define ALLOY_H
@@ -10,20 +14,17 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define ALLOY_VERSION "0.1.0"
-
 #define ALLOY_ARRAY_SIZE(a) (sizeof(a) / sizeof((a)[0]))
 
 #define ALLOY_MIN(a, b) ((a) < (b) ? (a) : (b))
 #define ALLOY_MAX(a, b) ((a) > (b) ? (a) : (b))
 #define ALLOY_CLAMP(v, lo, hi) ALLOY_MIN(ALLOY_MAX(v, lo), hi)
 
-/* Hard limits for statically sized configuration storage */
-#define ALLOY_MAX_DPI_PRESETS 5
-#define ALLOY_MAX_LED_ZONES 8
-#define ALLOY_MAX_BUTTONS 16
-#define ALLOY_MAX_POLLING_RATES 8
-
+/*
+ * A color, in the only sense the core has one:
+ * something to paint a terminal cell with.
+ * What it means for a device is the driver's business.
+ */
 struct alloy_rgb {
 	uint8_t r;
 	uint8_t g;

@@ -6,9 +6,8 @@
  * No device I/O, no floating point - so it is trivially unit-testable
  * and cheap enough to run on every motion event at 1000 Hz report rate.
  */
-#include "accel.h"
-#include "alloy.h"
-#include "driver.h"
+#include "lib/accel.h"
+#include "lib/mouse.h"
 
 #define FP ALLOY_ACCEL_FP
 
@@ -26,12 +25,14 @@ static const int32_t TAN_FP[ALLOY_SNAP_MAX + 1] = {
 void alloy_accel_from_config(const struct alloy_config *cfg,
 			     struct alloy_accel_params *p)
 {
-	p->accel = ALLOY_CLAMP(cfg->acceleration, ALLOY_ACCEL_MIN,
-			       ALLOY_ACCEL_MAX);
-	p->decel = ALLOY_CLAMP(cfg->deceleration, ALLOY_DECEL_MIN,
-			       ALLOY_DECEL_MAX);
-	p->snap = ALLOY_CLAMP(cfg->angle_snapping, ALLOY_SNAP_MIN,
-			      ALLOY_SNAP_MAX);
+	const struct alloy_mouse_config *m = alloy_mouse_cfg_c(cfg);
+
+	p->accel =
+		ALLOY_CLAMP(m->acceleration, ALLOY_ACCEL_MIN, ALLOY_ACCEL_MAX);
+	p->decel =
+		ALLOY_CLAMP(m->deceleration, ALLOY_DECEL_MIN, ALLOY_DECEL_MAX);
+	p->snap =
+		ALLOY_CLAMP(m->angle_snapping, ALLOY_SNAP_MIN, ALLOY_SNAP_MAX);
 }
 
 /*

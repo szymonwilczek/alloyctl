@@ -45,6 +45,7 @@ exposes. One portable binary, community-driven per-mouse drivers.
 %license LICENSE
 %doc README.rst
 %{_bindir}/alloyctl
+%{_mandir}/man1/alloyctl.1*
 %{_udevrulesdir}/70-alloyctl-uinput.rules
 %{_udevrulesdir}/71-alloyctl-hidraw.rules
 

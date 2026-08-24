@@ -133,6 +133,7 @@ imitate.
 
    static const struct alloy_driver mymouse = {
            .name = "<Vendor> <Model>",
+           .type = ALLOY_DEV_MOUSE,
            .vendor_id = 0x1038,
            .product_id = 0xFFFF,
            .interface = 3,
@@ -150,6 +151,16 @@ imitate.
    };
 
    ALLOY_DRIVER_REGISTER(mymouse);
+
+Device taxonomy
+===============
+
+Drivers declare their device category via ``.type`` (an ``enum alloy_device_type``):
+
+* ``ALLOY_DEV_MOUSE`` (default) -- gaming mice with DPI stages, mouse buttons, and pointer acceleration.
+* ``ALLOY_DEV_KEYBOARD`` -- gaming keyboards with backlight controls, polling rate, and Windows/Meta key lock.
+
+Core helpers ``alloy_driver_is_mouse()`` and ``alloy_driver_is_keyboard()`` query the device category.
 
 Ground rules
 ============

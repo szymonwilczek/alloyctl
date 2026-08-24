@@ -5,7 +5,7 @@
 Supported devices
 =================
 
-alloyctl currently supports the following SteelSeries gaming mice on Linux:
+alloyctl currently supports the following SteelSeries devices on Linux:
 
 .. list-table::
    :header-rows: 1
@@ -35,6 +35,10 @@ alloyctl currently supports the following SteelSeries gaming mice on Linux:
      - Bluetooth LE
      - ``BUS_BLUETOOTH``
      - :doc:`protocol/steelseries-aerox3-wireless-bt`
+   * - SteelSeries Apex 100
+     - USB (wired)
+     - ``1038:160e``
+     - :doc:`protocol/steelseries-apex100`
 
-Device support is modular: each mouse has its own dedicated driver under ``drivers/``.
-To contribute support for a new mouse, see :doc:`contributor/adding-a-driver`.
+Device support is modular: each device has its own dedicated driver under ``drivers/``.
+To contribute support for a new device, see :doc:`contributor/adding-a-driver`.

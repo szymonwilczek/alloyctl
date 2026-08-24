@@ -5,9 +5,10 @@
 #include "hid.h"
 
 #define MOCK_HID_MAX_CMDS 16
+#define MOCK_HID_PAYLOAD_SIZE 256
 
 struct mock_cmd {
-	uint8_t payload[ALLOY_HID_REPORT_SIZE];
+	uint8_t payload[MOCK_HID_PAYLOAD_SIZE];
 	size_t len;
 };
 
@@ -21,8 +22,8 @@ struct mock_present {
 struct mock_hid {
 	struct mock_cmd cmds[MOCK_HID_MAX_CMDS];
 	int num_cmds;
-	int fail_cmds; /* make alloy_hid_cmd() report missing ACK */
-	uint8_t next_response[ALLOY_HID_REPORT_SIZE];
+	int fail_cmds;
+	uint8_t next_response[MOCK_HID_PAYLOAD_SIZE];
 	int next_response_len;
 
 	/* devices alloy_hid_present() should report as connected */

@@ -19,7 +19,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "driver.h"
+#include "hid.h"
+#include "lib/mouse.h"
+#include "steelseries/steelseries_common.h"
 #include "art_steelseries_rival3.h"
 
 #define R3_CMD_POLLING 0x04
@@ -90,16 +92,16 @@ size_t r3_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 
 	buf[n++] = R3_CMD_DPI;
 	buf[n++] = 0x00;
-	buf[n++] = cfg->dpi_count;
+	buf[n++] = alloy_mouse_cfg_c(cfg)->dpi_count;
 	/*
 	 * Active index is 0-based on the wire.
 	 * Sending dpi_active + 1 selected the next preset,
 	 * which SAVE then latched to flash, advancing the active
 	 * level on every save (#41)
 	 */
-	buf[n++] = cfg->dpi_active;
-	for (i = 0; i < cfg->dpi_count; i++)
-		buf[n++] = r3_dpi_to_wire(cfg->dpi[i][0]);
+	buf[n++] = alloy_mouse_cfg_c(cfg)->dpi_active;
+	for (i = 0; i < alloy_mouse_cfg_c(cfg)->dpi_count; i++)
+		buf[n++] = r3_dpi_to_wire(alloy_mouse_cfg_c(cfg)->dpi[i][0]);
 	return n;
 }
 
@@ -107,7 +109,7 @@ size_t r3_build_polling(const struct alloy_config *cfg, uint8_t *buf)
 {
 	uint8_t wire;
 
-	switch (cfg->polling_hz) {
+	switch (alloy_devcfg_c(cfg)->polling_hz) {
 	case 125:
 		wire = 0x04;
 		break;
@@ -140,10 +142,10 @@ size_t r3_build_zone_color(const struct alloy_config *cfg, int zone,
 	buf[0] = R3_CMD_ZONE_COLOR;
 	buf[1] = 0x00;
 	buf[2] = (uint8_t)(zone + 1); /* 1-based; 0 would mean "all" */
-	buf[3] = cfg->zone_color[zone].r;
-	buf[4] = cfg->zone_color[zone].g;
-	buf[5] = cfg->zone_color[zone].b;
-	buf[6] = ALLOY_MIN(cfg->brightness, 100);
+	buf[3] = alloy_devcfg_c(cfg)->zone_color[zone].r;
+	buf[4] = alloy_devcfg_c(cfg)->zone_color[zone].g;
+	buf[5] = alloy_devcfg_c(cfg)->zone_color[zone].b;
+	buf[6] = ALLOY_MIN(alloy_devcfg_c(cfg)->brightness, 100);
 	return 7;
 }
 
@@ -157,8 +159,8 @@ size_t r3_build_effect(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 4; i++) {
-		if (cfg->zone_fx[i]) {
-			idx = cfg->zone_fx[i];
+		if (alloy_devcfg_c(cfg)->zone_fx[i]) {
+			idx = alloy_devcfg_c(cfg)->zone_fx[i];
 			break;
 		}
 	}
@@ -207,7 +209,8 @@ size_t r3_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	memset(buf + 2, 0, 8 * 2);
 
 	for (i = 0; i < ALLOY_ARRAY_SIZE(r3_button_wire_id); i++) {
-		const struct alloy_action *act = &cfg->buttons[i];
+		const struct alloy_action *act =
+			&alloy_mouse_cfg_c(cfg)->buttons[i];
 		uint8_t *field = buf + 2 + i * 2;
 
 		field[0] = r3_action_first_byte(act);
@@ -223,7 +226,7 @@ static int r3_apply_dpi(struct alloy_device *dev,
 {
 	uint8_t buf[R3_REPORT_SIZE];
 
-	return alloy_hid_send(&dev->hid, buf, r3_build_dpi(cfg, buf));
+	return alloy_dev_write(dev, buf, r3_build_dpi(cfg, buf));
 }
 
 static int r3_apply_polling(struct alloy_device *dev,
@@ -231,7 +234,7 @@ static int r3_apply_polling(struct alloy_device *dev,
 {
 	uint8_t buf[R3_REPORT_SIZE];
 
-	return alloy_hid_send(&dev->hid, buf, r3_build_polling(cfg, buf));
+	return alloy_dev_write(dev, buf, r3_build_polling(cfg, buf));
 }
 
 /*
@@ -250,9 +253,9 @@ static int r3_apply_colors(struct alloy_device *dev,
 	int zone;
 
 	for (zone = 0; zone < 4; zone++)
-		ret |= alloy_hid_send(&dev->hid, buf,
-				      r3_build_zone_color(cfg, zone, buf));
-	ret |= alloy_hid_send(&dev->hid, buf, r3_build_effect(cfg, buf));
+		ret |= alloy_dev_write(dev, buf,
+				       r3_build_zone_color(cfg, zone, buf));
+	ret |= alloy_dev_write(dev, buf, r3_build_effect(cfg, buf));
 	return ret ? -1 : 0;
 }
 
@@ -271,14 +274,14 @@ static int r3_apply_buttons(struct alloy_device *dev,
 {
 	uint8_t buf[R3_REPORT_SIZE];
 
-	return alloy_hid_send(&dev->hid, buf, r3_build_buttons(cfg, buf));
+	return alloy_dev_write(dev, buf, r3_build_buttons(cfg, buf));
 }
 
 static int r3_save(struct alloy_device *dev)
 {
 	static const uint8_t cmd[] = { R3_CMD_SAVE, 0x00 };
 
-	return alloy_hid_send(&dev->hid, cmd, sizeof(cmd));
+	return alloy_dev_write(dev, cmd, sizeof(cmd));
 }
 
 static int r3_firmware_version(struct alloy_device *dev, char *buf, size_t len)
@@ -287,7 +290,7 @@ static int r3_firmware_version(struct alloy_device *dev, char *buf, size_t len)
 	uint8_t resp[R3_REPORT_SIZE];
 	int n;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
+	n = steelseries_cmd_read(dev, cmd, sizeof(cmd), resp, sizeof(resp));
 	if (n < 2)
 		return -1;
 
@@ -316,43 +319,74 @@ static const struct alloy_button r3_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
+static const struct alloy_mouse_info r3_mouse = {
+	.dpi = {
+		.min = R3_DPI_MIN,
+		.max = R3_DPI_MAX,
+		.step = R3_DPI_STEP,
+		.max_presets = 5,
+	},
+	.buttons = r3_buttons,
+	.num_buttons = ALLOY_ARRAY_SIZE(r3_buttons),
+};
+
+static const struct alloy_devinfo r3_info = {
+	.caps = ALLOY_CAP_COLOR | ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_ACCEL |
+		ALLOY_CAP_DECEL | ALLOY_CAP_ANGLE_SNAPPING |
+		ALLOY_CAP_FX_GLOBAL | ALLOY_CAP_DPI | ALLOY_CAP_BUTTONS,
+	.polling_rates = r3_polling_rates,
+	.num_polling_rates = ALLOY_ARRAY_SIZE(r3_polling_rates),
+	.zones = r3_zones,
+	.num_zones = ALLOY_ARRAY_SIZE(r3_zones),
+	.fx_names = r3_fx_names,
+	.num_fx = ALLOY_ARRAY_SIZE(r3_fx_names),
+	.ext = &r3_mouse,
+};
+
+static const struct alloy_apply_step r3_steps[] = {
+	{ ALLOY_STEP_DPI, ALLOY_APPLY_SKIP_SYNC, r3_apply_dpi },
+	{ ALLOY_STEP_POLLING, 0, r3_apply_polling },
+	{ ALLOY_STEP_COLORS, 0, r3_apply_colors },
+	{ ALLOY_STEP_BRIGHTNESS, 0, r3_apply_brightness },
+	{ ALLOY_STEP_BUTTONS, 0, r3_apply_buttons },
+};
+
 static const struct alloy_driver_ops r3_ops = {
-	.apply_dpi = r3_apply_dpi,
-	.apply_polling = r3_apply_polling,
-	.apply_colors = r3_apply_colors,
-	.apply_brightness = r3_apply_brightness,
-	.apply_buttons = r3_apply_buttons,
+	.config_defaults = alloy_mouse_defaults,
+	.state_save = alloy_mouse_state_save,
+	.state_load = alloy_mouse_state_load,
+	.state_done = alloy_mouse_state_done,
 	.save = r3_save,
 	.firmware_version = r3_firmware_version,
 };
 
-#define R3_DRIVER(sym, drv_name, pid)                                       \
-	static const struct alloy_driver sym = {                          \
-		.name = drv_name,                                         \
-		.vendor_id = 0x1038,                                      \
-		.product_id = pid,                                        \
-		.interface = 3,                                           \
-		.report_size = R3_REPORT_SIZE,                            \
-		.dpi = {                                                  \
-			.min = R3_DPI_MIN,                                \
-			.max = R3_DPI_MAX,                                \
-			.step = R3_DPI_STEP,                              \
-			.max_presets = 5,                                 \
-		},                                                        \
-		.polling_rates = r3_polling_rates,                        \
-		.num_polling_rates = ALLOY_ARRAY_SIZE(r3_polling_rates),  \
-		.zones = r3_zones,                                        \
-		.num_zones = ALLOY_ARRAY_SIZE(r3_zones),                  \
-		.buttons = r3_buttons,                                    \
-		.num_buttons = ALLOY_ARRAY_SIZE(r3_buttons),              \
-		.caps = ALLOY_CAP_BRIGHTNESS |                            \
-			ALLOY_CAP_FIRMWARE_VERSION | ALLOY_CAP_FX_GLOBAL, \
-		.fx_names = r3_fx_names,                                  \
-		.num_fx = ALLOY_ARRAY_SIZE(r3_fx_names),                  \
-		.ascii_art = alloy_art_steelseries_rival3,                                      \
-		.ops = &r3_ops,                                           \
-		.config_defaults = alloy_config_generic_defaults,         \
-	}; \
+static const struct alloy_cli_table r3_cli[] = {
+	{ alloy_devcfg_cli_options, ALLOY_DEVCFG_CLI_COUNT },
+	{ alloy_mouse_cli_options, ALLOY_MOUSE_CLI_COUNT },
+};
+
+static const struct alloy_hid_params r3_hid = {
+	.interface = 3,
+	.report_size = R3_REPORT_SIZE,
+};
+
+#define R3_DRIVER(sym, drv_name, pid)                             \
+	static const struct alloy_driver sym = {                  \
+		.name = drv_name,                                 \
+		.kind = "mouse",                                  \
+		.vendor_id = 0x1038,                              \
+		.product_id = pid,                                \
+		.transport_data = &r3_hid,                        \
+		.config_size = sizeof(struct alloy_mouse_config), \
+		.data = &r3_info,                                 \
+		.ascii_art = alloy_art_steelseries_rival3,        \
+		.cli_tables = r3_cli,                             \
+		.num_cli_tables = ALLOY_ARRAY_SIZE(r3_cli),       \
+		.apply_steps = r3_steps,                          \
+		.num_apply_steps = ALLOY_ARRAY_SIZE(r3_steps),    \
+		.ui = &alloy_mouse_ui,                            \
+		.ops = &r3_ops,                                   \
+	};                                                        \
 	ALLOY_DRIVER_REGISTER(sym)
 
 R3_DRIVER(steelseries_rival3, "SteelSeries Rival 3", 0x1824);

@@ -44,6 +44,10 @@ contents:
     dst: /usr/lib/udev/rules.d/71-alloyctl-hidraw.rules
     file_info:
       mode: 0644
+  - src: ./dist/man/alloyctl.1
+    dst: /usr/share/man/man1/alloyctl.1
+    file_info:
+      mode: 0644
   - src: ./README.rst
     dst: /usr/share/doc/alloyctl/README.rst
     file_info:

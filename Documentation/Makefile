@@ -15,7 +15,7 @@ BUILDDIR      = _build
 
 SERVE_PORT    ?= 8000
 
-.PHONY: help html linkcheck lint serve clean Makefile
+.PHONY: help html man linkcheck lint serve clean Makefile
 
 help:
 	@$(SPHINXBUILD) -M help "$(SOURCEDIR)" "$(BUILDDIR)" $(SPHINXOPTS) $(O)
@@ -24,6 +24,11 @@ help:
 html:
 	@$(SPHINXBUILD) -b html $(SPHINXOPTS) "$(SOURCEDIR)" "$(BUILDDIR)/html" $(O)
 	@echo "Built HTML docs in $(BUILDDIR)/html/index.html"
+
+# build the manual pages (strict)
+man:
+	@$(SPHINXBUILD) -b man $(SPHINXOPTS) "$(SOURCEDIR)" "$(BUILDDIR)/man" $(O)
+	@echo "Built man pages in $(BUILDDIR)/man/"
 
 # verify every external and internal link resolves
 linkcheck:

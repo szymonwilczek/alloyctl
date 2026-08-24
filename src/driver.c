@@ -1,14 +1,23 @@
-// SPDX-License-Identifier: GPL-2.0-only
+/* SPDX-License-Identifier: GPL-2.0-only */
 /*
- * Driver registry and device binding.
+ * Registries, device binding, opaque configuration storage
+ * and the dispatch of the extension points a driver declares.
+ *
+ * Nothing here inspects what a driver actually does:
+ * apply steps are looked up by the names their author chose, the configuration
+ * is a block of bytes whose layout only the driver knows, and the transport
+ * is whatever the driver named.
  */
+#include <stdlib.h>
 #include <string.h>
 
 #include "driver.h"
 
-/* Section bounds emitted by the linker for the alloy_drivers section */
+/* Section bounds emitted by the linker for the registries */
 extern const struct alloy_driver *const __start_alloy_drivers[];
 extern const struct alloy_driver *const __stop_alloy_drivers[];
+extern const struct alloy_cli_command *const __start_alloy_commands[];
+extern const struct alloy_cli_command *const __stop_alloy_commands[];
 
 const struct alloy_driver *const *alloy_driver_first(void)
 {
@@ -18,6 +27,16 @@ const struct alloy_driver *const *alloy_driver_first(void)
 const struct alloy_driver *const *alloy_driver_last(void)
 {
 	return __stop_alloy_drivers;
+}
+
+const struct alloy_cli_command *const *alloy_command_first(void)
+{
+	return __start_alloy_commands;
+}
+
+const struct alloy_cli_command *const *alloy_command_last(void)
+{
+	return __stop_alloy_commands;
 }
 
 const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
@@ -34,6 +53,139 @@ const struct alloy_driver *alloy_driver_find(uint16_t vendor_id,
 	return NULL;
 }
 
+const char *alloy_driver_kind(const struct alloy_driver *drv)
+{
+	if (drv && drv->kind && *drv->kind)
+		return drv->kind;
+	return "device";
+}
+
+/*
+ * Flags are declared in groups, so this flattens them:
+ * index 0 is the first flag of the first table, and NULL ends the walk.
+ */
+const struct alloy_cli_option *
+alloy_driver_cli_at(const struct alloy_driver *drv, size_t idx)
+{
+	uint8_t t;
+
+	if (!drv)
+		return NULL;
+	for (t = 0; t < drv->num_cli_tables; t++) {
+		const struct alloy_cli_table *tab = &drv->cli_tables[t];
+
+		if (idx < tab->count)
+			return &tab->options[idx];
+		idx -= tab->count;
+	}
+	return NULL;
+}
+
+struct alloy_config {
+	const struct alloy_driver *drv;
+	size_t size;
+	uint8_t data[];
+};
+
+struct alloy_config *alloy_config_alloc(const struct alloy_driver *drv)
+{
+	size_t size = drv->config_size;
+	struct alloy_config *cfg;
+
+	cfg = calloc(1, sizeof(*cfg) + size);
+	if (!cfg)
+		return NULL;
+	cfg->drv = drv;
+	cfg->size = size;
+	return cfg;
+}
+
+void alloy_config_free(struct alloy_config *cfg)
+{
+	free(cfg);
+}
+
+void alloy_config_copy(struct alloy_config *dst, const struct alloy_config *src)
+{
+	if (!dst || !src || dst->size != src->size)
+		return;
+	memcpy(dst->data, src->data, dst->size);
+}
+
+int alloy_config_equal(const struct alloy_config *a,
+		       const struct alloy_config *b)
+{
+	if (!a || !b || a->size != b->size)
+		return 0;
+	return memcmp(a->data, b->data, a->size) == 0;
+}
+
+void *alloy_config_data(struct alloy_config *cfg)
+{
+	return cfg ? cfg->data : NULL;
+}
+
+const void *alloy_config_data_c(const struct alloy_config *cfg)
+{
+	return cfg ? cfg->data : NULL;
+}
+
+const struct alloy_driver *alloy_config_driver(const struct alloy_config *cfg)
+{
+	return cfg ? cfg->drv : NULL;
+}
+
+void alloy_config_defaults(const struct alloy_driver *drv,
+			   struct alloy_config *cfg)
+{
+	if (!cfg)
+		return;
+	memset(cfg->data, 0, cfg->size);
+	if (drv->ops && drv->ops->config_defaults)
+		drv->ops->config_defaults(drv, cfg);
+}
+
+static const struct alloy_transport *
+driver_transport(const struct alloy_driver *drv)
+{
+	return (drv && drv->transport) ? drv->transport : &alloy_hid_transport;
+}
+
+int alloy_driver_present(const struct alloy_driver *drv)
+{
+	const struct alloy_transport *tr = driver_transport(drv);
+
+	return tr->present ? tr->present(drv) : 0;
+}
+
+int alloy_dev_write(struct alloy_device *dev, const uint8_t *buf, size_t len)
+{
+	return dev->tr->write ? dev->tr->write(dev, buf, len) : -1;
+}
+
+int alloy_dev_read(struct alloy_device *dev, uint8_t *buf, size_t len,
+		   int timeout_ms)
+{
+	return dev->tr->read ? dev->tr->read(dev, buf, len, timeout_ms) : -1;
+}
+
+int alloy_dev_poll_event(struct alloy_device *dev, uint8_t *buf, size_t len)
+{
+	return dev->tr->poll_event ? dev->tr->poll_event(dev, buf, len) : -1;
+}
+
+int alloy_dev_send_feature(struct alloy_device *dev, const uint8_t *buf,
+			   size_t len)
+{
+	return dev->tr->send_feature ? dev->tr->send_feature(dev, buf, len) :
+				       -1;
+}
+
+int alloy_dev_get_feature(struct alloy_device *dev, uint8_t *buf, size_t len)
+{
+	return dev->tr->get_feature ? dev->tr->get_feature(dev, buf, len) : -1;
+}
+
 int alloy_device_enumerate(const struct alloy_driver **out, int max)
 {
 	const struct alloy_driver *const *iter;
@@ -41,18 +193,10 @@ int alloy_device_enumerate(const struct alloy_driver **out, int max)
 
 	alloy_for_each_driver(iter)
 	{
-		const struct alloy_driver *drv = *iter;
-		int present = drv->bustype ?
-				      alloy_hid_present_bus(drv->bustype,
-							    drv->product_id) :
-				      alloy_hid_present(drv->vendor_id,
-							drv->product_id,
-							drv->interface);
-
-		if (!present)
+		if (!alloy_driver_present(*iter))
 			continue;
 		if (out && n < max)
-			out[n] = drv;
+			out[n] = *iter;
 		n++;
 	}
 	return n;
@@ -64,99 +208,78 @@ int alloy_device_open_id(struct alloy_device *dev, uint16_t vendor_id,
 	const struct alloy_driver *drv;
 
 	memset(dev, 0, sizeof(*dev));
-	dev->hid.fd = -1;
-	dev->ev.fd = -1;
 
 	drv = alloy_driver_find(vendor_id, product_id);
 	if (!drv)
 		return -1;
+	dev->tr = driver_transport(drv);
 
-	if (drv->bustype) {
-		/*
-		 * Bluetooth (HID-over-GATT):
-		 * one node, matched by product id, config on the numbered Output report.
-		 * No separate event interface.
-		 * Device-initiated events are not tracked here!
-		 */
-		if (alloy_hid_open_bus(&dev->hid, drv->bustype, drv->product_id,
-				       drv->report_id, drv->report_size))
-			return -1;
-		dev->drv = drv;
-		return 0;
-	}
-
-	if (alloy_hid_open(&dev->hid, drv->vendor_id, drv->product_id,
-			   drv->interface, drv->report_size))
+	if (!dev->tr->open || dev->tr->open(dev, drv))
 		return -1;
+
 	/*
-	 * Event channel is best-effort:
+	 * event channel is best-effort:
 	 * without it the device still configures fine,
-	 * only device-initiated changes go unnoticed.
+	 * only device-initiated changes go unnoticed
 	 */
-	if (drv->ops->parse_event &&
-	    alloy_hid_open(&dev->ev, drv->vendor_id, drv->product_id,
-			   drv->event_interface, drv->report_size))
-		dev->ev.fd = -1;
+	if (drv->ops && drv->ops->parse_event && dev->tr->open_events)
+		dev->tr->open_events(dev, drv);
+
 	dev->drv = drv;
 	return 0;
 }
 
 void alloy_device_close(struct alloy_device *dev)
 {
-	alloy_hid_close(&dev->ev);
-	alloy_hid_close(&dev->hid);
+	if (dev->tr && dev->tr->close)
+		dev->tr->close(dev);
 	dev->drv = NULL;
 }
 
-void alloy_config_generic_defaults(const struct alloy_driver *drv,
-				   struct alloy_config *cfg)
+const struct alloy_apply_step *alloy_driver_step(const struct alloy_driver *drv,
+						 const char *name)
 {
 	uint8_t i;
 
-	memset(cfg, 0, sizeof(*cfg));
-
-	/*
-	 * One preset out of the box;
-	 * More are created on demand in the CPI LEVELS pane.
-	 * Persisted baseline always overrides this.
-	 */
-	cfg->dpi_count = 1;
-	cfg->dpi[0][0] = 800;
-	cfg->dpi[0][1] = 800;
-	cfg->dpi_active = 0;
-
-	cfg->polling_hz = drv->num_polling_rates ? drv->polling_rates[0] : 1000;
-
-	for (i = 0; i < drv->num_zones && i < ALLOY_MAX_LED_ZONES; i++) {
-		cfg->zone_color[i] = drv->zones[i].def_color;
-		cfg->zone_fx[i] = 0; /* steady */
-		cfg->zone_fx_freq[i] = ALLOY_FX_RATE_DEF;
-		cfg->zone_fx_speed[i] = ALLOY_FX_RATE_DEF;
+	if (!drv || !name || !drv->apply_steps)
+		return NULL;
+	for (i = 0; i < drv->num_apply_steps; i++) {
+		if (!strcmp(drv->apply_steps[i].name, name))
+			return &drv->apply_steps[i];
 	}
+	return NULL;
+}
 
-	cfg->brightness = 100;
+int alloy_driver_apply(struct alloy_device *dev, const struct alloy_config *cfg,
+		       const char *name)
+{
+	const struct alloy_apply_step *step = alloy_driver_step(dev->drv, name);
 
-	cfg->reactive_enabled = 0;
-	cfg->reactive_color = (struct alloy_rgb){ 0xFF, 0xFF, 0xFF };
+	if (!step || !step->fn)
+		return 0;
+	return step->fn(dev, cfg);
+}
 
-	cfg->startup_fx = (drv->caps & ALLOY_CAP_FX_RAINBOW) ?
-				  ALLOY_STARTUP_RAINBOW :
-				  ALLOY_STARTUP_OFF;
+void alloy_driver_apply_all(struct alloy_device *dev,
+			    const struct alloy_config *cfg, uint32_t skip_flags,
+			    void (*report)(void *ctx, const char *what,
+					   int err),
+			    void *ctx)
+{
+	const struct alloy_driver *drv = dev->drv;
+	uint8_t i;
 
-	for (i = 0; i < drv->num_buttons && i < ALLOY_MAX_BUTTONS; i++)
-		cfg->buttons[i] = drv->buttons[i].def;
+	for (i = 0; i < drv->num_apply_steps; i++) {
+		const struct alloy_apply_step *step = &drv->apply_steps[i];
+		int ret;
 
-	cfg->acceleration = 0;
-	cfg->deceleration = 0;
-	cfg->angle_snapping = 0;
-	cfg->accel_enabled = 0;
+		if (!step->fn)
+			continue;
+		if (step->flags & (ALLOY_APPLY_MANUAL | skip_flags))
+			continue;
 
-	/*
-	 * Wireless power defaults (inert on wired mice, which never push them):
-	 * mirror the GG out-of-box 5-minute sleep timer;
-	 * smart mode and the LED dim timer stay off
-	 */
-	cfg->illum_smart = 0;
-	cfg->illum_dim_s = 0;
-	cfg->sleep_min = 5;
+		ret = step->fn(dev, cfg);
+		if (report)
+			report(ctx, step->name, ret);
+	}
 }

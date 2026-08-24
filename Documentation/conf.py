@@ -9,7 +9,6 @@
 
 import os
 import pathlib
-import re
 
 # -- Project information ------------------------------------------------------
 
@@ -21,8 +20,7 @@ copyright = "2026, Szymon Wilczek"  # noqa: A001 - Sphinx-reserved name
 # Version shown on the site.
 # Deploy/CI can override it through ALLOYCTL_DOCS_VERSION (release tag);
 # otherwise read the bare VERSION file at the repository root --
-# the single source of truth a release tag is checked against --
-# and fall back to ALLOY_VERSION in src/alloy.h if it is missing.
+# the single source of truth a release tag is checked against.
 def _version_from_source() -> str:
     root = pathlib.Path(__file__).resolve().parent.parent
     version_file = root / "VERSION"
@@ -30,14 +28,6 @@ def _version_from_source() -> str:
         text = version_file.read_text(encoding="utf-8").strip()
         if text:
             return text
-    header = root / "src" / "alloy.h"
-    if header.is_file():
-        match = re.search(
-            r'#define\s+ALLOY_VERSION\s+"([^"]+)"',
-            header.read_text(encoding="utf-8"),
-        )
-        if match:
-            return match.group(1)
     return "0.0.0"
 
 
@@ -100,3 +90,15 @@ html_show_sourcelink = True
 linkcheck_ignore = [r"https://github\.com/szymonwilczek/alloyctl/blob/"]
 linkcheck_retries = 2
 linkcheck_timeout = 15
+
+# -- Options for manual page output -------------------------------------------
+
+man_pages = [
+    (
+        "man/alloyctl.1",
+        "alloyctl",
+        "Linux CLI to control and configure SteelSeries devices",
+        ["Szymon Wilczek"],
+        1,
+    )
+]

@@ -15,7 +15,9 @@
  */
 #include <string.h>
 
-#include "driver.h"
+#include "hid.h"
+#include "lib/mouse.h"
+#include "steelseries/steelseries_common.h"
 #include "art_steelseries_rival3_gen2.h"
 
 #define R3G2_CMD_SAVE 0x11
@@ -73,7 +75,8 @@ size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf);
 size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf);
-int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg);
+int r3g2_parse_event(struct alloy_device *dev, const uint8_t *buf, size_t len,
+		     struct alloy_config *cfg);
 
 size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 {
@@ -81,17 +84,17 @@ size_t r3g2_build_dpi(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	buf[n++] = R3G2_CMD_DPI;
-	buf[n++] = cfg->dpi_count;
+	buf[n++] = alloy_mouse_cfg_c(cfg)->dpi_count;
 	/*
 	 * Active index is 0-based on the wire, matching the 0xAD level event
 	 * (r3g2_parse_event) the firmware reports back.
 	 * Sending dpi_active + 1 here selected the *next* level,
 	 * which SAVE then latched to flash (#41)
 	 */
-	buf[n++] = cfg->dpi_active;
-	for (i = 0; i < cfg->dpi_count; i++) {
-		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][0]);
-		buf[n++] = r3g2_dpi_to_wire(cfg->dpi[i][1]);
+	buf[n++] = alloy_mouse_cfg_c(cfg)->dpi_active;
+	for (i = 0; i < alloy_mouse_cfg_c(cfg)->dpi_count; i++) {
+		buf[n++] = r3g2_dpi_to_wire(alloy_mouse_cfg_c(cfg)->dpi[i][0]);
+		buf[n++] = r3g2_dpi_to_wire(alloy_mouse_cfg_c(cfg)->dpi[i][1]);
 	}
 	return n;
 }
@@ -100,7 +103,7 @@ size_t r3g2_build_polling(const struct alloy_config *cfg, uint8_t *buf)
 {
 	uint8_t wire;
 
-	switch (cfg->polling_hz) {
+	switch (alloy_devcfg_c(cfg)->polling_hz) {
 	case 125:
 		wire = 0x04;
 		break;
@@ -134,7 +137,7 @@ size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (!cfg->zone_fx[i])
+		if (!alloy_devcfg_c(cfg)->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -143,9 +146,9 @@ size_t r3g2_build_colors(const struct alloy_config *cfg, uint8_t *buf)
 	buf[n++] = R3G2_CMD_ZONE_COLORS;
 	buf[n++] = mask;
 	for (i = 0; i < 3; i++) {
-		buf[n++] = cfg->zone_color[i].r;
-		buf[n++] = cfg->zone_color[i].g;
-		buf[n++] = cfg->zone_color[i].b;
+		buf[n++] = alloy_devcfg_c(cfg)->zone_color[i].r;
+		buf[n++] = alloy_devcfg_c(cfg)->zone_color[i].g;
+		buf[n++] = alloy_devcfg_c(cfg)->zone_color[i].b;
 	}
 	return n;
 }
@@ -162,7 +165,7 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++) {
-		if (cfg->zone_fx[i])
+		if (alloy_devcfg_c(cfg)->zone_fx[i])
 			mask |= (uint8_t)(1u << i);
 	}
 	if (!mask)
@@ -186,12 +189,12 @@ size_t r3g2_build_rainbow(const struct alloy_config *cfg, uint8_t *buf)
 size_t r3g2_build_reactive(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = R3G2_CMD_REACTIVE;
-	buf[1] = cfg->reactive_enabled ? 0x01 : 0x00;
+	buf[1] = alloy_mouse_cfg_c(cfg)->reactive_enabled ? 0x01 : 0x00;
 	buf[2] = 0x00;
-	if (cfg->reactive_enabled) {
-		buf[3] = cfg->reactive_color.r;
-		buf[4] = cfg->reactive_color.g;
-		buf[5] = cfg->reactive_color.b;
+	if (alloy_mouse_cfg_c(cfg)->reactive_enabled) {
+		buf[3] = alloy_mouse_cfg_c(cfg)->reactive_color.r;
+		buf[4] = alloy_mouse_cfg_c(cfg)->reactive_color.g;
+		buf[5] = alloy_mouse_cfg_c(cfg)->reactive_color.b;
 	} else {
 		buf[3] = 0x00;
 		buf[4] = 0x00;
@@ -217,21 +220,18 @@ size_t r3g2_build_startup(const struct alloy_config *cfg, uint8_t *buf)
 	uint8_t i;
 
 	for (i = 0; i < 3; i++)
-		rainbow_zones |= cfg->zone_fx[i];
+		rainbow_zones |= alloy_devcfg_c(cfg)->zone_fx[i];
 
 	buf[0] = R3G2_CMD_STARTUP_FX;
-	buf[1] = rainbow_zones != 0 ||
-		 cfg->startup_fx == ALLOY_STARTUP_RAINBOW ||
-		 cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW;
-	buf[2] = (cfg->startup_fx == ALLOY_STARTUP_REACTIVE ||
-		  cfg->startup_fx == ALLOY_STARTUP_REACTIVE_RAINBOW);
+	buf[1] = rainbow_zones != 0;
+	buf[2] = alloy_mouse_cfg_c(cfg)->reactive_enabled ? 0x01 : 0x00;
 	return 3;
 }
 
 size_t r3g2_build_brightness(const struct alloy_config *cfg, uint8_t *buf)
 {
 	buf[0] = R3G2_CMD_BRIGHTNESS;
-	buf[1] = ALLOY_MIN(cfg->brightness, 100);
+	buf[1] = ALLOY_MIN(alloy_devcfg_c(cfg)->brightness, 100);
 	return 2;
 }
 
@@ -270,7 +270,8 @@ size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
 	memset(buf + 1, 0, 8 * 5);
 
 	for (i = 0; i < ALLOY_ARRAY_SIZE(r3g2_button_wire_id); i++) {
-		const struct alloy_action *act = &cfg->buttons[i];
+		const struct alloy_action *act =
+			&alloy_mouse_cfg_c(cfg)->buttons[i];
 		uint8_t *field = buf + 1 + i * 5;
 
 		field[0] = r3g2_action_first_byte(act);
@@ -292,18 +293,22 @@ size_t r3g2_build_buttons(const struct alloy_config *cfg, uint8_t *buf)
  * Only the active index is taken over:
  * the host configuration stays the source of truth for the level values themselves.
  */
-int r3g2_parse_event(const uint8_t *buf, size_t len, struct alloy_config *cfg)
+int r3g2_parse_event(struct alloy_device *dev, const uint8_t *buf, size_t len,
+		     struct alloy_config *cfg)
 {
+	struct alloy_mouse_config *m = alloy_mouse_cfg(cfg);
 	uint8_t active;
+
+	(void)dev;
 
 	if (len < 3 || buf[0] != R3G2_EVT_CPI_LEVEL)
 		return 0;
 	active = buf[2];
 	if (buf[1] < 1 || buf[1] > ALLOY_MAX_DPI_PRESETS || active >= buf[1])
 		return 0;
-	if (active >= cfg->dpi_count || active == cfg->dpi_active)
+	if (active >= m->dpi_count || active == m->dpi_active)
 		return 0;
-	cfg->dpi_active = active;
+	m->dpi_active = active;
 	return 1;
 }
 
@@ -312,7 +317,7 @@ static int r3g2_apply_dpi(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_dpi(cfg, buf));
+	return steelseries_cmd(dev, buf, r3g2_build_dpi(cfg, buf));
 }
 
 static int r3g2_apply_polling(struct alloy_device *dev,
@@ -320,7 +325,7 @@ static int r3g2_apply_polling(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_polling(cfg, buf));
+	return steelseries_cmd(dev, buf, r3g2_build_polling(cfg, buf));
 }
 
 /*
@@ -338,17 +343,17 @@ static int r3g2_apply_colors(struct alloy_device *dev,
 	size_t len;
 	int ret = 0;
 
-	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_startup(cfg, buf));
+	ret |= steelseries_cmd(dev, buf, r3g2_build_startup(cfg, buf));
 
 	len = r3g2_build_rainbow(cfg, buf);
 	if (len)
-		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+		ret |= steelseries_cmd(dev, buf, len);
 
 	len = r3g2_build_colors(cfg, buf);
 	if (len)
-		ret |= alloy_hid_cmd(&dev->hid, buf, len);
+		ret |= steelseries_cmd(dev, buf, len);
 
-	ret |= alloy_hid_cmd(&dev->hid, buf, r3g2_build_reactive(cfg, buf));
+	ret |= steelseries_cmd(dev, buf, r3g2_build_reactive(cfg, buf));
 
 	return ret ? -1 : 0;
 }
@@ -358,7 +363,7 @@ static int r3g2_apply_brightness(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_brightness(cfg, buf));
+	return steelseries_cmd(dev, buf, r3g2_build_brightness(cfg, buf));
 }
 
 static int r3g2_apply_buttons(struct alloy_device *dev,
@@ -366,14 +371,14 @@ static int r3g2_apply_buttons(struct alloy_device *dev,
 {
 	uint8_t buf[ALLOY_HID_REPORT_SIZE];
 
-	return alloy_hid_cmd(&dev->hid, buf, r3g2_build_buttons(cfg, buf));
+	return steelseries_cmd(dev, buf, r3g2_build_buttons(cfg, buf));
 }
 
 static int r3g2_save(struct alloy_device *dev)
 {
 	static const uint8_t cmd[] = { R3G2_CMD_SAVE, 0x00 };
 
-	return alloy_hid_cmd(&dev->hid, cmd, sizeof(cmd));
+	return steelseries_cmd(dev, cmd, sizeof(cmd));
 }
 
 static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
@@ -384,7 +389,7 @@ static int r3g2_firmware_version(struct alloy_device *dev, char *buf,
 	int n;
 	size_t out;
 
-	n = alloy_hid_cmd_read(&dev->hid, cmd, sizeof(cmd), resp, sizeof(resp));
+	n = steelseries_cmd_read(dev, cmd, sizeof(cmd), resp, sizeof(resp));
 	if (n < 2 || resp[0] != R3G2_CMD_FIRMWARE)
 		return -1;
 
@@ -421,43 +426,79 @@ static const struct alloy_button r3g2_buttons[] = {
 	{ "Scroll Down", { ALLOY_ACT_SCROLL_DOWN, 0 } },
 };
 
-static const struct alloy_driver_ops r3g2_ops = {
-	.apply_dpi = r3g2_apply_dpi,
-	.apply_polling = r3g2_apply_polling,
-	.apply_colors = r3g2_apply_colors,
-	.apply_brightness = r3g2_apply_brightness,
-	.apply_buttons = r3g2_apply_buttons,
-	.save = r3g2_save,
-	.firmware_version = r3g2_firmware_version,
-	.parse_event = r3g2_parse_event,
-};
-
-static const struct alloy_driver steelseries_rival3_gen2 = {
-	.name = "SteelSeries Rival 3 Gen 2",
-	.vendor_id = 0x1038,
-	.product_id = 0x1870,
-	.interface = 3,
-	.event_interface = 2,
+static const struct alloy_mouse_info r3g2_mouse = {
 	.dpi = {
 		.min = R3G2_DPI_MIN,
 		.max = R3G2_DPI_MAX,
 		.step = R3G2_DPI_STEP,
 		.max_presets = 5,
 	},
+	.buttons = r3g2_buttons,
+	.num_buttons = ALLOY_ARRAY_SIZE(r3g2_buttons),
+};
+
+static const struct alloy_devinfo r3g2_info = {
+	.caps = ALLOY_CAP_COLOR | ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FX_RAINBOW |
+		ALLOY_CAP_FX_REACTIVE | ALLOY_CAP_FX_STARTUP | ALLOY_CAP_DPI |
+		ALLOY_CAP_BUTTONS | ALLOY_CAP_ACCEL | ALLOY_CAP_DECEL |
+		ALLOY_CAP_ANGLE_SNAPPING,
 	.polling_rates = r3g2_polling_rates,
 	.num_polling_rates = ALLOY_ARRAY_SIZE(r3g2_polling_rates),
 	.zones = r3g2_zones,
 	.num_zones = ALLOY_ARRAY_SIZE(r3g2_zones),
-	.buttons = r3g2_buttons,
-	.num_buttons = ALLOY_ARRAY_SIZE(r3g2_buttons),
-	.caps = ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_FIRMWARE_VERSION |
-		ALLOY_CAP_FX_RAINBOW | ALLOY_CAP_FX_REACTIVE |
-		ALLOY_CAP_FX_STARTUP,
 	.fx_names = r3g2_fx_names,
 	.num_fx = ALLOY_ARRAY_SIZE(r3g2_fx_names),
+	.ext = &r3g2_mouse,
+};
+
+/*
+ * Active CPI level is live device state the user drives with the physical button
+ * and the firmware never reports back, so the DPI table is kept out of
+ * the startup handshake.
+ */
+static const struct alloy_apply_step r3g2_steps[] = {
+	{ ALLOY_STEP_DPI, ALLOY_APPLY_SKIP_SYNC, r3g2_apply_dpi },
+	{ ALLOY_STEP_POLLING, 0, r3g2_apply_polling },
+	{ ALLOY_STEP_COLORS, 0, r3g2_apply_colors },
+	{ ALLOY_STEP_BRIGHTNESS, 0, r3g2_apply_brightness },
+	{ ALLOY_STEP_BUTTONS, 0, r3g2_apply_buttons },
+};
+
+static const struct alloy_driver_ops r3g2_ops = {
+	.config_defaults = alloy_mouse_defaults,
+	.state_save = alloy_mouse_state_save,
+	.state_load = alloy_mouse_state_load,
+	.state_done = alloy_mouse_state_done,
+	.save = r3g2_save,
+	.firmware_version = r3g2_firmware_version,
+	.parse_event = r3g2_parse_event,
+};
+
+static const struct alloy_cli_table r3g2_cli[] = {
+	{ alloy_devcfg_cli_options, ALLOY_DEVCFG_CLI_COUNT },
+	{ alloy_mouse_cli_options, ALLOY_MOUSE_CLI_COUNT },
+};
+
+static const struct alloy_hid_params r3g2_hid = {
+	.interface = 3,
+	.event_interface = 2,
+};
+
+static const struct alloy_driver steelseries_rival3_gen2 = {
+	.name = "SteelSeries Rival 3 Gen 2",
+	.kind = "mouse",
+	.vendor_id = 0x1038,
+	.product_id = 0x1870,
+	.transport_data = &r3g2_hid,
+	.config_size = sizeof(struct alloy_mouse_config),
+	.data = &r3g2_info,
 	.ascii_art = alloy_art_steelseries_rival3_gen2,
+	.cli_tables = r3g2_cli,
+	.num_cli_tables = ALLOY_ARRAY_SIZE(r3g2_cli),
+	.apply_steps = r3g2_steps,
+	.num_apply_steps = ALLOY_ARRAY_SIZE(r3g2_steps),
+	.ui = &alloy_mouse_ui,
 	.ops = &r3g2_ops,
-	.config_defaults = alloy_config_generic_defaults,
 };
 
 ALLOY_DRIVER_REGISTER(steelseries_rival3_gen2);

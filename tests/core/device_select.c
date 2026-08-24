@@ -5,6 +5,8 @@
  * marks as connected, in registry order, and count them so the front-end can decide
  * between the silent "no device" path, a direct open and the chooser modal.
  */
+#include <string.h>
+
 #include "driver.h"
 #include "mock_hid.h"
 #include "test.h"
@@ -80,4 +82,17 @@ ALLOY_TEST(test_enumerate_count_over_capacity)
 	/* single slot that fits holds one of the connected devices */
 	ASSERT_TRUE(out[0]->product_id == 0x1824 ||
 		    out[0]->product_id == 0x1870);
+}
+
+ALLOY_TEST(test_enumerate_keyboard)
+{
+	const struct alloy_driver *out[4];
+
+	mock_hid_reset();
+	mark_present(0x1038, 0x160E); /* Apex 100 keyboard */
+
+	ASSERT_EQ(alloy_device_enumerate(out, 4), 1);
+	ASSERT_EQ(out[0]->vendor_id, 0x1038);
+	ASSERT_EQ(out[0]->product_id, 0x160E);
+	ASSERT_TRUE(!strcmp(out[0]->kind, "keyboard"));
 }

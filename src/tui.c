@@ -1,390 +1,185 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * TUI core:
- * terminal lifecycle, color setup, main loop and the plumbing between
- * configuration edits and the driver ops.
+ * Front-end core:
+ * terminal lifecycle, color setup, the main loop, and the plumbing between
+ * configuration edits and the driver's apply steps.
+ *
+ * What this file deliberately does not contain is any notion of what
+ * the configuration means.
+ * Which aspects exist is the driver's step table, what the screens hold is its
+ * struct alloy_ui_desc, and when the device is reachable is desc->ready()
  */
 #include <locale.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
-#include "accel.h"
-#include "hid.h"
 #include "tui_internal.h"
 
-void tui_status(struct tui *t, const char *fmt, ...)
+long tui_now_ms(void)
+{
+	struct timespec ts;
+
+	clock_gettime(CLOCK_MONOTONIC, &ts);
+	return ts.tv_sec * 1000L + ts.tv_nsec / 1000000L;
+}
+
+void tui_status(struct alloy_ui *ui, const char *fmt, ...)
 {
 	va_list ap;
 
 	va_start(ap, fmt);
-	vsnprintf(t->status, sizeof(t->status), fmt, ap);
+	vsnprintf(ui->status, sizeof(ui->status), fmt, ap);
 	va_end(ap);
 }
 
+void tui_mark_dirty(struct alloy_ui *ui)
+{
+	ui->dirty = !alloy_config_equal(ui->cfg, ui->baseline);
+}
+
 /*
- * Push one aspect of the working config to the mouse.
- * Used both by live preview (on every edit) and by SAVE/REVERT (for all aspects)
+ * Push one named aspect of the working configuration.
+ * Used both by live preview (on every edit) and by SAVE/REVERT.
  */
-void tui_apply(struct tui *t,
-	       int (*op)(struct alloy_device *, const struct alloy_config *),
-	       const char *what)
+int tui_push(struct alloy_ui *ui, const char *step)
 {
 	int ret;
 
-	if (!op)
-		return;
+	if (!step)
+		return 0;
 
-	ret = op(t->dev, &t->cfg);
+	ret = alloy_driver_apply(ui->dev, ui->cfg, step);
 	if (ret == -2)
-		tui_status(t, "%s: device did not acknowledge", what);
+		tui_status(ui, "%s: device did not acknowledge", step);
 	else if (ret)
-		tui_status(t, "%s: I/O error", what);
+		tui_status(ui, "%s: I/O error", step);
+	return ret;
+}
+
+static void apply_report(void *ctx, const char *what, int err)
+{
+	struct alloy_ui *ui = ctx;
+
+	if (err == -2)
+		tui_status(ui, "%s: device did not acknowledge", what);
+	else if (err)
+		tui_status(ui, "%s: I/O error", what);
+}
+
+void tui_apply_all(struct alloy_ui *ui)
+{
+	alloy_driver_apply_all(ui->dev, ui->cfg, 0, apply_report, ui);
 }
 
 /*
- * @with_dpi: push the DPI table, which also latches the active CPI level.
- * Off at startup only: the active level is live device state the user drives
- * with the physical CPI button, and there is no read-back to recover it
- * (0xAD notification is push-only).
- * Every other apply path - SAVE, REVERT, live-preview - is explicit user
- * action and does push it.
- */
-static void tui_apply_all_impl(struct tui *t, int with_dpi)
-{
-	const struct alloy_driver_ops *ops = t->drv->ops;
-	/*
-	 * while High-Efficiency is on, the mode owns polling, the illumination
-	 * level and the LED colors (it forces 125 Hz and blanks the LEDs)
-	 * do not push the user's values for those here or save/revert would fight
-	 * the mode and undo it;
-	 * the rest of the config still applies normally
-	 */
-	int high_eff = t->cfg.high_efficiency != 0;
-
-	if (with_dpi)
-		tui_apply(t, ops->apply_dpi, "dpi");
-	if (!high_eff)
-		tui_apply(t, ops->apply_polling, "polling");
-	if (!high_eff)
-		tui_apply(t, ops->apply_colors, "colors");
-	if ((t->drv->caps & (ALLOY_CAP_BRIGHTNESS | ALLOY_CAP_BATTERY)) &&
-	    !high_eff)
-		tui_apply(t, ops->apply_brightness, "brightness");
-	tui_apply(t, ops->apply_buttons, "buttons");
-	if (t->drv->caps & ALLOY_CAP_BATTERY)
-		tui_apply(t, ops->apply_sleep, "sleep");
-
-	/*
-	 * High-Efficiency itself is deliberately NOT re-pushed here:
-	 * toggling it drops the 2.4 GHz link for second, so pushing it on every
-	 * save / revert / startup sync would stall those paths.
-	 * It is applied on its own toggle (see set_higheff); later save just
-	 * commits the live state, which already carries the mode.
-	 */
-}
-
-void tui_apply_all(struct tui *t)
-{
-	tui_apply_all_impl(t, 1);
-}
-
-/*
- * Push everything to the mouse, commit to onboard flash and persist the host baseline.
+ * Push everything, commit to onboard storage and persist the host baseline.
  * One path for the footer button, the save shortcut and the quit guard.
  * Returns 0 on success.
  */
-int tui_save(struct tui *t)
+int tui_save(struct alloy_ui *ui)
 {
-	tui_apply_all(t);
-	if (t->drv->ops->save(t->dev)) {
-		tui_status(t, "save failed: no device ACK");
+	const struct alloy_driver_ops *ops = ui->drv->ops;
+	const char *kind = alloy_driver_kind(ui->drv);
+	void (*saved)(struct alloy_ui *);
+
+	tui_apply_all(ui);
+	if (ops && ops->save && ops->save(ui->dev)) {
+		tui_status(ui, "save failed: no device ACK");
 		return -1;
 	}
-	t->baseline = t->cfg;
-	if (alloy_state_store(t->drv, &t->cfg))
-		tui_status(t, "saved to mouse; baseline file not writable");
+	alloy_config_copy(ui->baseline, ui->cfg);
+	if (alloy_state_store(ui->drv, ui->cfg))
+		tui_status(ui, "saved to %s; baseline file not writable", kind);
 	else
-		tui_status(t, "saved to mouse flash + baseline");
-	if (t->accel_running)
-		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
-	t->dirty = 0;
+		tui_status(ui, "saved to %s + baseline", kind);
+
+	saved = TUI_HOOK(ui, saved);
+	if (saved)
+		saved(ui);
+	ui->dirty = 0;
 	return 0;
 }
 
 /*
- * Roll the working config back to the session baseline and push it to
- * the mouse, undoing every live-previewed change since startup.
+ * Roll the working configuration back to the session baseline and push it,
+ * undoing every live-previewed change since startup.
  * Shared by the REVERT button and by quit-without-saving.
  * Only SAVE ever writes the on-disk baseline; this never does.
  */
-void tui_revert(struct tui *t)
+void tui_revert(struct alloy_ui *ui)
 {
-	t->cfg = t->baseline;
-	tui_apply_all(t);
-	if (t->accel_running) {
-		alloy_state_store(t->drv, &t->cfg);
-		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
-	}
-	t->dirty = 0;
+	void (*reverted)(struct alloy_ui *) = TUI_HOOK(ui, reverted);
+
+	alloy_config_copy(ui->cfg, ui->baseline);
+	tui_apply_all(ui);
+	if (reverted)
+		reverted(ui);
+	ui->dirty = 0;
 }
 
 /*
- * Drain unsolicited device events so the ACTIVE level indicator tracks
- * the physical CPI button.
- * Hardware switch is the user acting on the device itself, not a pending edit:
- * it lands in the baseline too, so REVERT and the quit guard never fight the button.
+ * Drain unsolicited device reports, so indicators track what the user does
+ * on the hardware itself.
+ * Hardware change is the user acting on the device, not a pending edit,
+ * so the driver gets to fold it into the baseline through desc->event()
  */
-static void tui_poll_device_events(struct tui *t)
+static void tui_poll_device_events(struct alloy_ui *ui)
 {
-	uint8_t buf[ALLOY_HID_REPORT_SIZE];
+	void (*event)(struct alloy_ui *, struct alloy_config *);
+	uint8_t buf[256];
 	int n;
 
-	if (!t->drv->ops->parse_event || t->dev->ev.fd < 0)
+	if (!ui->drv->ops || !ui->drv->ops->parse_event)
 		return;
-	while ((n = alloy_hid_poll(&t->dev->ev, buf, sizeof(buf))) > 0) {
-		if (!t->drv->ops->parse_event(buf, (size_t)n, &t->cfg))
+
+	event = TUI_HOOK(ui, event);
+	while ((n = alloy_dev_poll_event(ui->dev, buf, sizeof(buf))) > 0) {
+		if (!ui->drv->ops->parse_event(ui->dev, buf, (size_t)n,
+					       ui->cfg))
 			continue;
-		t->baseline.dpi_active = t->cfg.dpi_active;
-		t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-		tui_status(t, "level %u active (mouse button)",
-			   t->cfg.dpi_active + 1);
+		if (event)
+			event(ui, ui->baseline);
+		tui_mark_dirty(ui);
 	}
-}
-
-/*
- * Refresh the wireless battery gauge on slow cadence - the query is device round-trip,
- * so it runs every few seconds rather than every frame.
- * battery_pct is left negative when the receiver reports no reading
- * (the mouse is asleep or unlinked), so the footer shows "--" instead of bogus 0%
- */
-void tui_poll_battery(struct tui *t)
-{
-	long now;
-
-	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
-		return;
-
-	now = tui_now_ms();
-	if (now < t->battery_next_ms)
-		return;
-	t->battery_next_ms = now + 8000;
-
-	/* Bluetooth link: mouse shows up on bus 0x05 while paired over BT */
-	t->bt_present = t->drv->bt_product_id &&
-			alloy_hid_present_bus(0x05, t->drv->bt_product_id);
-
-	if (!t->drv->ops->battery)
-		return;
-
-	/*
-	 * single idle poll is not proof the mouse is gone - 2.4 GHz link micro-sleeps
-	 * between reports
-	 * leep the last reading across couple of misses so the gauge stays put instead
-	 * of flickering to "--", and only declare "no link" once the misses persist
-	 */
-	if (t->drv->ops->battery(t->dev, &t->battery_pct,
-				 &t->battery_charging)) {
-		if (++t->battery_misses >= TUI_BATTERY_MAX_MISSES)
-			t->battery_pct = -1;
-	} else {
-		t->battery_misses = 0;
-	}
-}
-
-/*
- * Is there a mouse we can actually talk to right now?
- * Wired mice are always reachable; wireless receiver (ALLOY_CAP_BATTERY) only counts
- * once 2.4 GHz battery reading or Bluetooth link says a mouse is on the other end.
- * Used to gate the startup handshake so bare dongle does not block the UI.
- */
-static int tui_device_linked(const struct tui *t)
-{
-	if (!(t->drv->caps & ALLOY_CAP_BATTERY))
-		return 1;
-	/*
-	 * Bluetooth driver binds its hidraw node only while the mouse is actually
-	 * connected, so once it is open the link is up - there is no bare-receiver
-	 * case to wait out.
-	 */
-	if (t->drv->bustype == 0x05)
-		return 1;
-	return t->battery_pct >= 0 || t->bt_present;
 }
 
 /*
  * One-shot device handshake:
- * Read the firmware string and push the working config to the mouse.
- * Deferred until mouse is reachable, because on bare 2.4 GHz receiver every
- * command burns the full wake-retry budget (~seconds each) waiting for echo
+ * Read the firmware string and push the working configuration.
+ * Deferred until the driver says the device is reachable, because on a link
+ * that is not up every command burns its full retry budget waiting for answer
  * that never comes.
- * Safe to call every frame: it runs the work exactly once, when the link first
- * appears (including right after fresh pair), and is no-op otherwise.
+ * Safe to call every frame: it runs the work exactly once.
  */
-static void tui_sync_device(struct tui *t)
+static void tui_sync_device(struct alloy_ui *ui)
 {
-	if (t->device_synced || !tui_device_linked(t))
+	const struct alloy_driver_ops *ops = ui->drv->ops;
+	int (*ready)(struct alloy_ui *) = TUI_HOOK(ui, ready);
+
+	if (ui->device_synced)
+		return;
+	if (ready && !ready(ui))
 		return;
 
-	if (t->drv->ops->firmware_version &&
-	    (t->drv->caps & ALLOY_CAP_FIRMWARE_VERSION)) {
-		if (t->drv->ops->firmware_version(t->dev, t->firmware,
-						  sizeof(t->firmware)))
-			t->firmware[0] = '\0';
+	if (ops && ops->firmware_version) {
+		if (ops->firmware_version(ui->dev, ui->firmware,
+					  sizeof(ui->firmware)))
+			ui->firmware[0] = '\0';
 	}
 
-	tui_apply_all_impl(t, 0);
-	t->device_synced = 1;
+	/*
+	 * Steps the driver marked ALLOY_APPLY_SKIP_SYNC stay out of this one
+	 * path - they carry live device state the host cannot recover.
+	 */
+	if (!ui->probed_hw)
+		alloy_driver_apply_all(ui->dev, ui->cfg, ALLOY_APPLY_SKIP_SYNC,
+				       apply_report, ui);
+	ui->device_synced = 1;
 }
 
-/*
- * Whether to offer the PAIR button: the driver can bind a mouse to its receiver
- * and nothing is currently linked (no 2.4 GHz battery reading, not on Bluetooth).
- * This is a proxy - a paired-but-powered-off mouse looks the same as an unpaired
- * one from the host - and stands in until a real "is a mouse bound?" query is
- * reverse-engineered from the receiver. Good enough to surface the button
- * exactly when there is no mouse to talk to.
- */
-int tui_device_needs_pairing(const struct tui *t)
-{
-	return (t->drv->caps & ALLOY_CAP_PAIRING) && t->drv->ops->pair &&
-	       t->battery_pct < 0 && !t->bt_present;
-}
-
-/*
- * Pointer-transform value changed (acceleration/deceleration/angle snapping).
- * Push it to running daemon for live preview by rewriting the config it watches
- * and poking it to re-read.
- * Engine is enabled/disabled separately via tui_accel_set_enabled().
- */
-void tui_accel_changed(struct tui *t)
-{
-	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-	if (t->live_preview && t->accel_running) {
-		alloy_state_store(t->drv, &t->cfg);
-		alloy_accel_reload(t->drv->vendor_id, t->drv->product_id);
-	}
-}
-
-/*
- * Turn the host-side transform engine on or off.
- * This is immediate, committed action (like the LIVE PREVIEW toggle),
- * not part of the dirty/SAVE flow:
- * it spawns or stops the daemon, persists the intent and installs
- * or removes the autostart entry so the choice survives a reboot.
- */
-void tui_accel_set_enabled(struct tui *t, int on)
-{
-	uint16_t vid = t->drv->vendor_id;
-	uint16_t pid = t->drv->product_id;
-
-	if (on) {
-		t->cfg.accel_enabled = 1;
-		alloy_state_store(t->drv, &t->cfg);
-		if (alloy_accel_spawn(vid, pid) == 0) {
-			t->accel_running = 1;
-			alloy_accel_autostart_set(vid, pid, 1);
-			tui_status(t, "accel engine on");
-		} else {
-			/* do not persist the intent or install autostart for engine
-			 * that could not start */
-			t->accel_running = 0;
-			t->cfg.accel_enabled = 0;
-			alloy_state_store(t->drv, &t->cfg);
-			tui_status(t, "engine failed: no access to /dev/input "
-				      "or /dev/uinput (install the udev rule "
-				      "and replug, or re-login after "
-				      "usermod -aG input)");
-		}
-	} else {
-		alloy_accel_stop(vid, pid);
-		alloy_accel_autostart_set(vid, pid, 0);
-		t->accel_running = 0;
-		t->cfg.accel_enabled = 0;
-		alloy_state_store(t->drv, &t->cfg);
-		tui_status(t, "accel engine off - motion back to normal");
-	}
-	t->baseline.accel_enabled = t->cfg.accel_enabled;
-	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-}
-
-/* Every lighting edit funnels through here: dirty tracking + live push */
-void tui_lighting_changed(struct tui *t)
-{
-	t->dirty = memcmp(&t->cfg, &t->baseline, sizeof(t->cfg)) != 0;
-	if (t->live_preview)
-		tui_apply(t, t->drv->ops->apply_colors, "lighting");
-}
-
-/*
- * Effects that cycle their own hues ignore the configured zone color;
- * classified by display-name convention shared across the drivers.
- */
-int tui_fx_ignores_color(const struct alloy_driver *drv, uint8_t fx)
-{
-	const char *name;
-
-	if (!fx || fx >= drv->num_fx)
-		return 0;
-	name = drv->fx_names[fx];
-	return strstr(name, "RAINBOW") != NULL || strstr(name, "DISCO") != NULL;
-}
-
-/*
- * How many DPI presets this device can hold:
- * whatever the driver advertises, capped by the static config storage.
- */
-int tui_dpi_preset_limit(const struct tui *t)
-{
-	return ALLOY_MIN(t->drv->dpi.max_presets, ALLOY_MAX_DPI_PRESETS);
-}
-
-int tui_pane_item_count(const struct tui *t, enum tui_pane pane)
-{
-	switch (pane) {
-	case PANE_ACTIONS:
-		/* one entry per button plus the Macro Editor LAUNCH */
-		return t->drv->num_buttons + 1;
-	case PANE_CENTER:
-		/*
-		 * ILLUMINATION gateway is all the pane offers, and it only makes
-		 * sense when the device has LED zones to edit.
-		 * Without them the pane holds nothing selectable and navigation
-		 * skips it
-		 */
-		return t->drv->num_zones ? 1 : 0;
-	case PANE_LEVELS:
-		/* one item per preset plus CREATE below the limit */
-		return t->cfg.dpi_count +
-		       (t->cfg.dpi_count < tui_dpi_preset_limit(t) ? 1 : 0);
-	case PANE_POWER: {
-		/*
-		 * Wireless-only pane.
-		 * Empty (and skipped) on wired mice.
-		 * SLEEP/SMART/DIM ride ALLOY_CAP_BATTERY;
-		 * trailing HIGHEFF item appears only with ALLOY_CAP_HIGH_EFFICIENCY.
-		 */
-		int n = (t->drv->caps & ALLOY_CAP_BATTERY) ? POWER_HIGHEFF : 0;
-
-		if (t->drv->caps & ALLOY_CAP_HIGH_EFFICIENCY)
-			n++;
-		return n;
-	}
-	case PANE_TUNING:
-		/*
-		 * acceleration, deceleration, angle snapping, engine, and -
-		 * only when the device exposes polling rates - the polling rate.
-		 * Bluetooth locks polling out, so that row drops off the bottom.
-		 */
-		return t->drv->num_polling_rates ? 5 : 4;
-	case PANE_FOOTER:
-		return FOOTER_COUNT;
-	default:
-		return 0;
-	}
-}
-
-static void tui_init_colors(struct tui *t)
+static void tui_init_colors(void)
 {
 	start_color();
 	use_default_colors();
@@ -398,20 +193,20 @@ static void tui_init_colors(struct tui *t)
 	init_pair(CLR_BUTTON, COLOR_BLACK, COLOR_WHITE);
 	init_pair(CLR_BUTTON_HOT, COLOR_BLACK, COLOR_GREEN);
 	init_pair(CLR_INFO, COLOR_CYAN, -1);
-	init_pair(CLR_BAT_HIGH, COLOR_GREEN, -1);
-	init_pair(CLR_BAT_GOOD, COLOR_WHITE, -1);
-	init_pair(CLR_BAT_MID, COLOR_YELLOW, -1);
-	init_pair(CLR_BAT_LOW, COLOR_RED, -1);
-	init_pair(CLR_LINK_BT, COLOR_BLUE, -1);
-	init_pair(CLR_LINK_RF, COLOR_WHITE, -1);
-	init_pair(CLR_LINK_OFF, COLOR_WHITE, -1); /* rendered dim for grey */
+	init_pair(CLR_GOOD, COLOR_GREEN, -1);
+	init_pair(CLR_WARN, COLOR_YELLOW, -1);
+	init_pair(CLR_BAD, COLOR_RED, -1);
+	init_pair(CLR_RGB_FALLBACK, COLOR_WHITE, -1);
 
-	tui_zone_color_pairs(t);
+	if (COLORS >= 256) {
+		for (short c = 16; c < 232; c++)
+			init_pair((short)(CLR_RGB_CUBE_BASE + (c - 16)), c, -1);
+	}
 }
 
 /*
  * Standalone chooser shown before the main interface when more than one
- * supported mouse is plugged in.
+ * supported device is plugged in.
  * Runs its own curses session because no device is bound yet.
  */
 int alloy_tui_select_device(const struct alloy_driver *const *drivers,
@@ -429,8 +224,7 @@ int alloy_tui_select_device(const struct alloy_driver *const *drivers,
 
 	w = (int)strlen(hint);
 	for (i = 0; i < count; i++) {
-		int len = (int)strlen(drivers[i]->name) +
-			  13; /* + "  ffff:ffff" */
+		int len = (int)strlen(drivers[i]->name) + 13;
 
 		if (len > w)
 			w = len;
@@ -505,24 +299,76 @@ int alloy_tui_select_device(const struct alloy_driver *const *drivers,
 	return chosen;
 }
 
+/* park the focus on the first pane that actually offers something */
+static void focus_first(struct alloy_ui *ui)
+{
+	const struct alloy_ui_screen *sc = tui_screen(ui);
+	int i;
+
+	for (i = 0; i < sc->num_panes; i++) {
+		if (tui_pane_slot_count(ui, i) > 0) {
+			ui->focus = i;
+			return;
+		}
+	}
+	ui->focus = TUI_FOOTER_PANE;
+}
+
 int alloy_tui_run(struct alloy_device *dev)
 {
-	struct tui t;
-	int used_defaults;
+	static struct alloy_ui ui;
+	const struct alloy_driver_ops *ops = dev->drv->ops;
+	void (*enter)(struct alloy_ui *);
+	void (*tick)(struct alloy_ui *, long);
+	int (*ready)(struct alloy_ui *);
+	int used_defaults = 0;
+	int ret = 0;
 	int ch;
 
-	memset(&t, 0, sizeof(t));
-	t.dev = dev;
-	t.drv = dev->drv;
-	t.live_preview = 1;
-	t.battery_pct = -1; /* unknown until the first poll */
+	memset(&ui, 0, sizeof(ui));
+	ui.dev = dev;
+	ui.drv = dev->drv;
+	ui.desc = dev->drv->ui;
+	ui.live_preview = 1;
 
-	used_defaults = alloy_state_load(t.drv, &t.baseline);
-	tui_fx_global_normalize(&t, &t.baseline);
-	t.cfg = t.baseline;
+	if (!ui.desc || !ui.desc->num_screens) {
+		fprintf(stderr,
+			"alloyctl: %s exposes no interactive interface\n",
+			ui.drv->name);
+		return 1;
+	}
 
-	t.accel_running =
-		alloy_accel_is_running(t.drv->vendor_id, t.drv->product_id);
+	ui.cfg = alloy_config_alloc(ui.drv);
+	ui.baseline = alloy_config_alloc(ui.drv);
+	if (!ui.cfg || !ui.baseline) {
+		fprintf(stderr, "alloyctl: out of memory\n");
+		ret = 1;
+		goto out;
+	}
+
+	alloy_ui_host_register(&tui_ui_host);
+
+	/*
+	 * Let the driver's UI wake up first:
+	 * it decides, through ready(), whether the device can be talked to at all
+	 */
+	enter = TUI_HOOK(&ui, enter);
+	tick = TUI_HOOK(&ui, tick);
+	ready = TUI_HOOK(&ui, ready);
+	if (enter)
+		enter(&ui);
+	if (tick)
+		tick(&ui, tui_now_ms());
+
+	/* try probing the live hardware state straight from the device */
+	if (ops && ops->read_config && (!ready || ready(&ui))) {
+		alloy_config_defaults(ui.drv, ui.baseline);
+		if (ops->read_config(dev, ui.baseline) == 0)
+			ui.probed_hw = 1;
+	}
+	if (!ui.probed_hw)
+		used_defaults = alloy_state_load(ui.drv, ui.baseline);
+	alloy_config_copy(ui.cfg, ui.baseline);
 
 	setlocale(LC_ALL, "");
 	initscr();
@@ -531,40 +377,40 @@ int alloy_tui_run(struct alloy_device *dev)
 	curs_set(0);
 	keypad(stdscr, TRUE);
 	if (has_colors())
-		tui_init_colors(&t);
+		tui_init_colors();
+
+	tui_sync_device(&ui);
+	focus_first(&ui);
+
+	if (ui.probed_hw)
+		tui_status(&ui, "hardware state probed directly from device");
+	else if (used_defaults)
+		tui_status(&ui, "no saved baseline - using driver defaults");
+	else
+		tui_status(&ui, "baseline loaded from disk");
 
 	/*
+	 * device portrait animates, so getch runs on a timeout and ERR
+	 * ticks just trigger a redraw that advances the animation clock
 	 */
-	tui_poll_battery(&t);
-	tui_sync_device(&t);
-	tui_status(&t, used_defaults ?
-			       "no saved baseline - using driver defaults" :
-			       "baseline loaded from disk");
-
-	/*
-	 * both views animate the mouse portrait, so getch runs on timeout
-	 * and ERR ticks just trigger redraw that advances the animation
-	 * clock;
-	 * real keys are dispatched to the active view
-	 */
-	while (!t.quit) {
-		tui_poll_device_events(&t);
-		tui_poll_battery(&t);
-		tui_sync_device(&t);
-		timeout(TUI_ILLUM_FRAME_MS);
-		if (t.view == VIEW_ILLUM) {
-			tui_illum_draw(&t);
-			ch = getch();
-			if (ch != ERR)
-				tui_illum_handle_key(&t, ch);
-		} else {
-			tui_draw(&t);
-			ch = getch();
-			if (ch != ERR)
-				tui_handle_key(&t, ch);
-		}
+	while (!ui.quit) {
+		tui_poll_device_events(&ui);
+		if (tick)
+			tick(&ui, tui_now_ms());
+		tui_sync_device(&ui);
+		timeout(TUI_FRAME_MS);
+		tui_draw(&ui);
+		ch = getch();
+		if (ch != ERR)
+			tui_handle_key(&ui, ch);
 	}
 
 	endwin();
-	return 0;
+	alloy_ui_host_register(NULL);
+out:
+	alloy_config_free(ui.cfg);
+	alloy_config_free(ui.baseline);
+	ui.cfg = NULL;
+	ui.baseline = NULL;
+	return ret;
 }

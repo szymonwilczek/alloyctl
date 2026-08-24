@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: GPL-2.0-only
 /*
- * alloyctl - SteelSeries device configuration TUI for Linux.
+ * alloyctl - Device configuration shell for Linux.
+ *
+ * Everything device-shaped is a driver's business.
+ * This file picks a device, hands the command line to whichever driver was bound,
+ * and otherwise gets out of the way.
  */
 #include <stdio.h>
 #include <string.h>
 
-#include "accel.h"
+#include "cli.h"
 #include "driver.h"
 #include "tui.h"
 #include "udev.h"
@@ -17,12 +21,13 @@ static void list_drivers(void)
 	printf("supported devices:\n");
 	alloy_for_each_driver(iter)
 	{
-		printf("  %04x:%04x  %s\n", (*iter)->vendor_id,
-		       (*iter)->product_id, (*iter)->name);
+		printf("  %04x:%04x  [%s]  %s\n", (*iter)->vendor_id,
+		       (*iter)->product_id, alloy_driver_kind(*iter),
+		       (*iter)->name);
 	}
 }
 
-/* Upper bound on connected supported mice offered in the chooser */
+/* Upper bound on connected supported devices offered in the chooser */
 #define ALLOY_MAX_CANDIDATES 16
 
 static int open_selected(struct alloy_device *dev)
@@ -34,9 +39,8 @@ static int open_selected(struct alloy_device *dev)
 
 	count = alloy_device_enumerate(cands, ALLOY_MAX_CANDIDATES);
 	if (count == 0) {
-		fprintf(stderr, "alloyctl: no compatible mouse found.\n"
-				"alloyctl configures SteelSeries mice only; "
-				"none is connected.\n");
+		fprintf(stderr,
+			"alloyctl: no supported device is connected.\n");
 		list_drivers();
 		return 1;
 	}
@@ -55,9 +59,8 @@ static int open_selected(struct alloy_device *dev)
 	if (alloy_device_open_id(dev, pick->vendor_id, pick->product_id)) {
 		fprintf(stderr,
 			"alloyctl: cannot open %s (%04x:%04x) - "
-			"no permission to open /dev/hidraw*?\n"
-			"Install the udev rules once with 'sudo make install' "
-			"(or 'sudo ./install.sh').\n",
+			"no permission for its device node?\n"
+			"Install the udev rules once with 'sudo make install'.\n",
 			pick->name, pick->vendor_id, pick->product_id);
 		return 1;
 	}
@@ -66,66 +69,44 @@ static int open_selected(struct alloy_device *dev)
 
 int main(int argc, char **argv)
 {
+	struct alloy_cli_opts opts;
 	struct alloy_device dev;
-	unsigned vid;
-	unsigned pid;
+	char err_buf[256];
 	int ret;
 
-	if (argc > 1 && !strcmp(argv[1], "--list")) {
+	if (alloy_cli_parse(argc, argv, &opts, err_buf, sizeof(err_buf)) < 0) {
+		fprintf(stderr, "alloyctl: error: %s\n", err_buf);
+		return 1;
+	}
+
+	if (opts.show_help) {
+		alloy_cli_print_help(stdout);
+		return 0;
+	}
+	if (opts.show_list) {
 		list_drivers();
 		return 0;
 	}
-	if (argc > 1 && !strcmp(argv[1], "--version")) {
+	if (opts.show_version) {
 		printf("alloyctl %s\n", ALLOY_VERSION);
 		return 0;
 	}
-	/*
-	 * Print udev rules for unprivileged /dev/hidraw* access,
-	 * one line per supported device, built from the driver registry.
-	 * Meant to be piped into rules file; the installers do this for you.
-	 *   alloyctl --dump-udev | sudo tee \
-	 *     /usr/lib/udev/rules.d/71-alloyctl-hidraw.rules
-	 */
-	if (argc > 1 && !strcmp(argv[1], "--dump-udev")) {
+	if (opts.dump_udev) {
 		alloy_udev_rules_write(stdout);
 		return 0;
 	}
+	/* command registered by driver-library code, run without a device */
+	if (opts.command)
+		return opts.command->run(opts.command_arg);
 
-	/*
-	 * Host-side pointer-transform daemon
-	 * (acceleration / deceleration / angle snapping)
-	 * Normally spawned by the TUI or an autostart entry, not run by hand;
-	 * takes VID:PID because it binds an evdev node,
-	 * not a hidraw one.
-	 */
-	if (argc > 2 && (!strcmp(argv[1], "--accel-daemon") ||
-			 !strcmp(argv[1], "--accel-stop"))) {
-		if (sscanf(argv[2], "%4x:%4x", &vid, &pid) != 2) {
+	if (opts.has_device) {
+		if (alloy_device_open_id(&dev, opts.vid, opts.pid)) {
 			fprintf(stderr,
-				"alloyctl: %s expects VID:PID "
-				"(e.g. 1038:184c)\n",
-				argv[1]);
-			return 1;
-		}
-		if (!strcmp(argv[1], "--accel-stop"))
-			return alloy_accel_stop((uint16_t)vid, (uint16_t)pid) ?
-				       1 :
-				       0;
-		return alloy_accel_daemon_run((uint16_t)vid, (uint16_t)pid);
-	}
-
-	if (argc > 2 && !strcmp(argv[1], "--device")) {
-		if (sscanf(argv[2], "%4x:%4x", &vid, &pid) != 2) {
-			fprintf(stderr, "alloyctl: --device expects VID:PID "
-					"(e.g. 1038:184c)\n");
-			return 1;
-		}
-		if (alloy_device_open_id(&dev, (uint16_t)vid, (uint16_t)pid)) {
-			fprintf(stderr,
-				"alloyctl: no supported mouse found "
-				"(or no permission to open /dev/hidraw*; "
-				"install the udev rules with 'sudo make "
-				"install')\n");
+				"alloyctl: no supported device found for "
+				"%04x:%04x (or no permission for its device "
+				"node; install the udev rules with "
+				"'sudo make install')\n",
+				opts.vid, opts.pid);
 			list_drivers();
 			return 1;
 		}
@@ -134,6 +115,21 @@ int main(int argc, char **argv)
 		if (ret)
 			return ret == 130 ? 0 : ret;
 	}
+
+	if (alloy_cli_bind(dev.drv, &opts, err_buf, sizeof(err_buf)) < 0) {
+		fprintf(stderr, "alloyctl: error: %s\n", err_buf);
+		alloy_cli_free(&opts);
+		alloy_device_close(&dev);
+		return 1;
+	}
+
+	if (opts.is_action) {
+		ret = alloy_cli_apply(&dev, &opts);
+		alloy_cli_free(&opts);
+		alloy_device_close(&dev);
+		return ret;
+	}
+	alloy_cli_free(&opts);
 
 	ret = alloy_tui_run(&dev);
 	alloy_device_close(&dev);

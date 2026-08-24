@@ -49,6 +49,7 @@ all the features.
    :hidden:
 
    devices
+   man/alloyctl.1
    contributor/index
    protocol/index
    architecture/index
