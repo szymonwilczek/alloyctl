@@ -125,6 +125,13 @@ F:    Documentation/protocol/steelseries-rival3-gen2.rst
 F:    drivers/steelseries/rival3_gen2/
 F:    tests/drivers/steelseries/rival3_gen2.c
 
+STEELSERIES RIVAL 600 DRIVER
+M:    Dawid Prusinowski <prusdavid9@gmail.com> (@neqq)
+S:    Maintained
+F:    Documentation/protocol/steelseries-rival600.rst
+F:    drivers/steelseries/rival600/
+F:    tests/drivers/steelseries/rival600.c
+
 THE REST
 M:    Szymon Wilczek <swilczek.lx@gmail.com> (@szymonwilczek)
 S:    Maintained

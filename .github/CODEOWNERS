@@ -22,6 +22,7 @@
 /Documentation/protocol/steelseries-prime.rst	@szymonwilczek
 /Documentation/protocol/steelseries-rival3.rst	@szymonwilczek
 /Documentation/protocol/steelseries-apex100.rst	@szymonwilczek
+/Documentation/protocol/steelseries-rival600.rst	@neqq
 /Documentation/protocol/steelseries-rival3-gen2.rst	@szymonwilczek
 /Documentation/protocol/steelseries-aerox3-wireless.rst	@szymonwilczek
 /Documentation/protocol/steelseries-aerox3-wireless-bt.rst	@szymonwilczek
@@ -30,11 +31,13 @@
 /tests/drivers/dark_project/	@szymonwilczek
 /drivers/steelseries/rival3/	@szymonwilczek
 /drivers/steelseries/apex100/	@szymonwilczek
+/drivers/steelseries/rival600/	@neqq
 /drivers/steelseries/rival3_gen2/	@szymonwilczek
 /tests/drivers/steelseries/prime.c	@szymonwilczek
 /tests/drivers/steelseries/rival3.c	@szymonwilczek
 /tests/drivers/steelseries/apex100.c	@szymonwilczek
 /drivers/steelseries/aerox3_wireless/	@szymonwilczek
+/tests/drivers/steelseries/rival600.c	@neqq
 /tests/drivers/steelseries/rival3_gen2.c	@szymonwilczek
 /tests/drivers/steelseries/aerox3_wireless.c	@szymonwilczek
 /tests/drivers/steelseries/aerox3_wireless_bt.c	@szymonwilczek
