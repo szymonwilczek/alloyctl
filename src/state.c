@@ -18,6 +18,32 @@
 
 #include "state.h"
 
+static int mkdir_p(const char *path, mode_t mode)
+{
+	char temp[PATH_MAX];
+	char *p;
+	size_t len;
+
+	if (!path || !*path)
+		return -1;
+	len = strlen(path);
+	if (len >= sizeof(temp))
+		return -1;
+	memcpy(temp, path, len + 1);
+
+	for (p = temp + 1; *p; p++) {
+		if (*p == '/') {
+			*p = '\0';
+			if (mkdir(temp, mode) && errno != EEXIST)
+				return -1;
+			*p = '/';
+		}
+	}
+	if (mkdir(temp, mode) && errno != EEXIST)
+		return -1;
+	return 0;
+}
+
 static int state_path(const struct alloy_driver *drv, char *buf, size_t len,
 		      int create_dirs)
 {
@@ -35,7 +61,7 @@ static int state_path(const struct alloy_driver *drv, char *buf, size_t len,
 	if (n < 0 || (size_t)n >= sizeof(dir))
 		return -1;
 
-	if (create_dirs && mkdir(dir, 0755) && errno != EEXIST)
+	if (create_dirs && mkdir_p(dir, 0755))
 		return -1;
 
 	n = snprintf(buf, len, "%s/%04x-%04x.conf", dir, drv->vendor_id,
